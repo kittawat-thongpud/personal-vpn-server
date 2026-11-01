@@ -1,0 +1,4 @@
+# No credentials, private keys, exports, caches, or tests enter a build context.
+*
+!Dockerfile
+!.dockerignore

@@ -1,0 +1,74 @@
+name: personal-vpn
+
+x-runtime: &runtime
+  restart: unless-stopped
+  user: "10001:10001"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  # This changes the CONTAINER network namespace only, not the VPS host.
+  # It lets a non-root process bind 443/80 with every capability dropped.
+  sysctls:
+    net.ipv4.ip_unprivileged_port_start: "0"
+  pids_limit: 256
+  ulimits:
+    nofile:
+      soft: 65536
+      hard: 65536
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+  volumes:
+    - type: bind
+      source: ./runtime
+      target: /etc/vpn
+      read_only: true
+      bind:
+        create_host_path: false
+  networks: [vpn]
+
+services:
+  xray:
+    <<: *runtime
+    image: personal-vpn/xray:26.10.29
+    build:
+      context: .
+      target: xray
+    # Production configurations must listen on 0.0.0.0:443 in the container.
+    # TCP and UDP 443 are distinct sockets; Hysteria can publish UDP alongside it.
+    ports:
+      - "${VPN_BIND_IP:-0.0.0.0}:443:443/tcp"
+
+  hysteria:
+    <<: *runtime
+    profiles: [hy2]
+    image: personal-vpn/hysteria:2.13.0
+    build:
+      context: .
+      target: hysteria
+    ports:
+      - "${VPN_BIND_IP:-0.0.0.0}:443:443/udp"
+      # ACME HTTP-01 only. In pinned-certificate mode there is no TCP80 listener.
+      - "${VPN_BIND_IP:-0.0.0.0}:80:80/tcp"
+    volumes:
+      - type: bind
+        source: ./runtime
+        target: /etc/vpn
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: volume
+        source: hysteria-state
+        target: /var/lib/hysteria
+
+networks:
+  vpn:
+    driver: bridge
+    # Public ingress and direct outbound are IPv4 for this initial module.
+    enable_ipv6: false
+
+volumes:
+  hysteria-state:

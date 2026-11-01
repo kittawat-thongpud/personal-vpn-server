@@ -1,0 +1,24 @@
+# Generated state and all device credentials are deliberately local.
+state/
+.state/
+runtime/
+exports/
+*.pem
+*.key
+*.crt
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+.tools/
+.cache/
+.vpnctl.lock/
+.test-runtime/
+vpn-server-source.tar.gz
