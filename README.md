@@ -4,7 +4,7 @@
 
 | ส่วน | หน้าที่ |
 | --- | --- |
-| Xray v26.10.29 | VLESS + REALITY + Vision, TCP 443 เป็นตัวหลัก |
+| Xray v26.10.31 | VLESS + REALITY + Vision, TCP 443 เป็นตัวหลัก |
 | Hysteria v2.13.0 | QUIC/UDP 443 เป็นทางเลือก เปิดด้วย Compose profile `hy2` |
 | `vpnctl.py` | สร้าง key, เพิ่ม/ถอนสิทธิ์อุปกรณ์ และ export config แบบ offline |
 
@@ -197,4 +197,4 @@ python tests/integration.py --download
 
 บน Linux ให้ใช้ sudo กับ Python ใน venv เนื่องจาก CLI ต้องจัด group ของ runtime files Integration เลือก official binaries ตาม platform และตรวจ SHA256; รอบที่ตรวจในงานนี้ใช้ Windows และ native tunnel บน loopback ไม่ใช่ container หรือเส้นทางจากจีน ไฟล์ผลทดสอบและข้อจำกัดอยู่ใน `VALIDATION.md` สำหรับการใช้งานจริงยังต้องทดสอบ Docker Linux, ACME และ load จากเครือข่ายจริงตามรายการนั้น
 
-แหล่งอ้างอิง: [REALITY](https://xtls.github.io/en/config/transports/reality.html), [Freedom final rules](https://xtls.github.io/en/config/outbounds/freedom.html), [Hysteria server](https://v2.hysteria.network/docs/advanced/Full-Server-Config/), [Hysteria client](https://v2.hysteria.network/docs/advanced/Full-Client-Config/), [URI scheme](https://v2.hysteria.network/docs/developers/URI-Scheme/), [Xray release](https://github.com/XTLS/Xray-core/releases/tag/v26.10.29), [Hysteria release](https://github.com/HyNetworks/hysteria/releases/tag/app/v2.13.0)
+แหล่งอ้างอิง: [REALITY](https://xtls.github.io/en/config/transports/reality.html), [Freedom final rules](https://xtls.github.io/en/config/outbounds/freedom.html), [Hysteria server](https://v2.hysteria.network/docs/advanced/Full-Server-Config/), [Hysteria client](https://v2.hysteria.network/docs/advanced/Full-Client-Config/), [URI scheme](https://v2.hysteria.network/docs/developers/URI-Scheme/), [Xray release](https://github.com/XTLS/Xray-core/releases/tag/v26.10.31), [Hysteria release](https://github.com/HyNetworks/hysteria/releases/tag/app/v2.13.0)

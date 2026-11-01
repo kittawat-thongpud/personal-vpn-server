@@ -41,15 +41,15 @@ CACHE = PROJECT / ".cache" / "integration"
 PAYLOAD = b"personal-vpn-parallel-stream-test\n" * 8192
 ASSETS = {
     "windows-amd64": (
-        ("XTLS/Xray-core", "v26.10.29", "Xray-windows-64.zip", "fce33e81cccf50e7aab572b175519a50b5e0f9d2f5c8d1ed73012ea5c9ad4d58"),
+        ("XTLS/Xray-core", "v26.10.31", "Xray-windows-64.zip", "2e04a9995a6f2ad1b28c0bb25c708ecb2695e43a1c9c7889c4b6ac2b48cf7a6a"),
         ("HyNetworks/hysteria", "app/v2.13.0", "hysteria-windows-amd64.exe", "162ef8fe55dc7ec810dda662908f8e65ec36bd6da39cb87c3bd66184ab68f067"),
     ),
     "linux-amd64": (
-        ("XTLS/Xray-core", "v26.10.29", "Xray-linux-64.zip", "8a5f3e6a1057e4bd0f8a7c57c9d91204b4be0b74222a6e210d070603101163c2"),
+        ("XTLS/Xray-core", "v26.10.31", "Xray-linux-64.zip", "e4bd9119f50ae7c41658b1abd0679ae06f98bd864a2907ff33f2f2cf7081b214"),
         ("HyNetworks/hysteria", "app/v2.13.0", "hysteria-linux-amd64", "907ba8c9693edb104b20582681fb7dc15639d5b64a9cbb616a7b539190a86691"),
     ),
     "linux-arm64": (
-        ("XTLS/Xray-core", "v26.10.29", "Xray-linux-arm64-v8a.zip", "afe01f19045b05237420328028ee1ee2e1edd2100eb41a8cbbf50e683b0a6e58"),
+        ("XTLS/Xray-core", "v26.10.31", "Xray-linux-arm64-v8a.zip", "1811c8f1da0c3b6dc707ebaf1c8390e987ba39859a8f0a7aadd8526157f2ec8d"),
         ("HyNetworks/hysteria", "app/v2.13.0", "hysteria-linux-arm64", "a68a61a84452ca250ce0368202521965ca9cc9d801a404f1dc9008ac6cf677a7"),
     ),
 }

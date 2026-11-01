@@ -33,7 +33,7 @@ x-runtime: &runtime
 services:
   xray:
     <<: *runtime
-    image: personal-vpn/xray:26.10.29
+    image: personal-vpn/xray:26.10.31
     build:
       context: .
       target: xray

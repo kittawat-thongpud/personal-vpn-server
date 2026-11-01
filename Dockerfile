@@ -15,11 +15,11 @@ FROM fetch-tools AS fetch-xray
 ARG TARGETARCH
 RUN set -eu; \
     case "$TARGETARCH" in \
-      amd64) asset=Xray-linux-64.zip; digest=8a5f3e6a1057e4bd0f8a7c57c9d91204b4be0b74222a6e210d070603101163c2 ;; \
-      arm64) asset=Xray-linux-arm64-v8a.zip; digest=afe01f19045b05237420328028ee1ee2e1edd2100eb41a8cbbf50e683b0a6e58 ;; \
+      amd64) asset=Xray-linux-64.zip; digest=e4bd9119f50ae7c41658b1abd0679ae06f98bd864a2907ff33f2f2cf7081b214 ;; \
+      arm64) asset=Xray-linux-arm64-v8a.zip; digest=1811c8f1da0c3b6dc707ebaf1c8390e987ba39859a8f0a7aadd8526157f2ec8d ;; \
       *) echo "Unsupported target architecture: $TARGETARCH" >&2; exit 1 ;; \
     esac; \
-    wget -q -O /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/v26.10.29/$asset"; \
+    wget -q -O /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/v26.10.31/$asset"; \
     printf '%s  %s\n' "$digest" /tmp/xray.zip | sha256sum -c -; \
     unzip -p /tmp/xray.zip xray > /out/bin/xray; \
     chmod 0755 /out/bin/xray
@@ -44,7 +44,7 @@ WORKDIR /
 
 FROM runtime AS xray
 LABEL org.opencontainers.image.title="Personal VPN - Xray" \
-      org.opencontainers.image.version="26.10.29" \
+      org.opencontainers.image.version="26.10.31" \
       org.opencontainers.image.source="https://github.com/XTLS/Xray-core"
 COPY --from=fetch-xray /out/bin/xray /usr/local/bin/xray
 EXPOSE 443/tcp

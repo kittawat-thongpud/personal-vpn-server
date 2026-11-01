@@ -40,7 +40,7 @@ jobs:
           target: xray
           platforms: linux/amd64
           load: true
-          tags: personal-vpn/xray:26.10.29
+          tags: personal-vpn/xray:26.10.31
           cache-from: type=gha,scope=xray
           cache-to: type=gha,scope=xray,mode=max
       - name: Build Hysteria for container test
