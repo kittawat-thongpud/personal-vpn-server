@@ -99,12 +99,12 @@ jobs:
         run: |
           $setup = (Resolve-Path "dist/PersonalVPN-Setup-$env:CLIENT_VERSION-${{ matrix.arch }}.exe").Path
           $p = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-') -PassThru -Wait -WindowStyle Hidden
-          if ($p.ExitCode -ne 0) { throw 'Installer failed' }
+          $setupExitCode = $p.ExitCode
           $base = if ('${{ matrix.arch }}' -eq 'x86') { $env:ProgramFiles + ' (x86)' } else { $env:ProgramFiles }
           $installed = Join-Path $base "PersonalVPN/$env:CLIENT_VERSION-${{ matrix.arch }}"
           $report = Get-Content (Join-Path $installed 'driver-install.json') -Raw | ConvertFrom-Json
           $report | ConvertTo-Json -Depth 6
-          if ($report.result -ne 'PASS') {
+          if ($setupExitCode -ne 0 -or $report.result -ne 'PASS') {
             Get-CimInstance Win32_Service -Filter "Name='PersonalVPNAdapter'" | Select-Object Name,State,StartMode,PathName,ProcessId | ConvertTo-Json
             Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Service Control Manager'; StartTime=(Get-Date).AddMinutes(-5)} -ErrorAction SilentlyContinue | Where-Object Message -Like '*Personal VPN*' | Select-Object -First 10 Id,Message | Format-List
             throw 'Installed driver check failed'
