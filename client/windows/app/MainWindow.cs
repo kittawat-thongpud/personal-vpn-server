@@ -138,7 +138,7 @@ public sealed partial class MainWindow : Window
     private StackPanel Stack() => new() { Orientation = Orientation.Vertical };
     private void Navigate(string target)
     {
-        page = target; subtitle.Text = target switch { "Profiles" => "Server profiles", "VpnConfig" => "VPN configure", "AppTunnel" => "App Tunnel", "SiteTunnel" => "Site Tunnel", "Diagnostics" => "Backend logs", _ => target }; status = detail = exit = draftNotice = logCount = captureDetail = null; connect = null; logText = null;
+        page = target; subtitle.Text = target switch { "Profiles" => "Server profiles", "VpnConfig" => "VPN configure", "AppTunnel" => "App Tunnel", "SiteTunnel" => "Site Tunnel", "Diagnostics" => "Backend logs", _ => target }; status = detail = exit = draftNotice = logCount = captureDetail = null; connect = null; logText = null; lastLogText = "";
         backButton.Visibility = target is "Home" or "Settings" ? Visibility.Hidden : Visibility.Visible;
         homeNav.Background = Color(target is "Home" or "Profiles" ? "#244C68" : "#18263A"); settingsNav.Background = Color(target is not ("Home" or "Profiles") ? "#244C68" : "#18263A");
         uploadRate = downloadRate = uploadTotal = downloadTotal = trafficStatus = null; trafficChart = null;
