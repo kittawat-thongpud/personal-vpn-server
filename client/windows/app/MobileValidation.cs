@@ -80,6 +80,7 @@ public static class MobileValidation
                         if (name == "ConnectButton") Assert(bounds.Height >= 96, "Connect button must remain readable at minimum height; actual=" + bounds.Height);
                         Assert(bounds.Top >= -.5 && bounds.Bottom <= size.Height + .5 && bounds.Left >= -.5 && bounds.Right <= size.Width + .5 && bounds.Height > 20, "Home widget clipped: " + name);
                     }
+                    Assert(window.BusyCaptureForTest(), "Capture selector must be disabled and retain actual mode during connection operations.");
                     var server = elements.Single(x => x.Name == "ServerCard"); Assert(server.ActualWidth <= 460, "Maximized window lost the centered mobile column.");
                 }
                 if (page == "Settings") Assert(!elements.OfType<Button>().Single(x => x.Name == "AppTunnelSettings").IsEnabled, "App Tunnel must remain visible but disabled in Proxy.");

@@ -143,6 +143,7 @@ public sealed partial class MainWindow : Window
     private void Navigate(string target)
     {
         if (target == "AppTunnel" && settings.CaptureMode != "TUN" && !previewOnly) return;
+        proxyChoice = tunChoice = null;
         page = target; subtitle.Text = target switch { "Profiles" => "Server profiles", "VpnConfig" => "VPN configure", "AppTunnel" => "App Tunnel", "SiteTunnel" => "Site Tunnel", "Diagnostics" => "Backend logs", _ => target }; status = detail = exit = draftNotice = logCount = captureDetail = null; connect = null; logText = null; lastLogText = "";
         backButton.Visibility = target is "Home" or "Settings" ? Visibility.Hidden : Visibility.Visible;
         homeNav.Background = Color(target is "Home" or "Profiles" ? "#244C68" : "#18263A"); settingsNav.Background = Color(target is not ("Home" or "Profiles") ? "#244C68" : "#18263A");
@@ -227,7 +228,7 @@ public sealed partial class MainWindow : Window
     {
         if (exiting || quitInProgress) return;
         if (showRequest?.WaitOne(0) == true) { RestoreFromTray(); return; }
-        tray?.Update();
+        tray?.Update(); RefreshCaptureChoices();
         if (status != null) { status.Text = backend.State; status.Foreground = Color(backend.State == "Connected" ? "#57DCB5" : "#D7E4F8"); }
         if (detail != null) detail.Text = backend.Detail;
         if (status != null) status.ToolTip = backend.Detail;

@@ -6,6 +6,13 @@ namespace PersonalVpn;
 
 public sealed partial class MainWindow
 {
+    private RadioButton? proxyChoice, tunChoice;
+    private void RefreshCaptureChoices()
+    {
+        if (proxyChoice == null || tunChoice == null) return;
+        proxyChoice.IsEnabled = tunChoice.IsEnabled = !connectBusy && !quitInProgress;
+        proxyChoice.IsChecked = settings.CaptureMode == "Proxy"; tunChoice.IsChecked = settings.CaptureMode == "TUN";
+    }
     private UIElement CaptureSelector()
     {
         var columns = new Grid { Name = "CaptureSelector", Height = 39, Margin = new Thickness(0, 0, 0, 5) };
@@ -16,6 +23,7 @@ public sealed partial class MainWindow
                 IsChecked = settings.CaptureMode == mode, IsEnabled = !connectBusy,
                 ToolTip = mode == "Proxy" ? "Windows HTTP / HTTPS proxy capture" : "Whole-device capture · runtime in development" };
             System.Windows.Automation.AutomationProperties.SetName(choice, mode + " capture mode");
+            if (mode == "Proxy") proxyChoice = choice; else tunChoice = choice;
             choice.Click += (_, _) => RequestCaptureMode(mode);
             Grid.SetColumn(choice, mode == "Proxy" ? 0 : 1); columns.Children.Add(choice);
         }
@@ -42,7 +50,7 @@ public sealed partial class MainWindow
     }
     private async void RequestCaptureMode(string requested)
     {
-        if (connectBusy || quitInProgress || requested == settings.CaptureMode) return;
+        if (connectBusy || quitInProgress || requested == settings.CaptureMode) { RefreshCaptureChoices(); return; }
         try
         {
             var dialog = CaptureConfirmation(requested);
@@ -54,4 +62,11 @@ public sealed partial class MainWindow
         finally { Navigate("Home"); }
     }
     internal Window CaptureConfirmationForTest(string mode) => CaptureConfirmation(mode);
+    internal bool BusyCaptureForTest()
+    {
+        if (!previewOnly) throw new InvalidOperationException("Preview only.");
+        connectBusy = true; Refresh(); bool guarded = proxyChoice?.IsEnabled == false && tunChoice?.IsEnabled == false && proxyChoice.IsChecked == true;
+        RequestCaptureMode("TUN"); guarded &= settings.CaptureMode == "Proxy" && tunChoice?.IsChecked == false;
+        connectBusy = false; Refresh(); return guarded;
+    }
 }
