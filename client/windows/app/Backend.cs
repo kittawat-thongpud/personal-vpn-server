@@ -307,10 +307,10 @@ public sealed class Backend : IAsyncDisposable
         Exception? failure = null;
         try { if (pending != null) await pending; }
         catch (Exception error) { failure = error; Log.Add("ERROR", "backend.session_cleanup_failed", "Previous session failed during cleanup (" + error.GetType().Name + "). Capture state will be reset before reuse."); }
-        try { proxyLease?.Dispose(); }
+        try { proxyLease?.Dispose(); proxyLease = null; }
+        catch { SetState("Error", "Windows proxy restore failed. Retry Disconnect; the recovery record was retained."); throw; }
         finally
         {
-            proxyLease = null;
             lock (gate) { session?.Dispose(); session = null; worker = null; active = null; captureStatus = "Not captured"; lastTunnelExit = "—"; }
             Traffic.Unavailable();
         }
@@ -338,7 +338,7 @@ public sealed class Backend : IAsyncDisposable
             catch (OperationCanceledException) when (attempt.IsCancellationRequested) { }
             catch (Exception error)
             {
-                if (token.IsCancellationRequested) { SetState("Error", "Capture cleanup failed; reopen as Administrator for recovery."); Log.Add("ERROR", "backend.cleanup_failed", "Capture teardown failed (" + error.GetType().Name + "). Reopen as Administrator for recovery."); throw; }
+                if (token.IsCancellationRequested) { SetState("Error", "Capture reset failed; retry Disconnect or Connect to recover."); Log.Add("ERROR", "backend.cleanup_failed", "Capture teardown failed (" + error.GetType().Name + "). Retry Disconnect; the recovery record was retained."); throw; }
                 failures++;
                 string reason = error is InvalidOperationException ? error.Message : "VPN attempt failed (" + error.GetType().Name + ").";
                 SetState("Reconnecting", reason, attemptGeneration);
@@ -375,9 +375,10 @@ public sealed class Backend : IAsyncDisposable
         Task? trafficTask = null;
         var owned = new List<OwnedCore>();
         TunLease? adapterLease = null; bool tun = settings.CaptureMode == "TUN";
-        var transports = tun ? await TunSupport.Resolve(settings, token) : Array.Empty<IPAddress>();
+        var transports = Array.Empty<IPAddress>();
         try
         {
+            if (tun) transports = await TunSupport.Resolve(settings, token);
             // Fail before launch if another program owns one of our public proxy ports.
             foreach (int port in new[] { settings.HttpPort, settings.SocksPort })
             {
@@ -452,6 +453,7 @@ public sealed class Backend : IAsyncDisposable
                         lock (gate) ownNetworkTransitionUntil = DateTime.UtcNow.AddSeconds(50);
                         SetState("Verifying", "Authenticated server verified; preparing TUN adapter and checking the captured path.", expected);
                         adapterLease = await TunLease.Start(folder, token);
+                        Log.Add("INFO", "backend.adapter_reused", "Persistent adapter opened: " + adapterLease.AdapterId + ". No device creation or deletion for this session.");
                         var plan = TunPlan.Compile(settings, transports.Select(x => x.ToString()), new[] { VerifyCore("xray.exe"), VerifyCore("hysteria.exe") }, adapterLease.InterfaceName, TunSupport.MeshPrefixes(), Environment.ProcessPath);
                         if (Environment.GetEnvironmentVariable("CI") == "true") plan["log"]!["level"] = "debug";
                         string path = Path.Combine(folder, "tun.json"); await File.WriteAllTextAsync(path, plan.ToJsonString(), token);

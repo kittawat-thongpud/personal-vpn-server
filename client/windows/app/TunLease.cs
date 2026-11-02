@@ -73,8 +73,12 @@ public sealed class TunLease : IDisposable
         {
             using var parent = Process.GetProcessById(record.ParentId);
             if (parent.StartTime.ToUniversalTime().Ticks != record.ParentStarted || !string.Equals(parent.MainModule?.FileName, Environment.ProcessPath, StringComparison.OrdinalIgnoreCase)) return 1;
-            using var mutex = new Mutex(true, @"Global\PersonalVPN-TUN", out bool created);
-            if (!created) throw new InvalidOperationException("Another Personal VPN TUN session is still active.");
+            using var mutex = new Mutex(false, @"Global\PersonalVPN-TUN");
+            bool acquired;
+            try { acquired = mutex.WaitOne(0); } catch (AbandonedMutexException) { acquired = true; }
+            if (!acquired) throw new InvalidOperationException("Another Personal VPN TUN session is still active.");
+            try
+            {
             TunReset.Capture(record.AdapterId);
             File.WriteAllText(Path.Combine(folder, "tun-ready"), "ready");
             try
@@ -83,6 +87,8 @@ public sealed class TunLease : IDisposable
                     if (File.Exists(Path.Combine(folder, "tun-stop"))) break;
             }
             finally { TunReset.Capture(record.AdapterId); File.WriteAllText(Path.Combine(folder, "tun-reset-done"), "done"); }
+            }
+            finally { mutex.ReleaseMutex(); }
             return 0;
         }
         catch (Exception exception)
@@ -100,7 +106,8 @@ public sealed class TunLease : IDisposable
         int code = guard.HasExited ? guard.ExitCode : -1; guard.Dispose();
         // The independent guard resets capture even after a killed GUI. A device
         // remaining here is expected: the Windows service owns its lifetime.
-        if (!exited || code != 0) TunReset.Capture(record.AdapterId);
+        if ((!exited || code != 0) && File.Exists(Path.Combine(folder, "tun-ready"))) TunReset.Capture(record.AdapterId);
+        else if (code != 0) throw new InvalidOperationException("TUN guard preparation failed; another active session was left untouched.");
     }
     public static void RecoverAbandoned()
     {
@@ -114,7 +121,13 @@ public sealed class TunLease : IDisposable
             try { using var process = Process.GetProcessById(record.ParentId); alive = process.StartTime.ToUniversalTime().Ticks == record.ParentStarted; } catch (ArgumentException) { }
             if (alive) continue;
             File.WriteAllText(Path.Combine(folder, "tun-stop"), "stop");
-            if (record.Name == Name) TunReset.Capture(record.AdapterId);
+            if (record.Name == Name)
+            {
+                using var mutex = new Mutex(false, @"Global\PersonalVPN-TUN");
+                bool acquired; try { acquired = mutex.WaitOne(0); } catch (AbandonedMutexException) { acquired = true; }
+                if (!acquired) continue;
+                try { TunReset.Capture(record.AdapterId); } finally { mutex.ReleaseMutex(); }
+            }
             else if (WintunAdapter.Exists(record.AdapterId)) WintunAdapter.RemoveOrphan(record.AdapterId, record.Name); // One-time legacy migration only.
         }
     }

@@ -31,6 +31,7 @@ internal static partial class Tests
         var checks = new List<string>();
         AdapterService.EnsureRunning();
         Guid persistentId = AdapterService.CurrentId();
+        uint serviceId = AdapterService.ProcessId;
         var dnsBefore = DnsSnapshot();
         var proxyBefore = WindowsProxy.Read();
         var profile = Store.Import(folder);
@@ -74,7 +75,7 @@ internal static partial class Tests
                 Assert(WindowsProxy.Matches(WindowsProxy.Read(), WindowsProxy.ForPort(settings.HttpPort)), "Proxy switch did not capture.");
                 settings.CaptureMode = "TUN"; await backend.ConnectAsync(settings);
                 Assert(backend.State == "Connected" && await Curl() == 0, "Repeated Proxy to TUN switch lost Internet.");
-                Assert(AdapterService.CurrentId() == persistentId && NetworkInterface.GetAllNetworkInterfaces().Count(x => x.Name == TunLease.Name) == 1, "Mode switch duplicated the device.");
+                Assert(AdapterService.CurrentId() == persistentId && AdapterService.ProcessId == serviceId && NetworkInterface.GetAllNetworkInterfaces().Count(x => x.Name == TunLease.Name) == 1, "Mode switch duplicated the device.");
                 if (i == 0) { backend.KillOwnedCoreForTest(); await Task.Delay(2000); await WaitConnected(backend, 70); Assert(AdapterService.CurrentId() == persistentId && await Curl() == 0, "Core recovery lost Internet or replaced the adapter."); }
                 await backend.StopAsync();
                 Assert(WindowsProxy.Matches(WindowsProxy.Read(), proxyBefore), "Mode switch failed to restore Windows proxy.");

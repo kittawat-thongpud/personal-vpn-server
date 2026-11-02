@@ -72,8 +72,8 @@ public static class AdapterService
         IntPtr service = IntPtr.Zero;
         try
         {
-            service = OpenService(manager, ServiceName, 0xF01FF);
             string path = "\"" + Environment.ProcessPath + "\" --adapter-service";
+            service = OpenService(manager, ServiceName, 0xF01FF);
             if (service == IntPtr.Zero)
             {
                 if (Marshal.GetLastWin32Error() != 1060) throw new Win32Exception();
@@ -145,6 +145,23 @@ public static class AdapterService
         }
         throw new InvalidOperationException("The persistent adapter service did not prepare its device.");
     }
+    [StructLayout(LayoutKind.Sequential)] private struct ProcessStatus { public Status Status; public uint Pid, Flags; }
+    public static uint ProcessId
+    {
+        get
+        {
+            IntPtr manager = OpenSCManager(null, null, 1);
+            if (manager == IntPtr.Zero) throw new Win32Exception();
+            IntPtr service = OpenService(manager, ServiceName, 4);
+            try
+            {
+                if (service == IntPtr.Zero || !QueryServiceStatusEx(service, 0, out var status, Marshal.SizeOf<ProcessStatus>(), out _)) throw new Win32Exception();
+                return status.Pid;
+            }
+            finally { if (service != IntPtr.Zero) CloseServiceHandle(service); CloseServiceHandle(manager); }
+        }
+    }
+    [DllImport("advapi32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool QueryServiceStatusEx(IntPtr service, uint level, out ProcessStatus status, int size, out int needed);
     public static Guid CurrentId()
     {
         using var adapter = new WintunAdapter(AdapterName, RequestedId, openExisting: true);

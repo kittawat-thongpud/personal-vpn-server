@@ -28,7 +28,7 @@ public static class Program
         if (arguments.Contains("--install-adapter"))
         {
             try { uint version = AdapterService.InstallAndStart(); return Tests.Report(arguments, new { result = "PASS", driverVersion = version, routeChanges = false }, 0); }
-            catch (Exception exception) { return Tests.Report(arguments, new { result = "FAIL", error = exception.GetType().Name }, 1); }
+            catch (Exception exception) { return Tests.Report(arguments, new { result = "FAIL", error = exception.GetType().Name, reason = exception.Message, nativeCode = (exception as System.ComponentModel.Win32Exception)?.NativeErrorCode }, 1); }
         }
         if (arguments.Contains("--proxy-guard"))
         {
@@ -36,6 +36,7 @@ public static class Program
             catch { return 1; } // Recovery record remains for the next application startup.
         }
         if (arguments.Contains("--tun-lease-child")) return Tests.TunLeaseChild(arguments).GetAwaiter().GetResult();
+        if (arguments.Contains("--system-tun-test")) return Tests.HostTunTest(arguments).GetAwaiter().GetResult();
         if (arguments.Contains("--local-tun-integration")) return Tests.LocalProxyIntegration(arguments).GetAwaiter().GetResult();
         if (arguments.Contains("--proxy-lease-child")) return Tests.LeaseChild(arguments);
         if (arguments.Contains("--self-test")) return Tests.SelfTest(arguments);
