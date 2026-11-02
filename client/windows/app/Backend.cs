@@ -157,8 +157,12 @@ public sealed class Backend : IAsyncDisposable
         NetworkChange.NetworkAddressChanged += OnNetworkChange;
         NetworkChange.NetworkAvailabilityChanged += OnAvailabilityChange;
     }
-    private void OnNetworkChange(object? sender, EventArgs args) => networkDebounce.Change(1200, Timeout.Infinite);
-    private void OnAvailabilityChange(object? sender, NetworkAvailabilityEventArgs args) => networkDebounce.Change(1200, Timeout.Infinite);
+    private void ScheduleNetworkCheck()
+    {
+        try { networkDebounce.Change(1200, Timeout.Infinite); } catch (ObjectDisposedException) { }
+    }
+    private void OnNetworkChange(object? sender, EventArgs args) => ScheduleNetworkCheck();
+    private void OnAvailabilityChange(object? sender, NetworkAvailabilityEventArgs args) => ScheduleNetworkCheck();
     private static string NetworkSignature()
     {
         try
@@ -177,7 +181,7 @@ public sealed class Backend : IAsyncDisposable
         lock (gate)
         {
             string observed = NetworkSignature();
-            if (observed.Length == 0) { networkDebounce.Change(1200, Timeout.Infinite); return; }
+            if (observed.Length == 0) { ScheduleNetworkCheck(); return; }
             if (observed == networkSignature) return;
             networkSignature = observed;
             if (session == null) return;

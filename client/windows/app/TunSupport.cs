@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Text.Json.Nodes;
 using System.Threading;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 
 namespace PersonalVpn;
@@ -34,6 +35,13 @@ public static class TunSupport
         if (addresses.Length == 0) throw new InvalidOperationException("No VPN server addresses resolved.");
         return addresses.OrderBy(x => x.GetAddressBytes().Length).ToArray();
     }
+    private static bool CapturesDefault(NetworkInterface nic, IPAddress target, int index)
+    {
+        var socket = new IPEndPoint(target, 0).Serialize(); var bytes = new byte[socket.Size];
+        for (int i = 0; i < bytes.Length; i++) bytes[i] = socket[i];
+        return GetBestInterfaceEx(bytes, out uint selected) == 0 && selected == index;
+    }
+    [DllImport("iphlpapi.dll")] private static extern uint GetBestInterfaceEx([In] byte[] address, out uint index);
     public static async Task WaitForAdapter(TunLease lease, CancellationToken token, Func<string?>? startupFailure = null)
     {
         for (int i = 0; i < 200; i++)
@@ -43,7 +51,9 @@ public static class TunSupport
             string? failure = startupFailure?.Invoke(); if (failure != null) throw new InvalidOperationException(failure);
             var nic = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(x => x.Name == lease.InterfaceName);
             if (nic != null && Guid.TryParse(nic.Id, out var actual)) lease.ObserveAdapter(actual);
-            if (nic?.OperationalStatus == OperationalStatus.Up && nic.GetIPProperties().UnicastAddresses.Any(x => x.Address.ToString() == "172.28.255.1")) return;
+            if (nic?.OperationalStatus == OperationalStatus.Up && nic.GetIPProperties().UnicastAddresses.Any(x => x.Address.ToString() == "172.28.255.1")
+                && CapturesDefault(nic, IPAddress.Parse("1.1.1.1"), nic.GetIPProperties().GetIPv4Properties().Index)
+                && CapturesDefault(nic, IPAddress.Parse("2606:4700:4700::1111"), nic.GetIPProperties().GetIPv6Properties().Index)) return;
             await Task.Delay(100, token);
         }
         string devices = string.Join("; ", NetworkInterface.GetAllNetworkInterfaces().Where(x => x.Name.StartsWith("PersonalVPN", StringComparison.Ordinal)).Select(x => x.Name + " id=" + x.Id + " state=" + x.OperationalStatus + " addresses=" + string.Join(",", x.GetIPProperties().UnicastAddresses.Select(a => a.Address.ToString()))));
