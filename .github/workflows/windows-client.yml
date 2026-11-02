@@ -5,6 +5,8 @@ on:
     paths:
       - 'client/windows/app/**'
       - 'client/windows/package.ps1'
+      - 'client/windows/build-tun-core.ps1'
+      - 'client/windows/reset-tun.ps1'
       - 'client/windows/install.ps1'
       - 'client/windows/setup.iss'
       - 'client/windows/README.md'
@@ -16,7 +18,7 @@ concurrency:
   group: windows-client-${{ github.ref }}
   cancel-in-progress: false
 env:
-  CLIENT_VERSION: '0.5.0'
+  CLIENT_VERSION: '0.6.0'
 jobs:
   build:
     strategy:
@@ -32,12 +34,19 @@ jobs:
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
         with:
           dotnet-version: '10.0.x'
-      - name: Publish architecture-matched Administrator application
-        shell: pwsh
-        run: dotnet publish client/windows/app/PersonalVpn.csproj -c Release -r win-${{ matrix.arch }} --self-contained true -o dist/windows -p:DebugType=None -p:DebugSymbols=false
-      - name: Package pinned cores and signed Wintun
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Build patched TUN core and package pinned native components
         shell: pwsh
         run: ./client/windows/package.ps1 -Architecture ${{ matrix.arch }}
+      - name: Publish architecture-matched Administrator application with embedded TUN hash
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash dist/windows/cores/sing-box.exe).Hash
+          dotnet publish client/windows/app/PersonalVpn.csproj -c Release -r win-${{ matrix.arch }} --self-contained true -o dist/windows -p:DebugType=None -p:DebugSymbols=false "-p:SingBoxHash=$hash"
+          if ($LASTEXITCODE -ne 0) { throw 'Managed application build failed' }
       - name: Check policy, logs and architecture-matched binary integrity
         shell: pwsh
         run: |
@@ -75,7 +84,7 @@ jobs:
         run: |
           $report = "$env:RUNNER_TEMP/tun-integration.json"
           $p = Start-Process (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--local-tun-integration','--report',$report) -PassThru -WindowStyle Hidden
-          if (-not $p.WaitForExit(240000)) { $p.Kill(); Start-Sleep -Seconds 5; throw 'TUN integration exceeded its deadline' }
+          if (-not $p.WaitForExit(420000)) { $p.Kill(); Start-Sleep -Seconds 5; throw 'TUN integration exceeded its deadline' }
           Get-Content $report
           if ($p.ExitCode -ne 0) { throw 'TUN integration failed' }
       - name: Build Windows installer

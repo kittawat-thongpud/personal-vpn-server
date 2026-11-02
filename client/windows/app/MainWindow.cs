@@ -29,6 +29,7 @@ public sealed partial class MainWindow : Window
     private string page = "Home";
     private bool dirty, exiting, lastCompactHome;
     private bool connectBusy;
+    private long settingsRevision;
     private readonly bool previewOnly;
     private TextBlock? status, detail, exit, captureDetail;
     private Button? connect;
@@ -46,7 +47,7 @@ public sealed partial class MainWindow : Window
         settings = initial;
         Policy.Upgrade(settings);
         settings.SystemProxy = settings.CaptureMode == "Proxy";
-        Title = "Personal VPN · Windows preview 0.5.0";
+        Title = "Personal VPN · Windows preview 0.6.0";
         Width = Math.Min(438, SystemParameters.WorkArea.Width - 24); Height = Math.Min(800, SystemParameters.WorkArea.Height - 24);
         MinWidth = Math.Min(380, Width); MinHeight = Math.Min(640, Height);
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -92,12 +93,14 @@ public sealed partial class MainWindow : Window
     private async Task ConnectSelected()
     {
         if (previewOnly) throw new InvalidOperationException("Layout preview cannot connect or change system proxy settings.");
+        if (connectBusy || quitInProgress) return;
         CaptureCapabilities.EnsureAvailable(settings.CaptureMode);
+        long requestedRevision = settingsRevision;
         connectBusy = true;
         try
         {
             settings.SystemProxy = settings.CaptureMode == "Proxy"; Store.Save(settings); Refresh();
-            await backend.ConnectAsync(settings.Snapshot()); dirty = false;
+            await backend.ConnectAsync(settings.Snapshot()); dirty = requestedRevision != settingsRevision;
         }
         finally { connectBusy = false; Refresh(); }
     }
@@ -136,6 +139,7 @@ public sealed partial class MainWindow : Window
     }
     private void Changed(bool affectsConnection = true)
     {
+        if (affectsConnection) settingsRevision++;
         if (previewOnly) return;
         Store.Save(settings); dirty = backend.Running && (dirty || affectsConnection); Refresh();
     }

@@ -25,25 +25,20 @@ $hy = Join-Path $cores 'hysteria.exe'
 Invoke-WebRequest "https://github.com/HyNetworks/hysteria/releases/download/app/v2.13.0/hysteria-windows-$goArch.exe" -OutFile $hy
 if ((Get-FileHash -LiteralPath $hy).Hash -ne $hyHash) { throw 'Hysteria checksum mismatch' }
 Invoke-WebRequest 'https://raw.githubusercontent.com/HyNetworks/hysteria/app/v2.13.0/LICENSE.md' -OutFile (Join-Path $cores 'LICENSE-Hysteria.txt')
-$singHash = if ($is32) { '7994C40C5C1316777BDD29216A5DD7F134F894FAD0AFAA1EFE7B872E60ED1DD9' } else { '99185D75D314A07DBBA4A130C8AD986CBEB629A07927975636B341CA61F991DF' }
-$sing = Expand-Verified "https://github.com/SagerNet/sing-box/releases/download/v1.14.4/sing-box-1.14.4-windows-$goArch.zip" $singHash 'sing-box'
-$singExe = Get-ChildItem -LiteralPath $sing -Filter sing-box.exe -Recurse | Select-Object -First 1
-Copy-Item -LiteralPath $singExe.FullName -Destination $cores
-$singLicense = Get-ChildItem -LiteralPath $sing -Filter LICENSE -Recurse | Select-Object -First 1
-if ($singLicense) { Copy-Item -LiteralPath $singLicense.FullName -Destination (Join-Path $cores 'LICENSE-sing-box.txt') }
-else { Invoke-WebRequest 'https://raw.githubusercontent.com/SagerNet/sing-box/v1.14.4/LICENSE' -OutFile (Join-Path $cores 'LICENSE-sing-box.txt') }
+& (Join-Path $PSScriptRoot 'build-tun-core.ps1') -Architecture $Architecture -Destination (Join-Path $cores 'sing-box.exe')
+Invoke-WebRequest 'https://raw.githubusercontent.com/SagerNet/sing-box/c005f35300ce76427dc285481ec5695f5b179cd2/LICENSE' -OutFile (Join-Path $cores 'LICENSE-sing-box.txt')
 $wintun = Expand-Verified 'https://www.wintun.net/builds/wintun-0.14.1.zip' '07C256185D6EE3652E09FA55C0B673E2624B565E02C4B9091C79CA7D2F24EF51' 'wintun'
 $winArch = if ($is32) { 'x86' } else { 'amd64' }
 $driver = Join-Path $wintun "wintun/bin/$winArch/wintun.dll"
 if ((Get-AuthenticodeSignature -LiteralPath $driver).Status -ne 'Valid') { throw 'Wintun signature verification failed' }
 Copy-Item -LiteralPath $driver -Destination $cores
 Copy-Item -LiteralPath (Join-Path $wintun 'wintun/LICENSE.txt') -Destination (Join-Path $cores 'LICENSE-Wintun.txt')
-foreach ($file in @('install.ps1','README.md')) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $packageRoot }
+foreach ($file in @('install.ps1','README.md','reset-tun.ps1')) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $packageRoot }
 @'
-Unmodified native components; archive and runtime hashes are pinned:
+Native components: verified downloads and a pinned source build with embedded runtime hash:
 Xray-core v26.10.31, MPL-2.0: https://github.com/XTLS/Xray-core/tree/v26.10.31
 Hysteria app/v2.13.0, MIT: https://github.com/HyNetworks/hysteria/tree/app/v2.13.0
-sing-box v1.14.4, GPL-3.0: https://github.com/SagerNet/sing-box/tree/v1.14.4
+sing-box v1.14.4 + Personal VPN OpenAdapter-only patch (build-tun-core.ps1), GPL-3.0: https://github.com/SagerNet/sing-box/tree/v1.14.4
 Wintun 0.14.1, signed redistributable license: https://www.wintun.net/
 .NET runtime / WPF: https://github.com/dotnet/runtime and https://github.com/dotnet/wpf
 Application source: https://github.com/kittawat-thongpud/personal-vpn-server/tree/main/client/windows/app

@@ -83,6 +83,7 @@ public static class WindowsProxy
         }
         finally { foreach (var pointer in allocated) if (pointer != IntPtr.Zero) Marshal.FreeHGlobal(pointer); Marshal.FreeHGlobal(list.Options); }
     }
+    public static ProxySnapshot Direct() => new(1, "", "", "");
     public static ProxySnapshot ForPort(int port) => new(2, "http=127.0.0.1:" + port + ";https=127.0.0.1:" + port, "localhost;127.0.0.1;[::1]", "");
     public static bool Matches(ProxySnapshot current, ProxySnapshot expected) =>
         (current.Flags & 15) == (expected.Flags & 15) && current.Server == expected.Server && current.Bypass == expected.Bypass && current.AutoConfig == expected.AutoConfig;
@@ -132,7 +133,7 @@ public sealed class SystemProxyLease : IDisposable
         }
         finally { gate.ReleaseMutex(); }
     }
-    public SystemProxyLease(int port, SessionLog log)
+    public SystemProxyLease(int port, SessionLog log, bool direct = false)
     {
         this.log = log;
         using var gate = Gate(); if (!Lock(gate)) throw new InvalidOperationException("Windows proxy is busy.");
@@ -145,7 +146,9 @@ public sealed class SystemProxyLease : IDisposable
                 Restore(previous);
             }
             using var owner = Process.GetCurrentProcess();
-            record = new(owner.Id, owner.StartTime.ToUniversalTime().Ticks, Guid.NewGuid().ToString("N"), WindowsProxy.Read(), WindowsProxy.ForPort(port));
+            var before = WindowsProxy.Read();
+            if (direct && WindowsProxy.Matches(before, WindowsProxy.ForPort(port))) before = WindowsProxy.Direct();
+            record = new(owner.Id, owner.StartTime.ToUniversalTime().Ticks, Guid.NewGuid().ToString("N"), before, direct ? WindowsProxy.Direct() : WindowsProxy.ForPort(port));
             SaveLease(record); // Durable encrypted recovery data exists before mutation.
             try
             {
@@ -154,7 +157,7 @@ public sealed class SystemProxyLease : IDisposable
                 using var guard = Process.Start(start) ?? throw new InvalidOperationException("Could not start proxy recovery watchdog.");
                 WindowsProxy.Write(record.Applied);
                 if (!WindowsProxy.Matches(WindowsProxy.Read(), record.Applied)) throw new InvalidOperationException("Windows did not retain the requested proxy settings.");
-                log.Add("INFO", "backend.system_proxy_applied", "Windows HTTP / HTTPS proxy now uses Personal VPN on loopback port " + port + ". Previous settings saved for restore.");
+                log.Add("INFO", direct ? "backend.system_proxy_suspended" : "backend.system_proxy_applied", direct ? "Windows proxy suspended for TUN capture; prior settings saved for conditional restore." : "Windows HTTP / HTTPS proxy now uses Personal VPN on loopback port " + port + ". Previous settings saved for restore.");
             }
             catch
             {

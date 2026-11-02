@@ -16,7 +16,7 @@ try {
     $setup=Start-Process -FilePath $InstallerPath -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-') -PassThru -Wait -WindowStyle Hidden
     if ($setup.ExitCode -ne 0) { throw 'Windows Setup did not finish.' }
     $base=if ($Architecture -eq 'x86' -and $env:PROCESSOR_ARCHITECTURE -eq 'AMD64') { $env:ProgramFiles + ' (x86)' } else { $env:ProgramFiles }
-    $installed=Join-Path $base ("PersonalVPN/0.5.0-" + $Architecture)
+    $installed=Join-Path $base ("PersonalVPN/0.6.0-" + $Architecture)
     $executable=Join-Path $installed 'PersonalVPN.exe'
     if (-not (Test-Path -LiteralPath $executable)) { throw 'Installed executable missing.' }
     $driver=Get-Content -LiteralPath (Join-Path $installed 'driver-install.json') -Raw | ConvertFrom-Json

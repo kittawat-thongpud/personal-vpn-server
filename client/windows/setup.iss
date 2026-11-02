@@ -4,7 +4,7 @@
 #ifndef PackageDir
   #define PackageDir "..\..\dist\windows"
 #endif
-#define AppVersion "0.5.0"
+#define AppVersion "0.6.0"
 [Setup]
 AppId={{5A4D9679-160C-4DAA-A3E8-06409432D512}-{#Architecture}
 AppName=Personal VPN
@@ -34,6 +34,8 @@ Name: "{group}\Personal VPN"; Filename: "{app}\PersonalVPN.exe"; WorkingDir: "{a
 Name: "{autodesktop}\Personal VPN"; Filename: "{app}\PersonalVPN.exe"; WorkingDir: "{app}"; IconFilename: "{app}\PersonalVPN.exe"
 [Run]
 Filename: "{app}\PersonalVPN.exe"; Description: "Open Personal VPN"; Flags: nowait postinstall skipifsilent runascurrentuser
+[UninstallRun]
+Filename: "{app}\PersonalVPN.exe"; Parameters: "--uninstall-adapter"; Flags: runhidden waituntilterminated
 [Code]
 procedure CurStepChanged(CurStep: TSetupStep);
 var ResultCode: Integer;

@@ -1,16 +1,16 @@
-# Personal VPN for Windows — 0.5.0 preview
+# Personal VPN for Windows — 0.6.0 preview
 
 Download the x86 (32-bit) or x64 Windows Setup EXE from the private GitHub release.
 Windows 10 build 19041 or later is required. Setup and the application require Administrator. Setup includes the self-contained
 .NET runtime, architecture-matched Xray / Hysteria / sing-box, and signed Wintun.
 No local compilation or separate driver download is needed. Setup prepares the
-driver without installing tunnel routes. The ZIP also includes an elevated
-install.ps1. Existing versions can remain connected during a versioned install.
+driver and an automatic Windows service that holds one reusable adapter without installing tunnel routes. The ZIP also includes an elevated
+install.ps1. Disconnect an active TUN session before upgrading its adapter service.
 
 Home has server profiles, Proxy / TUN, the VPN protocol selector and live traffic.
 X and Minimize hide to tray. Left-click the tray icon or reopen the shortcut to
 restore the window. Disconnect & exit restores owned proxy settings and releases
-the owned TUN adapter. The menu stays open when the shell tray panel loses focus,
+capture routes / DNS while retaining the adapter. The menu stays open when the shell tray panel loses focus,
 and closes on outside click, Esc or selection.
 
 Import a vpnctl Windows export folder containing xray.json / hysteria.json.
@@ -24,8 +24,8 @@ authenticated HTTPS before owning the per-user Windows proxy. A separate proxy
 watchdog conditionally restores the previous settings after a crash and never
 overwrites a newer selection by another application.
 
-TUN mode requires confirmation. Connect first verifies the native server, creates
-an owned Wintun adapter through a separate recovery guard, starts the TUN core and
+TUN mode requires confirmation. Connect first verifies the native server, opens
+the existing service-owned Wintun adapter, starts a capture session and
 checks DNS / HTTPS through OS capture before showing Connected. Both TCP and UDP
 are enabled on the native frontend. No protocol automatically falls back to Direct.
 There is no whole-machine kill switch; reconnect can interrupt flows and temporarily
@@ -52,10 +52,14 @@ Traffic shows tunnel payload counters, rates and a bounded 60-sample history.
 Direct traffic is excluded; health traffic is included. These are not billing
 totals. Reconnect retains session totals and marks unavailable counters explicitly.
 
-All native downloads and runtime components are checksum pinned. Wintun's vendor
+Native downloads are checksum pinned. CI builds a pinned sing-box source revision
+with an OpenAdapter-only patch and embeds its resulting hash in the application. Wintun's vendor
 signature is checked during packaging. No shared Wintun driver is uninstalled.
-The independent adapter guard tracks the core-created adapter on normal stop
-or parent exit; startup can recover only its own recorded adapter GUID and name.
+The independent guard resets only the owned interface routes, addresses and DNS
+on normal stop or parent exit. It never deletes the persistent adapter.
+The service creates the device only if missing. Disconnect, reconnect and mode
+changes reuse its GUID. TUN suspends manual / PAC proxy capture and conditionally
+restores the previous snapshot on exit, excluding a stale owned loopback proxy.
 
 CI builds both architectures, tests native Proxy restoration, real TUN capture,
 UDP forwarding, executable policy priority and abrupt-parent cleanup on isolated

@@ -22,10 +22,12 @@ public static class Program
     [STAThread]
     public static int Main(string[] arguments)
     {
+        if (arguments.Contains("--uninstall-adapter")) { AdapterService.Uninstall(); return 0; }
+        if (arguments.Contains("--adapter-service")) return AdapterService.Run();
         if (arguments.Contains("--tun-guard")) return TunLease.Watch(Option(arguments, "--tun-guard")!);
         if (arguments.Contains("--install-adapter"))
         {
-            try { uint version = WintunAdapter.InstallDriver(); return Tests.Report(arguments, new { result = "PASS", driverVersion = version, routeChanges = false }, 0); }
+            try { uint version = AdapterService.InstallAndStart(); return Tests.Report(arguments, new { result = "PASS", driverVersion = version, routeChanges = false }, 0); }
             catch (Exception exception) { return Tests.Report(arguments, new { result = "FAIL", error = exception.GetType().Name }, 1); }
         }
         if (arguments.Contains("--proxy-guard"))

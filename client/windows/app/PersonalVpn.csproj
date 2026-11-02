@@ -8,11 +8,14 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>PersonalVPN</AssemblyName>
-    <Version>0.5.0</Version>
+    <Version>0.6.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <StartupObject>PersonalVpn.Program</StartupObject>
   </PropertyGroup>
   <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>SingBoxHash</_Parameter1><_Parameter2>$(SingBoxHash)</_Parameter2>
+    </AssemblyAttribute>
     <Resource Include="Assets/personal-vpn.ico"/>
     <EmbeddedResource Include="Assets/personal-vpn.ico" LogicalName="PersonalVpn.TrayIcon.ico"/>
   </ItemGroup>

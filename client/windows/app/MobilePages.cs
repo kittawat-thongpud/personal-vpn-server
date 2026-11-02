@@ -70,7 +70,7 @@ public sealed partial class MainWindow
         appTunnel.Name = "AppTunnelSettings"; appTunnel.IsEnabled = settings.CaptureMode == "TUN" && CaptureCapabilities.TunAvailable; rows.Children.Add(appTunnel);
         rows.Children.Add(SettingsRow("Site Tunnel", "Domain / IP exceptions · " + ModeName(settings.Sites!.Mode), "SiteTunnel"));
         rows.Children.Add(SettingsRow("Backend logs", "Connection events", "Diagnostics")); Put(body, rows, 1);
-        Put(body, Text("PERSONAL VPN  0.5.0\nProxy / TUN · Administrator", 11, "#8395B2"), 2); return body;
+        Put(body, Text("PERSONAL VPN  0.6.0\nProxy / TUN · Administrator", 11, "#8395B2"), 2); return body;
     }
     private Button SettingsRow(string title, string description, string target)
     {

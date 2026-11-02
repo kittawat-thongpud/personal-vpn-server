@@ -17,14 +17,22 @@ internal static partial class Tests
     {
         string folder = Program.Option(args, "--folder")!; Store.SecureDirectory(folder);
         using var lease = await TunLease.Start(folder, CancellationToken.None);
-        using var adapter = new WintunAdapter(lease.InterfaceName, lease.AdapterId); lease.ObserveAdapter(adapter.AdapterId);
+        using var job = new ProcessJob();
+        var settings = new Settings { CaptureMode = "TUN", Sites = new TunnelPolicy { Mode = "Tunnel" } };
+        string path = Path.Combine(folder, "crash-tun.json");
+        await File.WriteAllTextAsync(path, TunPlan.Compile(settings, new[] { "127.0.0.1" }, new[] { Backend.VerifyCore("xray.exe"), Backend.VerifyCore("hysteria.exe") }, lease.InterfaceName).ToJsonString());
+        using var core = new OwnedCore(job, Backend.VerifyCore("sing-box.exe"), new[] { "run", "-c", path }, new SessionLog());
+        await TunSupport.WaitForAdapter(lease, CancellationToken.None);
         await File.WriteAllTextAsync(Program.Option(args, "--report")!, JsonSerializer.Serialize(new { adapter = lease.AdapterId }));
         await Task.Delay(Timeout.Infinite); return 0;
     }
     private static async Task<string[]> TunIntegration(string folder, string expected)
     {
         var checks = new List<string>();
+        AdapterService.EnsureRunning();
+        Guid persistentId = AdapterService.CurrentId();
         var dnsBefore = DnsSnapshot();
+        var proxyBefore = WindowsProxy.Read();
         var profile = Store.Import(folder);
         var settings = new Settings { Profiles = new() { profile }, SelectedId = profile.Id, CaptureMode = "TUN", SystemProxy = false, HttpPort = Port(), SocksPort = Port(), Sites = new TunnelPolicy { Mode = "Tunnel" } };
         string windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
@@ -42,7 +50,9 @@ internal static partial class Tests
         {
             await backend.ConnectAsync(settings);
             Assert(backend.State == "Connected" && backend.ExitIp == expected && NetworkInterface.GetAllNetworkInterfaces().Any(x => x.Name == TunLease.Name && x.OperationalStatus == OperationalStatus.Up), "TUN capture did not verify.");
-            checks.Add("real Wintun adapter, native authenticated frontend and captured DNS/HTTPS verified");
+            Assert(WindowsProxy.Matches(WindowsProxy.Read(), WindowsProxy.Direct()), "TUN must suspend Windows proxy / PAC capture.");
+            Assert(AdapterService.CurrentId() == persistentId, "TUN replaced the persistent device.");
+            checks.Add("persistent Wintun adapter, authenticated frontend, captured DNS/HTTPS and suspended Windows proxy verified");
             int baseline = await Curl(); Assert(baseline == 0, "External process baseline failed: exit=" + baseline + "; " + lastCurlError + "; " + backend.NativeTunDiagnostic);
             await SocksUdpEcho(settings.SocksPort); checks.Add("native SOCKS UDP relay traverses Xray and Hysteria");
             settings.Apps = new TunnelPolicy { Mode = "Tunnel", Entries = new() { new() { Kind = "App", Value = curlPath, Action = "Block" } } };
@@ -55,11 +65,28 @@ internal static partial class Tests
             int appTunnel = await Curl(); Assert(appTunnel == 0, "Explicit app Tunnel must win over site Block: curl=" + appTunnel + "; " + lastCurlError + "; " + backend.NativeTunDiagnostic);
             checks.Add("explicit App Tunnel overrides a conflicting Site Block on an external process");
             await backend.StopAsync();
-            for (int i = 0; i < 50 && NetworkInterface.GetAllNetworkInterfaces().Any(x => x.Name == TunLease.Name); i++) await Task.Delay(100);
-            Assert(!NetworkInterface.GetAllNetworkInterfaces().Any(x => x.Name == TunLease.Name), "Owned TUN adapter remained after stop: " + string.Join("; ", NetworkInterface.GetAllNetworkInterfaces().Where(x => x.Name == TunLease.Name).Select(x => x.Id + " " + x.OperationalStatus)));
+            Assert(AdapterService.CurrentId() == persistentId, "Disconnect replaced or removed the adapter.");
+            Assert(!NetworkInterface.GetAllNetworkInterfaces().Single(x => x.Name == TunLease.Name).GetIPProperties().UnicastAddresses.Any(x => x.Address.ToString() == "172.28.255.1"), "Capture IP remained after stop.");
+            settings.Apps = new TunnelPolicy { Mode = "Disabled" }; settings.Sites = new TunnelPolicy { Mode = "Tunnel" };
+            for (int i = 0; i < 3; i++)
+            {
+                settings.CaptureMode = "Proxy"; await backend.ConnectAsync(settings);
+                Assert(WindowsProxy.Matches(WindowsProxy.Read(), WindowsProxy.ForPort(settings.HttpPort)), "Proxy switch did not capture.");
+                settings.CaptureMode = "TUN"; await backend.ConnectAsync(settings);
+                Assert(backend.State == "Connected" && await Curl() == 0, "Repeated Proxy to TUN switch lost Internet.");
+                Assert(AdapterService.CurrentId() == persistentId && NetworkInterface.GetAllNetworkInterfaces().Count(x => x.Name == TunLease.Name) == 1, "Mode switch duplicated the device.");
+                if (i == 0) { backend.KillOwnedCoreForTest(); await Task.Delay(2000); await WaitConnected(backend, 70); Assert(AdapterService.CurrentId() == persistentId && await Curl() == 0, "Core recovery lost Internet or replaced the adapter."); }
+                await backend.StopAsync();
+                Assert(WindowsProxy.Matches(WindowsProxy.Read(), proxyBefore), "Mode switch failed to restore Windows proxy.");
+            }
+            WindowsProxy.Write(WindowsProxy.ForPort(settings.HttpPort)); // Simulate the stale loopback setting reported by the user.
+            await backend.ConnectAsync(settings);
+            Assert(WindowsProxy.Matches(WindowsProxy.Read(), WindowsProxy.Direct()) && await Curl() == 0, "Stale loopback proxy survived TUN capture.");
+            await backend.StopAsync(); Assert(WindowsProxy.Matches(WindowsProxy.Read(), WindowsProxy.Direct()), "Disconnect restored a dead owned proxy.");
+            WindowsProxy.Write(proxyBefore);
         }
         Assert(dnsBefore == DnsSnapshot(), "Physical-interface DNS changed.");
-        checks.Add("normal stop removes owned adapter and routes; physical DNS remains unchanged");
+        checks.Add("repeated Proxy / TUN / Disconnect switches and core crash recovery retain one GUID and working Internet; stale owned proxy removed; physical DNS unchanged");
         string leaseFolder = Path.Combine(Store.Root, "runtime", Guid.NewGuid().ToString("N")); Store.SecureDirectory(leaseFolder);
         string report = Path.Combine(leaseFolder, "child.json");
         var childInfo = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
@@ -72,15 +99,17 @@ internal static partial class Tests
                 Assert(File.Exists(report), "Adapter child readiness timed out.");
                 Guid id = JsonDocument.Parse(await File.ReadAllTextAsync(report)).RootElement.GetProperty("adapter").GetGuid();
                 child.Kill(); await child.WaitForExitAsync();
-                for (int i = 0; i < 100 && WintunAdapter.Exists(id); i++) await Task.Delay(100);
-                Assert(!WintunAdapter.Exists(id), "Guard failed to remove adapter after parent crash.");
+                for (int i = 0; i < 300 && !File.Exists(Path.Combine(leaseFolder, "tun-reset-done")); i++) await Task.Delay(100);
+                Assert(File.Exists(Path.Combine(leaseFolder, "tun-reset-done")), "Independent crash reset did not complete.");
+                Assert(WintunAdapter.Exists(id) && id == persistentId, "Crash recovery deleted the persistent device.");
+                Assert(!NetworkInterface.GetAllNetworkInterfaces().Single(x => x.Name == TunLease.Name).GetIPProperties().UnicastAddresses.Any(x => x.Address.ToString() == "172.28.255.1"), "Crash recovery left capture addresses.");
             }
             finally { if (!child.HasExited) { child.Kill(); await child.WaitForExitAsync(); } TunLease.RecoverAbandoned(); }
         }
-        checks.Add("independent recovery guard removes owned adapter after an abruptly killed parent");
+        checks.Add("independent recovery guard resets capture after abrupt parent death and retains the same adapter");
         return checks.ToArray();
     }
-    private static string DnsSnapshot() => string.Join("|", NetworkInterface.GetAllNetworkInterfaces().Where(x => !x.Name.StartsWith("PersonalVPN-", StringComparison.Ordinal)).OrderBy(x => x.Id).Select(x => x.Id + ":" + string.Join(",", x.GetIPProperties().DnsAddresses.Select(a => a.ToString()))));
+    private static string DnsSnapshot() => string.Join("|", NetworkInterface.GetAllNetworkInterfaces().Where(x => !x.Name.StartsWith("PersonalVPN", StringComparison.Ordinal)).OrderBy(x => x.Id).Select(x => x.Id + ":" + string.Join(",", x.GetIPProperties().DnsAddresses.Select(a => a.ToString()))));
     private static async Task SocksUdpEcho(int port)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12)); var token = timeout.Token;

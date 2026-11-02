@@ -11,26 +11,27 @@ using Microsoft.Win32;
 
 namespace PersonalVpn;
 
-// Native adapter ownership for signed-driver preparation and recovery tests.
-// The TUN core is the sole runtime creator; a guard recovers only its exact device.
+// The service owns the native Create handle. Capture cores open the same device.
+// Removal is reserved for one-time legacy migration, never a session lifecycle.
 public sealed class WintunAdapter : IDisposable
 {
     private IntPtr library, adapter;
     private readonly Close close;
     [UnmanagedFunctionPointer(CallingConvention.Winapi, CharSet = CharSet.Unicode, SetLastError = true)]
     private delegate IntPtr Create(string name, string tunnelType, ref Guid id);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi, CharSet = CharSet.Unicode, SetLastError = true)] private delegate IntPtr Open(string name);
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     private delegate void Close(IntPtr handle);
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     private delegate uint Version();
     public static bool IsAdministrator => new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
-    public WintunAdapter(string name, Guid id)
+    public WintunAdapter(string name, Guid id, bool openExisting = false)
     {
         if (!IsAdministrator) throw new InvalidOperationException("Run Personal VPN as Administrator.");
         library = NativeLibrary.Load(CoreIntegrity.Verify("wintun.dll"));
         close = Marshal.GetDelegateForFunctionPointer<Close>(NativeLibrary.GetExport(library, "WintunCloseAdapter"));
         var create = Marshal.GetDelegateForFunctionPointer<Create>(NativeLibrary.GetExport(library, "WintunCreateAdapter"));
-        adapter = create(name, "PersonalVPN", ref id);
+        adapter = openExisting ? Marshal.GetDelegateForFunctionPointer<Open>(NativeLibrary.GetExport(library, "WintunOpenAdapter"))(name) : create(name, "PersonalVPN", ref id);
         if (adapter == IntPtr.Zero) { int code = Marshal.GetLastWin32Error(); NativeLibrary.Free(library); library = IntPtr.Zero; throw new Win32Exception(code, "Could not create Personal VPN adapter."); }
     }
     public Guid AdapterId

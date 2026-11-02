@@ -211,6 +211,7 @@ public sealed class Backend : IAsyncDisposable
         {
             lock (gate) { if (session == null || session != requested) throw new OperationCanceledException("Connection cancelled."); }
             if (State == "Connected") return;
+            if (State == "Error") throw new InvalidOperationException(Detail);
             if (State == "Reconnecting") throw new InvalidOperationException(Detail + " Retrying; inspect backend logs.");
             await Task.Delay(200);
         }
@@ -276,7 +277,7 @@ public sealed class Backend : IAsyncDisposable
         await lifecycle.WaitAsync();
         try
         {
-            if (!Running || active?.SystemProxy != true || proxyLease == null) throw new InvalidOperationException("Connect with System proxy enabled and wait for tunnel verification first.");
+            if (!Running || active == null || !(active.SystemProxy || active.CaptureMode == "TUN") || proxyLease == null) throw new InvalidOperationException("Connect with System proxy enabled and wait for tunnel verification first.");
             long expectedGeneration; lock (gate) expectedGeneration = generation;
             proxyLease.Reclaim();
             lock (gate) captureStatus = "Windows HTTP / HTTPS → Personal VPN";
@@ -284,7 +285,7 @@ public sealed class Backend : IAsyncDisposable
             // WinINet's fresh snapshot is authoritative. .NET's global system-proxy
             // object may retain an older selection after a settings notification.
             if (!proxyLease.IsCurrent) throw new InvalidOperationException("Another app selected a different proxy again.");
-            using var client = new HttpClient(new SocketsHttpHandler { Proxy = new WebProxy("http://127.0.0.1:" + active.HttpPort), UseProxy = true, ConnectTimeout = TimeSpan.FromSeconds(8) }) { Timeout = TimeSpan.FromSeconds(12) };
+            using var client = new HttpClient(new SocketsHttpHandler { Proxy = active.CaptureMode == "TUN" ? null : new WebProxy("http://127.0.0.1:" + active.HttpPort), UseProxy = active.CaptureMode != "TUN", ConnectTimeout = TimeSpan.FromSeconds(8) }) { Timeout = TimeSpan.FromSeconds(12) };
             string observed = await Health(client, CancellationToken.None);
             if (!proxyLease.IsCurrent) throw new InvalidOperationException("Another app changed the Windows proxy during verification.");
             lock (gate) { if (generation != expectedGeneration) throw new OperationCanceledException("Network changed during browser proxy verification."); }
@@ -303,12 +304,18 @@ public sealed class Backend : IAsyncDisposable
     {
         Task? pending;
         lock (gate) { session?.Cancel(); cycle?.Cancel(); pending = worker; }
-        if (pending != null) await pending;
-        proxyLease?.Dispose(); proxyLease = null;
-        lock (gate) { session?.Dispose(); session = null; worker = null; active = null; }
-        lock (gate) { captureStatus = "Not captured"; lastTunnelExit = "—"; }
-        Traffic.Unavailable();
-        SetState("Disconnected", "Local proxy stopped. Any owned Windows proxy setting was restored.");
+        Exception? failure = null;
+        try { if (pending != null) await pending; }
+        catch (Exception error) { failure = error; Log.Add("ERROR", "backend.session_cleanup_failed", "Previous session failed during cleanup (" + error.GetType().Name + "). Capture state will be reset before reuse."); }
+        try { proxyLease?.Dispose(); }
+        finally
+        {
+            proxyLease = null;
+            lock (gate) { session?.Dispose(); session = null; worker = null; active = null; captureStatus = "Not captured"; lastTunnelExit = "—"; }
+            Traffic.Unavailable();
+        }
+        if (failure != null) { SetState("Error", "Previous capture cleanup failed. Retry to reset the retained adapter."); return; }
+        SetState("Disconnected", "Capture stopped; previous Windows proxy restored. Adapter retained for reuse.");
     }
     private async Task Run(Settings settings, CancellationToken token)
     {
@@ -457,10 +464,12 @@ public sealed class Backend : IAsyncDisposable
                     if (tun)
                     {
                         if (adapterLease!.Exited) throw new InvalidOperationException("Adapter recovery guard stopped.");
-                        observed = await Health(tunHealth, token);
+                        string capturedExit = await Health(tunHealth, token);
+                        if (capturedExit != observed) throw new InvalidDataException("Captured path did not use the authenticated VPN exit.");
+                        observed = capturedExit;
                     }
-                    if (settings.SystemProxy && proxyLease == null) proxyLease = new SystemProxyLease(settings.HttpPort, Log);
-                    bool captured = !settings.SystemProxy || proxyLease!.IsCurrent;
+                    if ((settings.SystemProxy || tun) && proxyLease == null) proxyLease = new SystemProxyLease(settings.HttpPort, Log, direct: tun);
+                    bool captured = !(settings.SystemProxy || tun) || proxyLease!.IsCurrent;
                     lock (gate) captureStatus = tun ? "TUN · apps / services captured" : settings.SystemProxy ? captured ? "Windows HTTP / HTTPS → Personal VPN" : "Proxy changed by another app" : "Manual app proxy only";
                     lock (gate) { if (generation != expected) throw new OperationCanceledException(token); exit = observed; lastTunnelExit = observed; }
                     SetState(captured ? "Connected" : "Proxy conflict", captured
@@ -482,7 +491,7 @@ public sealed class Backend : IAsyncDisposable
                 {
                     await Task.Delay(1000, token); EnsureAlive(owned);
                     if (adapterLease?.Exited == true) throw new InvalidOperationException("Adapter recovery guard stopped.");
-                    if (settings.SystemProxy && proxyLease != null && !proxyLease.IsCurrent)
+                    if ((settings.SystemProxy || tun) && proxyLease != null && !proxyLease.IsCurrent)
                     {
                         lock (gate) captureStatus = WindowsProxy.Describe(WindowsProxy.Read());
                         if (State != "Proxy conflict") SetState("Proxy conflict", "Windows proxy changed outside Personal VPN. Use proxy to reclaim it; disable automatic proxy selection in the competing app if it keeps changing.", expected);
@@ -500,7 +509,7 @@ public sealed class Backend : IAsyncDisposable
             if (adapterLease != null)
             {
                 lock (gate) ownNetworkTransitionUntil = DateTime.UtcNow.AddSeconds(5);
-                adapterLease.Dispose(); Log.Add("INFO", "backend.tun_stopped", "Owned adapter removed; its routes and DNS settings released.");
+                adapterLease.Dispose(); Log.Add("INFO", "backend.tun_stopped", "Capture routes and DNS released; persistent adapter retained.");
             }
             // Only a freshly generated child of our protected runtime directory is removed.
             if (Path.GetDirectoryName(Path.GetFullPath(folder)) != Path.GetFullPath(runtimeRoot)) throw new InvalidOperationException("Invalid runtime cleanup path.");

@@ -1,6 +1,6 @@
 param([string]$ProfileFolder, [switch]$NoLaunch)
 $ErrorActionPreference = 'Stop'
-$version = '0.5.0'
+$version = '0.6.0'
 $source = [IO.Path]::GetFullPath($PSScriptRoot)
 if (-not (Test-Path -LiteralPath (Join-Path $source 'PersonalVPN.exe'))) { throw 'Extract the Windows release ZIP first.' }
 $isAdministrator = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
