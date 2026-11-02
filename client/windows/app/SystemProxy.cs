@@ -32,6 +32,7 @@ public static class WindowsProxy
     [DllImport("wininet.dll", EntryPoint = "InternetSetOptionW", SetLastError = true)] private static extern bool Set(IntPtr internet, uint option, ref OptionList list, uint length);
     [DllImport("wininet.dll", EntryPoint = "InternetSetOptionW", SetLastError = true)] private static extern bool Notify(IntPtr internet, uint option, IntPtr data, uint length);
     [DllImport("kernel32.dll")] private static extern IntPtr GlobalFree(IntPtr memory);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern IntPtr SendMessageTimeout(IntPtr window, uint message, UIntPtr parameter, string text, uint flags, uint timeout, out UIntPtr result);
     private static OptionList Allocate()
     {
         if (IntPtr.Size != 8) throw new InvalidOperationException("This Windows release requires x64.");
@@ -78,12 +79,21 @@ public static class WindowsProxy
             if (!Set(IntPtr.Zero, 75, ref list, list.Size)) throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not apply Windows proxy settings.");
             Notify(IntPtr.Zero, 39, IntPtr.Zero, 0); // SETTINGS_CHANGED
             Notify(IntPtr.Zero, 37, IntPtr.Zero, 0); // REFRESH
+            // Notify applications that were already running before the proxy changed.
+            SendMessageTimeout(new IntPtr(0xffff), 0x001a, UIntPtr.Zero, "Internet Settings", 2, 1000, out _);
         }
         finally { foreach (var pointer in allocated) if (pointer != IntPtr.Zero) Marshal.FreeHGlobal(pointer); Marshal.FreeHGlobal(list.Options); }
     }
     public static ProxySnapshot ForPort(int port) => new(2, "http=127.0.0.1:" + port + ";https=127.0.0.1:" + port, "localhost;127.0.0.1;[::1]", "");
     public static bool Matches(ProxySnapshot current, ProxySnapshot expected) =>
         (current.Flags & 15) == (expected.Flags & 15) && current.Server == expected.Server && current.Bypass == expected.Bypass && current.AutoConfig == expected.AutoConfig;
+    public static string Describe(ProxySnapshot value)
+    {
+        if ((value.Flags & 12) != 0) return "PAC / automatic proxy configuration";
+        if ((value.Flags & 2) == 0) return "Direct connection (Windows proxy disabled)";
+        var local = System.Text.RegularExpressions.Regex.Matches(value.Server, @"127\.0\.0\.1:\d{1,5}");
+        return local.Count > 0 ? "Windows proxy: " + local[0].Value : "Another manual Windows proxy";
+    }
 }
 
 public sealed class SystemProxyLease : IDisposable
@@ -155,6 +165,18 @@ public sealed class SystemProxyLease : IDisposable
         finally { gate.ReleaseMutex(); }
     }
     public bool IsCurrent => WindowsProxy.Matches(WindowsProxy.Read(), record.Applied);
+    public void Reclaim()
+    {
+        using var gate = Gate(); if (!Lock(gate)) throw new InvalidOperationException("Windows proxy is busy.");
+        try
+        {
+            if (disposed || ReadLease()?.Id != record.Id) throw new InvalidOperationException("This session no longer owns its proxy recovery record. Reconnect first.");
+            WindowsProxy.Write(record.Applied);
+            if (!IsCurrent) throw new InvalidOperationException("Another app replaced the proxy again. Disable automatic system proxy selection in the other app before retrying.");
+            log.Add("INFO", "backend.system_proxy_reclaimed", "Personal VPN selected as Windows proxy without restarting the tunnel. Previous pre-session settings remain saved for disconnect.");
+        }
+        finally { gate.ReleaseMutex(); }
+    }
     private static bool Restore(ProxyLeaseRecord lease)
     {
         // Do not overwrite a newer proxy choice made by the user / another VPN.

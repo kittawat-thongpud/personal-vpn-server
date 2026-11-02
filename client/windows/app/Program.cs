@@ -245,6 +245,13 @@ internal static class Tests
                 }
             }
             passed.Add("Windows system proxy → Hysteria VPS exit; Google and Wikipedia HTTPS");
+            int routerBeforeReclaim = backend.RouterPidForTest;
+            WindowsProxy.Write(before); // Simulate another app selecting its own proxy.
+            await Task.Delay(1800);
+            Assert(backend.State == "Proxy conflict", "External proxy change was not detected within two seconds.");
+            await backend.ReclaimProxyAsync();
+            Assert(backend.RouterPidForTest == routerBeforeReclaim && backend.State == "Connected" && backend.ExitIp == expected, "Proxy reclaim restarted the tunnel or failed verification.");
+            passed.Add("proxy conflict detected in one second; explicit reclaim verified without core restart");
             backend.KillOwnedCoreForTest(); await Task.Delay(2000); await WaitConnected(backend);
             Assert(WindowsProxy.Matches(WindowsProxy.Read(), WindowsProxy.ForPort(settings.HttpPort)), "Capture lost during core restart.");
             passed.Add("system proxy retained across core crash / reconnect");

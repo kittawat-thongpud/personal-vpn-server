@@ -134,7 +134,8 @@ public sealed class Backend : IAsyncDisposable
     private Settings? active;
     private readonly List<OwnedCore> cores = new();
     private SystemProxyLease? proxyLease;
-    private string captureStatus = "Manual app proxy";
+    private string captureStatus = "Not captured";
+    private string lastTunnelExit = "—";
     public SessionLog Log { get; } = new();
     public string State { get { lock (gate) return state; } }
     public string Detail { get { lock (gate) return detail; } }
@@ -192,6 +193,36 @@ public sealed class Backend : IAsyncDisposable
         await lifecycle.WaitAsync();
         try { await StopInternal(); } finally { lifecycle.Release(); }
     }
+    public async Task ReclaimProxyAsync()
+    {
+        await lifecycle.WaitAsync();
+        try
+        {
+            if (!Running || active?.SystemProxy != true || proxyLease == null) throw new InvalidOperationException("Connect with System proxy enabled and wait for tunnel verification first.");
+            long expectedGeneration; lock (gate) expectedGeneration = generation;
+            proxyLease.Reclaim();
+            lock (gate) captureStatus = "Windows HTTP / HTTPS → Personal VPN";
+            SetState("Verifying", "Windows proxy selected. Rechecking HTTPS without restarting the tunnel.");
+#pragma warning disable SYSLIB0014
+            var selectedProxy = WebRequest.GetSystemWebProxy();
+#pragma warning restore SYSLIB0014
+            Uri destination = new("https://api.ipify.org/");
+            if (selectedProxy.IsBypassed(destination) || selectedProxy.GetProxy(destination)?.Port != active.HttpPort)
+                throw new InvalidOperationException("Windows still selects a different proxy. Check other VPN software, PAC or browser overrides.");
+            using var client = new HttpClient(new SocketsHttpHandler { Proxy = selectedProxy, UseProxy = true, ConnectTimeout = TimeSpan.FromSeconds(8) }) { Timeout = TimeSpan.FromSeconds(12) };
+            string observed = await Health(client, CancellationToken.None);
+            lock (gate) { if (generation != expectedGeneration) throw new OperationCanceledException("Network changed during browser proxy verification."); }
+            Log.Add("INFO", "backend.system_proxy_verified", "Windows proxy-aware HTTPS client succeeded. Policy-routed exit: " + observed + ". Existing app sockets may need a new connection.");
+            SetState("Connected", "System proxy reselected and HTTPS verified. Existing connections may need reconnecting.", expectedGeneration);
+            lock (gate) { if (generation == expectedGeneration) exit = lastTunnelExit; }
+        }
+        catch
+        {
+            if (Running) SetState("Degraded", "Browser proxy verification failed. Check other proxy software and app-specific proxy settings.");
+            throw;
+        }
+        finally { lifecycle.Release(); }
+    }
     private async Task StopInternal()
     {
         Task? pending;
@@ -199,7 +230,7 @@ public sealed class Backend : IAsyncDisposable
         if (pending != null) await pending;
         proxyLease?.Dispose(); proxyLease = null;
         lock (gate) { session?.Dispose(); session = null; worker = null; active = null; }
-        lock (gate) captureStatus = "Not captured";
+        lock (gate) { captureStatus = "Not captured"; lastTunnelExit = "—"; }
         SetState("Disconnected", "Local proxy stopped. Any owned Windows proxy setting was restored.");
     }
     private async Task Run(Settings settings, CancellationToken token)
@@ -318,10 +349,10 @@ public sealed class Backend : IAsyncDisposable
                     if (settings.SystemProxy && proxyLease == null) proxyLease = new SystemProxyLease(settings.HttpPort, Log);
                     bool captured = !settings.SystemProxy || proxyLease!.IsCurrent;
                     lock (gate) captureStatus = settings.SystemProxy ? captured ? "Windows HTTP / HTTPS → Personal VPN" : "Proxy changed by another app" : "Manual app proxy only";
-                    lock (gate) { if (generation != expected) throw new OperationCanceledException(token); exit = observed; }
+                    lock (gate) { if (generation != expected) throw new OperationCanceledException(token); exit = observed; lastTunnelExit = observed; }
                     SetState(captured ? "Connected" : "Proxy conflict", captured
                         ? "Verified HTTPS exit " + observed + " · " + settings.Protocol
-                        : "Tunnel works, but Windows proxy was changed externally. Apply & reconnect to capture browser traffic again.", expected);
+                        : "Tunnel works, but another app selected a different Windows proxy. Use proxy to select Personal VPN again.", expected);
                     lock (gate) { if (generation == expected) exit = observed; }
                     misses = 0; checks++;
                     Log.Add("INFO", "backend.health_ok", "Authenticated end-to-end check passed. Exit: " + observed);
@@ -337,6 +368,11 @@ public sealed class Backend : IAsyncDisposable
                 for (int second = 0; second < (misses > 0 ? 3 : 25); second++)
                 {
                     await Task.Delay(1000, token); EnsureAlive(owned);
+                    if (settings.SystemProxy && proxyLease != null && !proxyLease.IsCurrent)
+                    {
+                        lock (gate) captureStatus = WindowsProxy.Describe(WindowsProxy.Read());
+                        if (State != "Proxy conflict") SetState("Proxy conflict", "Windows proxy changed outside Personal VPN. Use proxy to reclaim it; disable automatic proxy selection in the competing app if it keeps changing.", expected);
+                    }
                 }
             }
         }
@@ -403,6 +439,7 @@ public sealed class Backend : IAsyncDisposable
     {
         lock (gate) { var process = cores.LastOrDefault()?.Process ?? throw new InvalidOperationException("No owned core."); process.Kill(); }
     }
+    internal int RouterPidForTest { get { lock (gate) return cores.Last().Process.Id; } }
     public async ValueTask DisposeAsync()
     {
         NetworkChange.NetworkAddressChanged -= OnNetworkChange;
