@@ -38,11 +38,12 @@ public static class MobileValidation
         var policy = new Settings { Sites = new TunnelPolicy { Mode = "Block", Entries = new() { new() { Kind = "Domain", Value = "example.com", Action = "Block" } } }, Apps = new TunnelPolicy { Mode = "Tunnel", Entries = new() { new() { Kind = "App", Value = @"C:\Apps\browser.exe", Action = "Bypass" } } } };
         var plan = TunPlan.Compile(policy, new[] { "203.0.113.10", "2001:db8::10" }, new[] { @"C:\PersonalVPN\cores\xray.exe", @"C:\PersonalVPN\cores\hysteria.exe" });
         var tunRules = plan["route"]!["rules"]!.AsArray();
-        Assert((string?)tunRules[3]?["outbound"] == "direct" && tunRules[3]?["process_path"] != null && (string?)tunRules[4]?["action"] == "reject", "App exception must beat a conflicting site Block.");
+        Assert((string?)tunRules[3]?["outbound"] == "direct" && tunRules[3]?["process_path_regex"] != null && (string?)tunRules[4]?["action"] == "reject", "App exception must beat a conflicting site Block.");
         Assert(plan["inbounds"]![0]!["route_exclude_address"]!.AsArray().Count == 2, "Transport recursion exclusions lost.");
         var before = Policy.Compile(policy).ToJsonString(); policy.Apps.Entries[0].Action = "Block"; Assert(before == Policy.Compile(policy).ToJsonString(), "App draft must never affect Proxy routing.");
         bool rejected = false; try { Policy.ValidateTunnel(new TunnelPolicy { Entries = new() { new() { Kind = "App", Value = "browser.exe" } } }, true); } catch (InvalidOperationException) { rejected = true; }
         Assert(rejected, "An ambiguous executable name was accepted.");
+        Assert(System.Text.RegularExpressions.Regex.IsMatch(@"c:\APPS\BROWSER.EXE", TunPlan.PathPattern(@"C:\Apps\browser.exe")), "Windows executable matching must ignore path casing.");
         checks.Add("Wintun plan app-before-site precedence, transport exclusions, Proxy ignores app drafts, full executable paths"); return checks;
     }
     public static int Run(string[] args)

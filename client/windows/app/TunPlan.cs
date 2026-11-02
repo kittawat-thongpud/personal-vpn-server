@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Text;
 using System.Text.Json.Nodes;
 
 namespace PersonalVpn;
@@ -26,14 +27,14 @@ public static class TunPlan
         if (paths.Length == 0) throw new InvalidOperationException("Owned VPN core paths must be excluded from capture.");
         var rules = new JsonArray
         {
-            new JsonObject { ["process_path"] = Strings(paths), ["action"] = "route", ["outbound"] = "direct" },
+            new JsonObject { ["process_path_regex"] = Strings(paths.Select(PathPattern)), ["action"] = "route", ["outbound"] = "direct" },
             new JsonObject { ["action"] = "sniff" },
             new JsonObject { ["protocol"] = "dns", ["action"] = "hijack-dns" }
         };
-        if (healthProcessPath != null) rules.Add(new JsonObject { ["process_path"] = new JsonArray(healthProcessPath), ["action"] = "route", ["outbound"] = "tunnel" });
+        if (healthProcessPath != null) rules.Add(new JsonObject { ["process_path_regex"] = new JsonArray(PathPattern(healthProcessPath)), ["action"] = "route", ["outbound"] = "tunnel" });
         // Explicit app rules win even when a site has an explicit Block rule.
         // DNS/control routing precedes user data rules; defaults come last.
-        if (settings.Apps.Mode != "Disabled") foreach (var entry in settings.Apps.Entries) rules.Add(Rule(entry, "process_path"));
+        if (settings.Apps.Mode != "Disabled") foreach (var entry in settings.Apps.Entries) rules.Add(Rule(entry, "process_path_regex"));
         if (settings.Sites!.Mode != "Disabled")
             foreach (var entry in Policy.SiteEntries(settings.Sites)) rules.Add(Rule(entry, entry.Kind == "Domain" ? "domain_suffix" : "ip_cidr"));
         string fallback = settings.Apps.Mode != "Disabled" ? settings.Apps.Mode : settings.Sites.Mode != "Disabled" ? settings.Sites.Mode : "Tunnel";
@@ -59,10 +60,20 @@ public static class TunPlan
             ["route"] = new JsonObject { ["auto_detect_interface"] = true, ["default_domain_resolver"] = "remote-dns", ["rules"] = rules, ["final"] = fallback == "Block" ? "tunnel" : Policy.Tag(fallback) }
         };
     }
+    internal static string PathPattern(string path)
+    {
+        var pattern = new StringBuilder("(?i)^");
+        foreach (char value in System.IO.Path.GetFullPath(path))
+        {
+            if ("\\.+*?()|[]{}^$".Contains(value)) pattern.Append('\\');
+            pattern.Append(value);
+        }
+        return pattern.Append('$').ToString();
+    }
     private static JsonArray Strings(IEnumerable<string> values) => new(values.Select(x => JsonValue.Create(x)).ToArray());
     private static JsonObject Rule(TunnelException entry, string field)
     {
-        var rule = new JsonObject { [field] = new JsonArray(entry.Value), ["action"] = entry.Action == "Block" ? "reject" : "route" };
+        var rule = new JsonObject { [field] = new JsonArray(field == "process_path_regex" ? PathPattern(entry.Value) : entry.Value), ["action"] = entry.Action == "Block" ? "reject" : "route" };
         if (entry.Action != "Block") rule["outbound"] = Policy.Tag(entry.Action); return rule;
     }
 }

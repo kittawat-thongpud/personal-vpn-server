@@ -55,7 +55,8 @@ internal static partial class Tests
             int appTunnel = await Curl(); Assert(appTunnel == 0, "Explicit app Tunnel must win over site Block: curl=" + appTunnel + "; " + lastCurlError + "; " + backend.NativeTunDiagnostic);
             checks.Add("explicit App Tunnel overrides a conflicting Site Block on an external process");
             await backend.StopAsync();
-            Assert(!NetworkInterface.GetAllNetworkInterfaces().Any(x => x.Name == TunLease.Name), "Owned TUN adapter remained after stop.");
+            for (int i = 0; i < 50 && NetworkInterface.GetAllNetworkInterfaces().Any(x => x.Name == TunLease.Name); i++) await Task.Delay(100);
+            Assert(!NetworkInterface.GetAllNetworkInterfaces().Any(x => x.Name == TunLease.Name), "Owned TUN adapter remained after stop: " + string.Join("; ", NetworkInterface.GetAllNetworkInterfaces().Where(x => x.Name == TunLease.Name).Select(x => x.Id + " " + x.OperationalStatus)));
         }
         Assert(dnsBefore == DnsSnapshot(), "Physical-interface DNS changed.");
         checks.Add("normal stop removes owned adapter and routes; physical DNS remains unchanged");

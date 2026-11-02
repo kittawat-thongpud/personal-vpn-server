@@ -88,6 +88,8 @@ public sealed class TunLease : IDisposable
             }
             finally
             {
+                var last = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(x => x.Name == record.Name);
+                if (last != null && Guid.TryParse(last.Id, out var lastId)) { record.AdapterId = lastId; File.WriteAllText(Path.Combine(folder, "tun-lease.json"), JsonSerializer.Serialize(record)); }
                 for (int i = 0; i < 20 && WintunAdapter.Exists(record.AdapterId); i++) Thread.Sleep(100);
                 if (WintunAdapter.Exists(record.AdapterId)) WintunAdapter.RemoveOrphan(record.AdapterId, record.Name);
             }
@@ -105,6 +107,7 @@ public sealed class TunLease : IDisposable
         File.WriteAllText(Path.Combine(folder, "tun-stop"), "stop");
         if (!guard.WaitForExit(8000)) { guard.Kill(); guard.WaitForExit(3000); }
         guard.Dispose();
+        record.AdapterId = JsonSerializer.Deserialize<Record>(File.ReadAllText(Path.Combine(folder, "tun-lease.json")))!.AdapterId;
         for (int i = 0; i < 30 && WintunAdapter.Exists(record.AdapterId); i++) Thread.Sleep(100);
         // Fallback for a killed guard / native teardown failure. Validate both the
         // exact recorded GUID and our adapter name before any device removal.
