@@ -1,5 +1,9 @@
 # Personal VPN server module
 
+Windows client requirements and the staged network-safe test plan are recorded
+in [client/windows/DESIGN.md](client/windows/DESIGN.md). This is a design document;
+the current releases contain the server module.
+
 ชุดสร้าง Docker/OCI images สำหรับ VPS Linux ใช้คนเดียวหลายอุปกรณ์:
 
 | ส่วน | หน้าที่ |
