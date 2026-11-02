@@ -74,7 +74,8 @@ jobs:
         shell: pwsh
         run: |
           $report = "$env:RUNNER_TEMP/tun-integration.json"
-          $p = Start-Process (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--local-tun-integration','--report',$report) -PassThru -Wait -WindowStyle Hidden
+          $p = Start-Process (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--local-tun-integration','--report',$report) -PassThru -WindowStyle Hidden
+          if (-not $p.WaitForExit(240000)) { $p.Kill($true); throw 'TUN integration exceeded its deadline' }
           Get-Content $report
           if ($p.ExitCode -ne 0) { throw 'TUN integration failed' }
       - name: Build Windows installer

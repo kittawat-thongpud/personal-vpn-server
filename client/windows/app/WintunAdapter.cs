@@ -72,24 +72,23 @@ public sealed class WintunAdapter : IDisposable
                 if (!SetupDiEnumDeviceInfo(set, index, ref device)) break;
                 IntPtr handle = SetupDiOpenDevRegKey(set, ref device, 1, 0, 2, 0x20019);
                 if (handle == new IntPtr(-1)) continue;
-                using var safe = new Microsoft.Win32.SafeHandles.SafeRegistryHandle(handle, true);
-                using var key = RegistryKey.FromHandle(safe);
-                if (!Guid.TryParse(key.GetValue("NetCfgInstanceId") as string, out var current) || current != id) continue;
-                if (!Environment.Is64BitProcess && Environment.Is64BitOperatingSystem)
-                {
-                    var instance = new StringBuilder(512);
-                    if (!SetupDiGetDeviceInstanceId(set, ref device, instance, instance.Capacity, out _)) throw new Win32Exception();
-                    var info = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Sysnative", "pnputil.exe")) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
-                    info.ArgumentList.Add("/remove-device"); info.ArgumentList.Add(instance.ToString());
-                    using var process = Process.Start(info) ?? throw new InvalidOperationException("Native device cleanup did not start.");
-                    var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
-                    if (!process.WaitForExit(15000)) { process.Kill(); throw new InvalidOperationException("Native device cleanup timed out."); }
-                    System.Threading.Tasks.Task.WaitAll(output, error);
-                    if (process.ExitCode != 0) throw new InvalidOperationException("Native device cleanup failed: " + process.ExitCode);
-                    return;
-                }
-                var remove = new RemoveParameters { HeaderSize = 8, Function = 5, Scope = 1 };
-                if (!SetupDiSetClassInstallParams(set, ref device, ref remove, Marshal.SizeOf<RemoveParameters>()) || !SetupDiCallClassInstaller(5, set, ref device)) throw new Win32Exception();
+                bool matches;
+                using (var safe = new Microsoft.Win32.SafeHandles.SafeRegistryHandle(handle, true))
+                using (var key = RegistryKey.FromHandle(safe))
+                    matches = Guid.TryParse(key.GetValue("NetCfgInstanceId") as string, out var current) && current == id;
+                if (!matches) continue;
+                // Close registry handles before asking Windows to uninstall this
+                // exact device. Run native cleanup out of process with a deadline.
+                var instance = new StringBuilder(512);
+                if (!SetupDiGetDeviceInstanceId(set, ref device, instance, instance.Capacity, out _)) throw new Win32Exception();
+                string system = !Environment.Is64BitProcess && Environment.Is64BitOperatingSystem ? "Sysnative" : "System32";
+                var info = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), system, "pnputil.exe")) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+                info.ArgumentList.Add("/remove-device"); info.ArgumentList.Add(instance.ToString());
+                using var process = Process.Start(info) ?? throw new InvalidOperationException("Native device cleanup did not start.");
+                var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
+                if (!process.WaitForExit(15000)) { process.Kill(); throw new InvalidOperationException("Native device cleanup timed out."); }
+                System.Threading.Tasks.Task.WaitAll(new System.Threading.Tasks.Task[] { output, error }, 2000);
+                if (process.ExitCode != 0) throw new InvalidOperationException("Native device cleanup failed: " + process.ExitCode);
                 return;
             }
         }
