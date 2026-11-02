@@ -5,6 +5,21 @@
   <SolidColorBrush x:Key="Ink" Color="#ECF2FF"/>
   <SolidColorBrush x:Key="MutedInk" Color="#9BAECD"/>
   <SolidColorBrush x:Key="Accent" Color="#16C8A0"/>
+  <Style TargetType="RadioButton">
+    <Setter Property="Foreground" Value="{StaticResource MutedInk}"/><Setter Property="Background" Value="Transparent"/>
+    <Setter Property="Margin" Value="2"/><Setter Property="Cursor" Value="Hand"/><Setter Property="HorizontalContentAlignment" Value="Center"/>
+    <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RadioButton">
+      <Border x:Name="segment" Background="{TemplateBinding Background}" BorderBrush="Transparent" BorderThickness="1" CornerRadius="9" Padding="10,5">
+        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+      </Border><ControlTemplate.Triggers>
+        <Trigger Property="IsChecked" Value="True"><Setter TargetName="segment" Property="Background" Value="#245970"/><Setter Property="Foreground" Value="#EFFFFB"/><Setter Property="FontWeight" Value="SemiBold"/></Trigger>
+        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="segment" Property="BorderBrush" Value="#517294"/></Trigger>
+        <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="segment" Property="BorderBrush" Value="#64A8FF"/></Trigger>
+        <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.4"/></Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
   <Style TargetType="Button">
     <Setter Property="Background" Value="#243553"/><Setter Property="Foreground" Value="{StaticResource Ink}"/>
     <Setter Property="Padding" Value="12,8"/><Setter Property="Margin" Value="3"/>

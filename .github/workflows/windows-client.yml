@@ -65,20 +65,20 @@ jobs:
           $validator = Get-ChildItem "$env:RUNNER_TEMP/sing-box" -Filter sing-box.exe -Recurse | Select-Object -First 1
           & $validator.FullName check -c "$output/tun-plan.json"
           if ($LASTEXITCODE -ne 0) { throw 'Wintun plan rejected by pinned upstream validator' }
-          Compress-Archive "$output/*.png" dist/PersonalVPN-ui-preview-0.3.2.zip
+          Compress-Archive "$output/*.png" dist/PersonalVPN-ui-preview-0.4.0.zip
       - name: Package and publish Windows preview
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $version = '0.3.2'
+          $version = '0.4.0'
           $tag = "windows-v$version"
           $archive = "PersonalVPN-windows-x64-$version.zip"
           Compress-Archive -Path dist/windows/* -DestinationPath "dist/$archive" -CompressionLevel Optimal
           $hash = (Get-FileHash "dist/$archive" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $archive" | Set-Content dist/SHA256SUMS.txt -Encoding ascii
           $notes = @'
-          Mobile vertical Windows UI with Home and Settings. Home fits without page scrolling. VPN configuration, per-target Site Tunnel exceptions, App Tunnel drafts and bounded backend logs live under Settings. App exceptions are prepared for Wintun and do not affect Proxy routing. The Wintun routing-plan compiler is schema-checked; the adapter / elevated host is not enabled in this release.
+          Tray-first Windows client with a generated application icon. X / Minimize hide the window while VPN stays running; use Disconnect & exit from the tray to quit and restore the previous proxy. The dark tray menu includes connect, reconnect, profiles, protocols, settings, logs and export. Home has a confirmed Proxy / TUN selector below the profile. Proxy is functional; TUN activation is guarded until its runtime is implemented. App Tunnel is visible but disabled in Proxy. Existing credentials and app drafts are preserved.
 
           Extract the ZIP and run install.ps1 with PowerShell. No administrator rights or separate .NET install required. Import device exports locally; no credentials are bundled.
 
@@ -87,10 +87,10 @@ jobs:
           $notes | Set-Content "$env:RUNNER_TEMP/windows-release.md" -Encoding utf8
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag "dist/$archive" dist/SHA256SUMS.txt dist/PersonalVPN-ui-preview-0.3.2.zip --clobber
+            gh release upload $tag "dist/$archive" dist/SHA256SUMS.txt dist/PersonalVPN-ui-preview-0.4.0.zip --clobber
             if ($LASTEXITCODE -ne 0) { throw 'Release asset upload failed' }
             gh release edit $tag --target $env:GITHUB_SHA --notes-file "$env:RUNNER_TEMP/windows-release.md"
           } else {
-            gh release create $tag "dist/$archive" dist/SHA256SUMS.txt dist/PersonalVPN-ui-preview-0.3.2.zip --target $env:GITHUB_SHA --title "Windows client $version preview" --notes-file "$env:RUNNER_TEMP/windows-release.md" --prerelease
+            gh release create $tag "dist/$archive" dist/SHA256SUMS.txt dist/PersonalVPN-ui-preview-0.4.0.zip --target $env:GITHUB_SHA --title "Windows client $version preview" --notes-file "$env:RUNNER_TEMP/windows-release.md" --prerelease
           }
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }

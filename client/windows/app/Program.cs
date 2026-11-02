@@ -35,7 +35,11 @@ public static class Program
         if (arguments.Contains("--local-proxy-integration")) return Tests.LocalProxyIntegration(arguments).GetAwaiter().GetResult();
         if (arguments.Contains("--probe-protocol")) return Tests.ProtocolProbe(arguments).GetAwaiter().GetResult();
         using var mutex = new Mutex(true, @"Local\PersonalVPN-" + Environment.UserName, out bool created);
-        if (!created) { MessageBox.Show("Personal VPN is already running. Restore its window from the taskbar.", "Personal VPN"); return 0; }
+        if (!created)
+        {
+            if (!MainWindow.NotifyExistingWindow()) MessageBox.Show("Personal VPN is already running. Open it from its tray icon (or the taskbar for an older version).", "Personal VPN");
+            return 0;
+        }
         try
         {
             SystemProxyLease.RecoverAbandoned();

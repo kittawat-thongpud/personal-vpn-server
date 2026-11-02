@@ -46,7 +46,7 @@ public sealed partial class MainWindow : Window
         settings = initial;
         Policy.Upgrade(settings);
         settings.SystemProxy = true;
-        Title = "Personal VPN · Windows preview 0.3.2";
+        Title = "Personal VPN · Windows preview 0.4.0";
         Width = Math.Min(438, SystemParameters.WorkArea.Width - 24); Height = Math.Min(800, SystemParameters.WorkArea.Height - 24);
         MinWidth = Math.Min(380, Width); MinHeight = Math.Min(640, Height);
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -78,13 +78,12 @@ public sealed partial class MainWindow : Window
         Grid.SetRow(navigation, 2); shell.Children.Add(navigation);
         layoutRoot = new Grid { Background = Background }; layoutRoot.Children.Add(shell); Content = layoutRoot;
         timer.Tick += (_, _) => Refresh(); timer.Start();
-        Closing += async (_, args) =>
+        Closing += (_, args) =>
         {
             if (exiting) return;
-            args.Cancel = true; IsEnabled = false; timer.Stop();
-            await backend.DisposeAsync(); exiting = true;
-            Dispatcher.BeginInvoke(new System.Action(Close));
+            args.Cancel = true; HideToTray();
         };
+        InitializeTray();
         Navigate("Home");
         if (autoConnect) ContentRendered += async (_, _) => { try { await ConnectSelectedProxy(); } catch (Exception error) { ShowError(error); } };
     }
@@ -92,6 +91,7 @@ public sealed partial class MainWindow : Window
     private async Task ConnectSelectedProxy()
     {
         if (previewOnly) throw new InvalidOperationException("Layout preview cannot connect or change system proxy settings.");
+        CaptureCapabilities.EnsureAvailable(settings.CaptureMode);
         connectBusy = true;
         try
         {
@@ -127,9 +127,12 @@ public sealed partial class MainWindow : Window
         };
         return button;
     }
-    private void ShowError(Exception error) => MessageBox.Show(this,
-        error is InvalidOperationException or InvalidDataException ? error.Message : "Operation failed (" + error.GetType().Name + "). Check profile format and permissions.",
-        "Personal VPN", MessageBoxButton.OK, MessageBoxImage.Warning);
+    private void ShowError(Exception error)
+    {
+        if (quitInProgress) return;
+        MessageBox.Show(this, error is InvalidOperationException or InvalidDataException ? error.Message : "Operation failed (" + error.GetType().Name + "). Check profile format and permissions.",
+            "Personal VPN", MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
     private void Changed(bool affectsConnection = true)
     {
         if (previewOnly) return;
@@ -138,6 +141,7 @@ public sealed partial class MainWindow : Window
     private StackPanel Stack() => new() { Orientation = Orientation.Vertical };
     private void Navigate(string target)
     {
+        if (target == "AppTunnel" && settings.CaptureMode != "TUN" && !previewOnly) return;
         page = target; subtitle.Text = target switch { "Profiles" => "Server profiles", "VpnConfig" => "VPN configure", "AppTunnel" => "App Tunnel", "SiteTunnel" => "Site Tunnel", "Diagnostics" => "Backend logs", _ => target }; status = detail = exit = draftNotice = logCount = captureDetail = null; connect = null; logText = null; lastLogText = "";
         backButton.Visibility = target is "Home" or "Settings" ? Visibility.Hidden : Visibility.Visible;
         homeNav.Background = Color(target is "Home" or "Profiles" ? "#244C68" : "#18263A"); settingsNav.Background = Color(target is not ("Home" or "Profiles") ? "#244C68" : "#18263A");
@@ -210,19 +214,18 @@ public sealed partial class MainWindow : Window
     private void BuildLogs()
     {
         var grid = new Grid(); grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); grid.RowDefinitions.Add(new RowDefinition());
-        grid.Children.Add(Text("VPN backend only · session memory · max 1,000 records / 1 MiB\nClosing and reopening starts a fresh log session.", 13, "#9BAECD"));
+        grid.Children.Add(Text("VPN backend only · session memory · max 1,000 records / 1 MiB\nExit and reopen starts a fresh session; hiding to tray retains logs.", 13, "#9BAECD"));
         var tools = new DockPanel { Margin = new Thickness(0, 10, 0, 10) };
-        var clear = Action("Clear", () => { backend.Log.Clear(); lastLogText = ""; if (logText != null) logText.Text = ""; Refresh(); }); tools.Children.Add(clear);
-        tools.Children.Add(Action("Export", () =>
-        {
-            var picker = new SaveFileDialog { FileName = "personal-vpn-session.json", Filter = "JSON|*.json" };
-            if (picker.ShowDialog(this) == true) File.WriteAllText(picker.FileName, JsonSerializer.Serialize(backend.Log.Snapshot(), Store.JsonOptions));
-        })); logCount = Text("0 / 1,000", 12, "#9BAECD"); tools.Children.Add(logCount); Grid.SetRow(tools, 1); grid.Children.Add(tools);
+        var clear = Action("Clear", ClearSessionLogs); tools.Children.Add(clear);
+        tools.Children.Add(Action("Export", ExportSessionLogs)); logCount = Text("0 / 1,000", 12, "#9BAECD"); tools.Children.Add(logCount); Grid.SetRow(tools, 1); grid.Children.Add(tools);
         logText = new TextBox { IsReadOnly = true, FontFamily = new FontFamily("Cascadia Mono,Consolas"), FontSize = 12, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, AcceptsReturn = true, MinHeight = 0 };
         Grid.SetRow(logText, 2); grid.Children.Add(logText); content.Content = grid; Refresh();
     }
     private void Refresh()
     {
+        if (exiting || quitInProgress) return;
+        if (showRequest?.WaitOne(0) == true) { RestoreFromTray(); return; }
+        tray?.Update();
         if (status != null) { status.Text = backend.State; status.Foreground = Color(backend.State == "Connected" ? "#57DCB5" : "#D7E4F8"); }
         if (detail != null) detail.Text = backend.Detail;
         if (exit != null) exit.Text = "Exit IP: " + backend.ExitIp;

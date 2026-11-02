@@ -51,6 +51,7 @@ public sealed class Settings
     public string? SelectedId { get; set; }
     public string Protocol { get; set; } = "Hysteria 2";
     public string Traffic { get; set; } = "Global";
+    public string CaptureMode { get; set; } = "Proxy";
     public bool ChainReality { get; set; }
     public bool SystemProxy { get; set; } = true;
     public int UpstreamPort { get; set; } = 7688;
@@ -66,6 +67,7 @@ public sealed class Settings
     public void Validate()
     {
         _ = Selected;
+        CaptureCapabilities.EnsureAvailable(CaptureMode);
         if (HttpPort is < 1024 or > 65535 || SocksPort is < 1024 or > 65535 || HttpPort == SocksPort)
             throw new InvalidOperationException("Choose two different local ports between 1024 and 65535.");
         if (Protocol != "Hysteria 2" && Protocol != "REALITY") throw new InvalidOperationException("Select a supported protocol.");

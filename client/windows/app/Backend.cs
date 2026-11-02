@@ -193,6 +193,8 @@ public sealed class Backend : IAsyncDisposable
     }
     public async Task ConnectProxyAsync(Settings settings)
     {
+        CaptureCapabilities.EnsureAvailable(settings.CaptureMode);
+        if (settings.CaptureMode != "Proxy") throw new InvalidOperationException("A TUN configuration cannot be started as a Proxy session.");
         settings.SystemProxy = true;
         await StartAsync(settings);
         CancellationTokenSource? requestedSession; lock (gate) requestedSession = session;

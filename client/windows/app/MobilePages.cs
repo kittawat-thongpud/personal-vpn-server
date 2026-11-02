@@ -42,14 +42,11 @@ public sealed partial class MainWindow
         labels.Children.Add(Text(profile == null ? "Import a device profile" : DisplayEndpoint(profile), 11, "#9BAECD")); Grid.SetColumn(labels, 1); card.Children.Add(labels);
         var arrow = Text("›", 24, "#86B8FF"); arrow.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(arrow, 2); card.Children.Add(arrow);
         var server = Action("", () => Navigate("Profiles")); server.Content = card; server.HorizontalContentAlignment = HorizontalAlignment.Stretch; server.Name = "ServerCard"; server.Height = 75; server.Margin = new Thickness(0, 0, 0, 8); Put(body, server, 0);
-        var badge = Text(settings.Protocol + "  ·  " + ModeName(settings.Sites!.Mode), 11, "#9BAECD"); badge.TextAlignment = TextAlignment.Center; badge.Margin = new Thickness(0, 0, 0, 3); Put(body, badge, 1);
+        var capture = Stack(); capture.Children.Add(CaptureSelector());
+        var badge = Text(settings.Protocol + "  ·  " + ModeName(settings.Sites!.Mode), 11, "#9BAECD"); badge.TextAlignment = TextAlignment.Center; badge.Margin = new Thickness(0, 1, 0, 3); capture.Children.Add(badge); Put(body, capture, 1);
         var center = PageRows(Auto, Star, Auto, Auto, Auto); center.Margin = new Thickness(0, 3, 0, 8);
         status = Text(backend.State, 22); status.TextAlignment = TextAlignment.Center; Put(center, status, 0);
-        connect = AsyncAction("Connect", async () =>
-        {
-            if (backend.Running && !dirty && backend.State == "Proxy conflict") await backend.ReclaimProxyAsync();
-            else if (backend.Running && !dirty) await backend.StopAsync(); else await ConnectSelectedProxy(); Refresh();
-        });
+        connect = AsyncAction("Connect", ToggleConnection);
         connect.Name = "ConnectButton"; connect.Width = connect.Height = 172; connect.FontSize = 18; connect.Margin = new Thickness(0); connect.Background = Color("#14C7A0"); connect.Foreground = Color("#052D28");
         connect.Template = (ControlTemplate)XamlReader.Parse("""
           <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="Button">
@@ -68,10 +65,11 @@ public sealed partial class MainWindow
     {
         var body = PageRows(Auto, Star, Auto); Put(body, Text("CONNECTION & ROUTING", 10, "#9BAECD"), 0);
         var rows = Stack(); rows.Children.Add(SettingsRow("VPN configure", settings.Protocol + " · protocol & connection options", "VpnConfig"));
-        rows.Children.Add(SettingsRow("App Tunnel", "Executable exceptions · Wintun required", "AppTunnel"));
+        var appTunnel = SettingsRow("App Tunnel", settings.CaptureMode == "Proxy" ? "Unavailable in Proxy · requires TUN mode" : "Executable exceptions · App rules win", "AppTunnel");
+        appTunnel.Name = "AppTunnelSettings"; appTunnel.IsEnabled = settings.CaptureMode == "TUN" && CaptureCapabilities.TunAvailable; rows.Children.Add(appTunnel);
         rows.Children.Add(SettingsRow("Site Tunnel", "Domain / IP exceptions · " + ModeName(settings.Sites!.Mode), "SiteTunnel"));
         rows.Children.Add(SettingsRow("Backend logs", "Session only · up to 1,000 records", "Diagnostics")); Put(body, rows, 1);
-        Put(body, Text("PERSONAL VPN  0.3.2\nProxy capture · Wintun module in development", 11, "#8395B2"), 2); return body;
+        Put(body, Text("PERSONAL VPN  0.4.0\nProxy capture · Wintun module in development", 11, "#8395B2"), 2); return body;
     }
     private Button SettingsRow(string title, string description, string target)
     {
@@ -132,6 +130,7 @@ public sealed partial class MainWindow
     {
         var policy = apps ? settings.Apps : settings.Sites!; string target = apps ? "AppTunnel" : "SiteTunnel";
         var body = PageRows(Auto, Star, Auto); var header = Stack();
+        if (apps && (settings.CaptureMode != "TUN" || !CaptureCapabilities.TunAvailable)) body.IsEnabled = false;
         header.Children.Add(Text(apps ? "TUN REQUIRED · SAVED DRAFT ONLY" : "DEFAULT ACTION + EXCEPTIONS", 10, apps ? "#E9BB72" : "#9BAECD"));
         header.Children.Add(Combo(ModeLabels, ModeName(policy.Mode), label => { policy.Mode = ModeValues[Array.IndexOf(ModeLabels, label)]; Changed(!apps); Navigate(target); }));
         header.Children.Add(Text(apps ? "Inactive in Proxy mode. In Wintun, app exceptions win over site exceptions." : "Exceptions override the default. Rules off ignores this list and tunnels captured traffic.", 11, "#9BAECD"));

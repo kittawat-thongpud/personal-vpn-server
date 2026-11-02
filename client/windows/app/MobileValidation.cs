@@ -51,6 +51,7 @@ public static class MobileValidation
         try
         {
             checks.AddRange(PolicyChecks()); _ = Application.Current ?? new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            checks.AddRange(TrayValidation.Checks());
             string output = Path.GetFullPath(Program.Option(args, "--output") ?? throw new InvalidOperationException("Layout output folder required.")); Directory.CreateDirectory(output);
             var profile = new ServerProfile { Name = "Japan · preview", Country = "JP", Hysteria = """{"server":"203.0.113.10:443","auth":"synthetic-test-only","tls":{"sni":"test.example","insecure":true,"pinSHA256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}""" };
             var settings = new Settings { Profiles = new() { profile }, SelectedId = profile.Id };
@@ -64,6 +65,8 @@ public static class MobileValidation
             window.WindowStartupLocation = WindowStartupLocation.Manual; window.WindowStyle = WindowStyle.None;
             window.MinHeight = window.MinWidth = 0; window.Left = window.Top = -30000;
             window.ShowActivated = false; window.ShowInTaskbar = false; window.Show();
+            Assert(window.HiddenCloseForTest(), "Closing must hide to tray without stopping backend or clearing logs.");
+            checks.Add("X hides window, remains outside taskbar, reopen retains backend session logs");
             foreach (var size in new[] { new Size(380, 590), new Size(438, 750), new Size(1280, 760) })
             foreach (string page in new[] { "Home", "Settings", "AppTunnel", "SiteTunnel", "Diagnostics", "VpnConfig", "Profiles" })
             {
@@ -71,12 +74,18 @@ public static class MobileValidation
                 if (page == "Home")
                 {
                     Assert(!elements.OfType<ScrollViewer>().Any(), "Home must not have an outer scrollbar.");
-                    foreach (string name in new[] { "ServerCard", "ConnectButton", "TrafficCard" })
+                    foreach (string name in new[] { "ServerCard", "CaptureSelector", "ConnectButton", "TrafficCard" })
                     {
                         var item = elements.Single(x => x.Name == name); var bounds = item.TransformToAncestor(root).TransformBounds(new Rect(item.RenderSize));
                         Assert(bounds.Top >= -.5 && bounds.Bottom <= size.Height + .5 && bounds.Left >= -.5 && bounds.Right <= size.Width + .5 && bounds.Height > 20, "Home widget clipped: " + name);
                     }
                     var server = elements.Single(x => x.Name == "ServerCard"); Assert(server.ActualWidth <= 460, "Maximized window lost the centered mobile column.");
+                }
+                if (page == "Settings") Assert(!elements.OfType<Button>().Single(x => x.Name == "AppTunnelSettings").IsEnabled, "App Tunnel must remain visible but disabled in Proxy.");
+                if (page == "AppTunnel")
+                {
+                    Assert(!elements.OfType<Button>().Single(x => x.Content as string == "+ Choose app.exe").IsEnabled, "Disabled App Tunnel has an active app picker.");
+                    Assert(!elements.OfType<Button>().Single(x => x.Content as string == "Save draft").IsEnabled, "Disabled App Tunnel has an active save action.");
                 }
                 if (page == "Diagnostics")
                 {
@@ -89,6 +98,14 @@ public static class MobileValidation
                 var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap)); using var file = File.Create(Path.Combine(output, page + "-" + (int)size.Width + ".png")); encoder.Save(file);
             }
             checks.Add("all mobile pages rendered at small, default and wide sizes; Home widgets fit without page scroll; bounded log viewport");
+            var confirmation = window.CaptureConfirmationForTest("TUN");
+            confirmation.WindowStartupLocation = WindowStartupLocation.Manual; confirmation.ShowActivated = false; confirmation.Left = confirmation.Top = -30000;
+            confirmation.Show(); confirmation.UpdateLayout();
+            Assert(!Elements(confirmation).OfType<Button>().Single(x => x.Name == "ConfirmCaptureMode").IsEnabled && settings.CaptureMode == "Proxy", "TUN confirmation must not mutate capture or permit unavailable runtime.");
+            var dialogBitmap = new RenderTargetBitmap((int)confirmation.ActualWidth, (int)confirmation.ActualHeight, 96, 96, PixelFormats.Pbgra32); dialogBitmap.Render(confirmation);
+            var dialogEncoder = new PngBitmapEncoder(); dialogEncoder.Frames.Add(BitmapFrame.Create(dialogBitmap));
+            using (var dialogFile = File.Create(Path.Combine(output, "CaptureConfirmation.png"))) dialogEncoder.Save(dialogFile);
+            confirmation.Close(); checks.Add("capture confirmation visible; unavailable TUN cannot be confirmed; Proxy and profiles retained");
             File.WriteAllText(Path.Combine(output, "tun-plan.json"), TunPlan.Compile(settings, new[] { "203.0.113.10" }, new[] { @"C:\PersonalVPN\cores\xray.exe", @"C:\PersonalVPN\cores\hysteria.exe" }).ToJsonString(Store.JsonOptions));
             File.WriteAllText(Program.Option(args, "--report")!, JsonSerializer.Serialize(new { result = "PASS", checks }, Store.JsonOptions)); return 0;
         }

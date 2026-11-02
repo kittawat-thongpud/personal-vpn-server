@@ -1,6 +1,18 @@
-# Personal VPN for Windows — 0.3.2 preview
+# Personal VPN for Windows — 0.4.0 preview
 
-Real Windows x64 application, built in GitHub Actions. Unzip the Windows release
+Real Windows x64 application, built in GitHub Actions. The app lives in the Windows
+system tray rather than the taskbar. X and Minimize hide the window and retain the
+VPN session. Left-click the tray icon or open the shortcut to restore the window.
+Use **Disconnect & exit** in the tray menu to stop owned cores, restore the previous
+proxy settings and quit. The tray menu also offers connection / reconnect, profile
+and protocol selection, settings, logs, clear / export and copy exit IP.
+
+The Home **Proxy / TUN** segmented selector is below the server card. Changing mode
+requires confirmation. This build supports Proxy only: selecting TUN explains the
+missing runtime and disables confirmation, preserving the current connection.
+App Tunnel remains visible but disabled in Proxy; existing app drafts are retained.
+
+ Unzip the Windows release
 and run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1`.
 Installation is per-user, without administrator rights. Open **Personal VPN** from
 the desktop / Start menu. The self-contained package includes the .NET runtime.
@@ -86,7 +98,7 @@ need their own entries. The TUN-plan compiler places explicit app exceptions
 before site exceptions, as requested. When enabled in the future TUN host, the
 App default follows exceptions; with App rules off the Site policy supplies the
 default. With both modules off all traffic tunnels. The elevated adapter host is
-not enabled in 0.3.2; see [WINTUN.md](WINTUN.md) for the implementation boundary.
+not enabled in 0.4.0; see [WINTUN.md](WINTUN.md) for the implementation boundary.
 
 **Settings > Backend logs** keeps diagnostics accessible without a top-level
 Logs tab. Clear, explicit Export and the session/size limits remain unchanged.
