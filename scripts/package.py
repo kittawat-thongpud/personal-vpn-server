@@ -7,8 +7,8 @@ root = Path(__file__).resolve().parents[1]
 destination = root / "vpn-server-source.tar.gz"
 files = ["README.md", "VALIDATION.md", "DEPLOY.md", "PUBLISH.md", "Dockerfile", "compose.yaml", "requirements.txt", "requirements-dev.txt", "VERSION", ".gitattributes",
          "vpnctl.py", ".dockerignore", ".gitignore", "scripts/host-tuning.sh", "scripts/package.py",
-         "scripts/release_bundle.py", "scripts/container_smoke.py", "scripts/install-docker-ubuntu.sh",
-         ".github/workflows/release.yml", "tests/test_vpnctl.py", "tests/test_release_bundle.py", "tests/integration.py"]
+         "scripts/release_bundle.py", "scripts/container_smoke.py", "scripts/install-docker-ubuntu.sh", "scripts/deployment.py",
+         ".github/workflows/release.yml", "tests/test_vpnctl.py", "tests/test_release_bundle.py", "tests/test_deployment.py", "tests/integration.py"]
 missing = [name for name in files if not (root / name).is_file()]
 if missing:
     raise SystemExit("Missing source files: " + ", ".join(missing))

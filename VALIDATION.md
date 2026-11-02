@@ -1,10 +1,35 @@
 # Validation record
 
-Date: 2026-10-30 (Asia/Shanghai). Host: Windows x64. No VPS was modified or deployed.
+## Deployment regression checks (2026-11-02)
 
-This is a source/build bundle. Docker/OCI images must be built using the supplied
-Dockerfile on a Linux Docker host. No prebuilt image or Linux runtime result is
-implied by the checks below.
+- The operator's VPS inspection showed correct read-only binds to `/etc/vpn`
+  but an empty host runtime directory and no `.state/server.json`. Initialization
+  and device creation generated the missing files. Subsequent operator output
+  showed Xray and Hysteria running and reading their configs.
+- The selected trial REALITY target was tested from that VPS with TLS1.3 and
+  HTTP/2. This does not establish client connectivity from China.
+- v0.1.1 adds `check-deployment` and `start`, anchored to the deployment directory,
+  checking required files, GID permissions, normalized Compose mounts, Xray's
+  config test inside its image, and actual running-container mounts.
+- Local regression run: 18 tests, 17 passed and one POSIX-only permission test
+  skipped on Windows. The workflow runs the same permission test on Linux.
+- The container smoke test now extracts the deployment bundle, retains its
+  relative config bind mounts, starts it from another cwd and checks that missing
+  state/config is reported before startup. Linux runtime results must be checked
+  on the corresponding Actions run before using the new release.
+
+## Published Linux validation (2026-11-01)
+
+The [v0.1.0 Actions run](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/41319981583)
+completed both verify and publish. It passed 15 unit tests, native Linux protocol
+integration and scratch-container startup/volume checks, then published GHCR
+images and the complete private release. That container test rewrote the bind
+source to an absolute temporary path; it did not exercise the extracted bundle.
+
+## Historical local checks (2026-10-30)
+
+Host: Windows x64. These initial local checks predated the published images and
+Linux CI results above. No VPS was modified from this host.
 
 ## GitHub release pipeline preparation (2026-11-01)
 

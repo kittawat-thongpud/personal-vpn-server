@@ -15,7 +15,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 FILES = ("vpnctl.py", "requirements.txt", "README.md", "DEPLOY.md",
-         "scripts/install-docker-ubuntu.sh", "scripts/host-tuning.sh")
+         "scripts/install-docker-ubuntu.sh", "scripts/host-tuning.sh", "scripts/deployment.py")
 
 
 def validate(repository: str, version: str, digests: dict[str, str]) -> None:

@@ -53,7 +53,7 @@ jobs:
           tags: personal-vpn/hysteria:2.13.0
           cache-from: type=gha,scope=hysteria
           cache-to: type=gha,scope=hysteria,mode=max
-      - name: Test scratch container startup and volume permissions
+      - name: Test extracted Release startup, missing files and volume permissions
         run: sudo "$pythonLocation/bin/python" scripts/container_smoke.py
 
   publish:

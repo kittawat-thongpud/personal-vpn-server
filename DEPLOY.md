@@ -24,12 +24,12 @@ put the token literal in a command or send it in chat.
 Run these commands in **Bash on the VPS**:
 
 ```bash
-mkdir -p "$HOME/vpn-release-v0.1.0"
-cd "$HOME/vpn-release-v0.1.0"
+mkdir -p "$HOME/vpn-release-v0.1.1"
+cd "$HOME/vpn-release-v0.1.1"
 read -r -s -p 'GitHub read-only token: ' GH_TOKEN
 printf '\n'
 export GH_TOKEN
-gh release download v0.1.0 --repo kittawat-thongpud/personal-vpn-server \
+gh release download v0.1.1 --repo kittawat-thongpud/personal-vpn-server \
   --pattern 'personal-vpn-*.tar.gz' --pattern 'images-linux-amd64-*.tar.gz' --pattern SHA256SUMS
 unset GH_TOKEN
 sha256sum -c SHA256SUMS
@@ -46,7 +46,7 @@ On the **first installation**, use a fresh deployment directory:
 
 ```bash
 sudo install -d -m 0755 /opt/personal-vpn
-sudo tar -xzf personal-vpn-v0.1.0.tar.gz -C /opt/personal-vpn
+sudo tar -xzf personal-vpn-v0.1.1.tar.gz -C /opt/personal-vpn
 cd /opt/personal-vpn
 sudo sh scripts/install-docker-ubuntu.sh
 ```
@@ -59,7 +59,7 @@ Load the image archive downloaded above (replace the path if you used a differen
 account or download directory):
 
 ```bash
-sudo docker load -i "$HOME/vpn-release-v0.1.0/images-linux-amd64-v0.1.0.tar.gz"
+sudo docker load -i "$HOME/vpn-release-v0.1.1/images-linux-amd64-v0.1.1.tar.gz"
 sudo python3 -m venv .venv
 sudo .venv/bin/python -m pip install -r requirements.txt
 ```
@@ -71,16 +71,13 @@ target reachable from the VPS. Do not use these placeholders literally.
 
 ```bash
 sudo install -d -m 0750 -g 10001 runtime
-sudo docker compose run --rm xray tls ping YOUR_TARGET_HOST:443
+sudo docker compose run --rm --no-deps --interactive=false xray tls ping YOUR_TARGET_HOST:443
 sudo .venv/bin/python vpnctl.py init \
   --endpoint YOUR_VPS_IP \
   --reality-target YOUR_TARGET_HOST:443 \
   --reality-sni YOUR_TARGET_SNI
 sudo .venv/bin/python vpnctl.py add-device windows
-sudo .venv/bin/python vpnctl.py doctor
-sudo docker compose --profile hy2 config --quiet
-sudo docker compose run --rm xray run -test -config /etc/vpn/xray.json
-sudo docker compose --profile hy2 up -d --no-build
+sudo .venv/bin/python vpnctl.py start
 sudo docker compose --profile hy2 ps
 ```
 
@@ -88,6 +85,60 @@ The release `compose.yaml` has **no build instructions** and uses `pull_policy:
 never`, so it uses only the versioned images from `docker load`. Native services
 still use the same nonroot UID, read-only filesystem, and isolated Docker bridge.
 Secrets are generated on the VPS, not in GitHub Actions.
+
+`start` checks the state, required runtime files and container GID permissions,
+normalizes Compose and checks both config bind mounts, and runs Xray's config test
+**inside its image** before starting both services. It uses explicit absolute
+project/Compose paths. It also verifies the mounts on the resulting containers.
+You can run it from another directory using absolute paths:
+
+```bash
+sudo /opt/personal-vpn/.venv/bin/python /opt/personal-vpn/vpnctl.py check-deployment
+sudo /opt/personal-vpn/.venv/bin/python /opt/personal-vpn/vpnctl.py start
+```
+
+`check-deployment` leaves the VPN services stopped if they were stopped; its Xray
+validation uses a temporary container without publishing ports. `start` recreates
+both services to apply the current config, interrupting existing sessions. Neither
+command builds an image. Local running status does not establish public tunnel
+reachability or REALITY target compatibility.
+
+## Missing config or mount errors
+
+The image contains the core binary. The host deployment must contain:
+
+```text
+/opt/personal-vpn/.state/server.json  # authoritative server/device credentials
+/opt/personal-vpn/runtime/xray.json
+/opt/personal-vpn/runtime/hysteria.json
+/opt/personal-vpn/runtime/tls.crt     # pinned mode
+/opt/personal-vpn/runtime/tls.key     # pinned mode
+```
+
+Compose mounts the **directory** `./runtime` read-only at `/etc/vpn` in both
+containers. Paths resolve from the selected Compose project. Do not copy the two
+Compose files to another directory while leaving the state/runtime behind, and
+do not replace this bind mount with an empty named volume. Docker is configured
+to reject a missing host directory rather than silently create one.
+
+If `.state/server.json` exists but generated JSON files are missing, regenerate
+them in the same deployment; this preserves device credentials and the TLS pin:
+
+```bash
+sudo /opt/personal-vpn/.venv/bin/python /opt/personal-vpn/vpnctl.py render
+sudo /opt/personal-vpn/.venv/bin/python /opt/personal-vpn/vpnctl.py start
+```
+
+Missing TLS key/certificate files require restoration from backup. Do not run
+`rotate-certificate` as a file-path fix: rotation changes the pin on every client.
+If the state file is absent, locate the original deployment/backup before running
+`init`; initialization is for a genuinely new server. Do not share state, runtime
+or exported client profiles when reporting errors. `doctor` and `check-deployment`
+report file paths and validation status without printing credential contents.
+
+For manual `docker compose run` commands in pasted Bash scripts, use
+`--interactive=false`. Compose's default stdin attachment can otherwise consume
+the remaining script input, leaving subsequent startup commands unexecuted.
 
 Allow cloud firewall TCP443 and UDP443, plus SSH22 restricted to your admin IP.
 TCP80 is only needed later for ACME HTTP challenges. See README.md for credentials,
@@ -101,7 +152,7 @@ the named ACME volume before changing deployment files. Do not replace these sta
 directories with files from another server or rerun `init` on an existing deployment.
 
 Replace only the release-managed source/configuration templates with the new
-version, run `vpnctl.py render`, then `docker compose --profile hy2 up -d --no-build`.
+version, run `vpnctl.py render`, then `vpnctl.py start` with the deployment's venv.
 Keep the previous Compose files and images for rollback. Do not run `down -v`.
 
 ## Direct private GHCR pull (optional)
@@ -110,6 +161,7 @@ Keep the previous Compose files and images for rollback. Do not run `down -v`.
 Private container pulls require authentication to `ghcr.io` with a token allowed
 to read those packages (GitHub documents a classic PAT with `read:packages`).
 Use `docker login ghcr.io --password-stdin` with that token, then consistently use
+`vpnctl.py start --registry` or
 `docker compose -f compose.registry.yaml --profile hy2 ...` for this deployment.
 The default release-archive path above only needs read access to this repository's
 release assets and avoids storing registry credentials on the VPS.

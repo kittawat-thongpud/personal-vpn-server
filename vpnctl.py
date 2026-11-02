@@ -134,7 +134,7 @@ def locked(root: Path):
 def load_state(root: Path) -> dict:
     path = root / ".state/server.json"
     if not path.exists():
-        raise ValueError("Server is not initialized. Run init first.")
+        raise ValueError(f"Missing {path}. Run init in this deployment, or use --root to select the existing deployment. Do not initialize over another server's state.")
     state = json.loads(path.read_text(encoding="utf-8"))
     if state.get("version") != 1:
         raise ValueError("Unsupported state version.")
@@ -314,11 +314,16 @@ def doctor(root: Path, state: dict) -> None:
         expected += [root / "runtime/tls.key", root / "runtime/tls.crt"]
     for path in expected:
         if not path.is_file():
-            raise ValueError(f"Missing {path.name}; run render (restore TLS files from backup if missing).")
+            raise ValueError(f"Missing {path}; run render (restore TLS files from backup if missing).")
         if os.name == "posix":
             mode = path.stat().st_mode & 0o777
             if mode & 0o007 or mode & 0o020:
                 raise ValueError(f"Unsafe file permissions: {path.name}")
+            if path.parent == root / "runtime" and (path.stat().st_gid != RUNTIME_GID or not mode & 0o040):
+                raise ValueError(f"Container GID {RUNTIME_GID} cannot read {path}; run render with sudo and restore TLS file group/read permissions if needed.")
+    runtime = root / "runtime"
+    if os.name == "posix" and (runtime.stat().st_gid != RUNTIME_GID or runtime.stat().st_mode & 0o050 != 0o050):
+        raise ValueError(f"Container GID {RUNTIME_GID} cannot traverse {runtime}; run render with sudo.")
     if s["hy2_mode"] == "pinned":
         cert = x509.load_pem_x509_certificate((root / "runtime/tls.crt").read_bytes())
         days = (cert.not_valid_after_utc - datetime.now(timezone.utc)).days
@@ -352,6 +357,9 @@ def main(argv: list[str] | None = None) -> int:
         commands.add_parser(command).add_argument("name")
     for command in ("render", "list-devices", "doctor", "rotate-certificate"):
         commands.add_parser(command)
+    for command in ("check-deployment", "start"):
+        commands.add_parser(command).add_argument("--registry", action="store_true",
+                                                  help="Use compose.registry.yaml with authenticated GHCR pulls")
     args = parser.parse_args(argv)
     root = args.root.resolve()
     try:
@@ -412,6 +420,16 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             elif args.command == "doctor":
                 doctor(root, state)
+                return 0
+            elif args.command in ("check-deployment", "start"):
+                from scripts.deployment import check, start
+                doctor(root, state)
+                if args.command == "start":
+                    if not any(device["active"] for device in state["devices"].values()):
+                        raise ValueError("Add a device before starting services.")
+                    start(root, args.registry)
+                else:
+                    check(root, args.registry)
                 return 0
             elif args.command == "rotate-certificate":
                 if state["settings"]["hy2_mode"] != "pinned":

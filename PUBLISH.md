@@ -14,23 +14,23 @@ SSH private key, VPN state or device credential is needed in Actions secrets.
 Images are published privately to:
 
 ```text
-ghcr.io/kittawat-thongpud/personal-vpn-server/xray:v0.1.0
-ghcr.io/kittawat-thongpud/personal-vpn-server/hysteria:v0.1.0
+ghcr.io/kittawat-thongpud/personal-vpn-server/xray:v0.1.1
+ghcr.io/kittawat-thongpud/personal-vpn-server/hysteria:v0.1.1
 ```
 
 Each versioned GitHub Release includes:
 
-- `personal-vpn-v0.1.0.tar.gz`: Python CLI, requirements, deployment docs, installer
+- `personal-vpn-v0.1.1.tar.gz`: Python CLI, requirements, deployment docs, installer
   helper and two Compose modes. The default uses locally loaded images; the GHCR
   mode uses exact image digests. Neither mode has a `build` section.
-- `images-linux-amd64-v0.1.0.tar.gz`: both prebuilt Docker images for the selected
+- `images-linux-amd64-v0.1.1.tar.gz`: both prebuilt Docker images for the selected
   x64 VPS, usable without logging into GHCR.
 - `SHA256SUMS`: checksums of those two archives.
 
 The release is initially a draft and is published only after both assets and
 checksums have uploaded. The tag points at the verified source commit. No `latest`
 tag is used and existing releases are not overwritten. Increment `VERSION` (for
-example `0.1.1`) before publishing another version. A push of the same version runs
+example `0.1.2`) before publishing another version. A push of the same version runs
 verification but skips publishing an existing release.
 
 ## First run
@@ -61,6 +61,9 @@ actionlint .github/workflows/release.yml
 ```
 
 Container smoke requires Linux Docker plus both images built with the tags in
-compose.yaml. `scripts/container_smoke.py` uses its own temporary configuration,
-project and volume, then removes only that test project's resources. It does not
-start a production deployment or apply host tuning/firewall changes.
+compose.yaml. `scripts/container_smoke.py` extracts an actual deployment bundle,
+initializes it and runs its CLI from another directory. It checks that missing
+state/config fails before startup, then regenerates config and starts both images
+with the packaged relative bind mounts. Only test port mappings, restart policy
+and project name are changed. It cleans up its own temporary project, volume and
+image tags. It does not start a production deployment or apply host tuning/firewall changes.

@@ -20,6 +20,8 @@ Workflow `.github/workflows/release.yml` ทำงานเมื่อ push `ma
 
 Release มี deployment bundle, Docker image archive สำหรับ Linux amd64 และ `SHA256SUMS`; มี Compose สำหรับดึง GHCR ด้วย digest แยกไว้ด้วย GHCR build รองรับ amd64/arm64 แต่ container smoke test ใน CI ตรวจ amd64
 
+ตั้งแต่ v0.1.1 ใช้ `sudo .venv/bin/python vpnctl.py start` หลัง `init` และ `add-device` เพื่อเช็กไฟล์/สิทธิ์, mount ใน Compose, config ภายใน Xray image และ mount ของ container ที่เริ่มแล้ว คำสั่งผูก path กับโฟลเดอร์ deployment; ใช้ `check-deployment` เพื่อตรวจก่อนเริ่ม ดูวิธีกู้กรณีหาไฟล์ไม่พบใน [DEPLOY.md](DEPLOY.md#missing-config-or-mount-errors)
+
 ขั้นตอนด้านล่างเป็นทางเลือกสำหรับ build จาก source เอง
 
 ## ขอบเขตและข้อจำกัด
@@ -83,7 +85,7 @@ REALITY target คือเว็บ TLS ที่ VPS เชื่อมถึ�
 sudo docker compose --profile hy2 build --pull
 sudo .venv/bin/python vpnctl.py doctor
 sudo docker compose --profile hy2 config --quiet
-sudo docker compose run --rm xray run -test -config /etc/vpn/xray.json
+sudo docker compose run --rm --no-deps --interactive=false xray run -test -config /etc/vpn/xray.json
 sudo docker compose --profile hy2 up -d
 sudo docker compose --profile hy2 ps
 ```
@@ -93,7 +95,7 @@ sudo docker compose --profile hy2 ps
 ตรวจ target จาก binary ที่ build แล้วได้ด้วย:
 
 ```sh
-sudo docker compose run --rm xray tls ping YOUR_TARGET_HOST:443
+sudo docker compose run --rm --no-deps --interactive=false xray tls ping YOUR_TARGET_HOST:443
 ```
 
 `tls ping` ช่วยตรวจปลายทาง TLS แต่ไม่ใช่ผลทดสอบการผ่าน Great Firewall

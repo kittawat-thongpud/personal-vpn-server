@@ -13,10 +13,13 @@ from pathlib import Path
 import socket
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 
 import yaml
+
+from release_bundle import build_bundle
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -29,30 +32,53 @@ def main():
     if sys.platform != "linux" or os.geteuid() != 0:
         raise SystemExit("Run as root on a Linux Docker host.")
     with tempfile.TemporaryDirectory(prefix="vpn-container-smoke-") as temporary:
-        base = Path(temporary)
-        def cli(*args):
-            run(sys.executable, str(ROOT / "vpnctl.py"), "--root", str(base), *args)
+        work = Path(temporary)
+        base = work / "extracted release"
+        base.mkdir()
+        archive = build_bundle("example/private-vpn", "v0.0.0",
+                               {"xray": "sha256:" + "a" * 64, "hysteria": "sha256:" + "b" * 64}, work / "assets")
+        with tarfile.open(archive) as bundle:
+            bundle.extractall(base, filter="data")
+        source = yaml.safe_load((ROOT / "compose.yaml").read_text())
+        tagged = []
+        def cli(*args, ok=True):
+            # Run the EXTRACTED CLI from an unrelated cwd, without --root.
+            result = subprocess.run([sys.executable, str(base / "vpnctl.py"), *args],
+                                    cwd=work, capture_output=True, text=True)
+            if ok and result.returncode:
+                raise RuntimeError(result.stderr)
+            if not ok:
+                assert result.returncode, "Uninitialized/missing config unexpectedly accepted"
+            return result
+        missing = cli("check-deployment", ok=False)
+        assert str(base / ".state/server.json") in missing.stderr
         cli("init", "--endpoint", "127.0.0.1", "--reality-target", "example.com:443",
             "--reality-sni", "example.com")
         cli("add-device", "smoke")
-        document = yaml.safe_load((ROOT / "compose.yaml").read_text())
+        document = yaml.safe_load((base / "compose.yaml").read_text())
         document["name"] = "vpn-ci-" + str(os.getpid())
         document.pop("x-runtime", None)
-        for service in document["services"].values():
-            service.pop("build", None)
-            service.pop("profiles", None)
+        for name, service in document["services"].items():
             service["restart"] = "no"
             service["ports"] = []
-            for volume in service["volumes"]:
-                if volume["type"] == "bind":
-                    volume["source"] = str(base / "runtime")
+            run("docker", "tag", source["services"][name]["image"], service["image"])
+            tagged.append(service["image"])
         # Random host port on loopback only. Verify binding internal TCP443 as UID10001.
         document["services"]["xray"]["ports"] = ["127.0.0.1::443/tcp"]
-        compose = base / "compose.json"
-        compose.write_text(json.dumps(document))
-        prefix = ("docker", "compose", "-f", str(compose))
+        compose = base / "compose.yaml"
+        compose.write_text(yaml.safe_dump(document, sort_keys=False))
+        prefix = ("docker", "compose", "--project-directory", str(base), "-f", str(compose), "--profile", "hy2")
         try:
-            run(*prefix, "up", "-d", "--no-build", "--pull", "never")
+            # A missing host config must fail before a container is started.
+            config = base / "runtime/xray.json"
+            original = config.read_bytes()
+            config.unlink()
+            missing = cli("start", ok=False)
+            assert str(config) in missing.stderr
+            assert not run(*prefix, "ps", "--all", "--quiet").strip()
+            cli("render")
+            assert config.read_bytes() == original
+            print(cli("start").stdout, end="")
             for name in ("xray", "hysteria"):
                 identifier = run(*prefix, "ps", "-q", name).strip()
                 assert identifier, f"Missing {name} container"
@@ -82,13 +108,15 @@ def main():
                 f"type=volume,source={volume},target=/state",
                 "alpine:3.22.2@sha256:4b7ce07002c69e8f3d704a9c5d6fd3053be500b7f1c69fc0d80990c2ad8dd412", "sh", "-c",
                 "test -w /state && touch /state/.ci-write-check && rm /state/.ci-write-check")
-            print("PASS: scratch container startup, nonroot TCP/UDP443, RO config permissions, writable ACME volume")
+            print("PASS: extracted Release from another cwd, missing-file recovery, nonroot TCP/UDP443, RO config permissions, writable ACME volume")
         except BaseException:
             # No logs printed: core errors can contain generated identifiers.
             print("Container smoke test failed. Inspect the isolated CI containers before cleanup.", file=sys.stderr)
             raise
         finally:
             run(*prefix, "down", "-v", "--remove-orphans")
+            for tag in tagged:
+                run("docker", "image", "rm", tag)
 
 
 if __name__ == "__main__":

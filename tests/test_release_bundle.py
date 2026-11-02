@@ -39,6 +39,13 @@ class ReleaseTests(unittest.TestCase):
                                      f"ghcr.io/example/privatevpn/{name}@{DIGESTS[name]}")
                     self.assertEqual(local["services"][name]["user"], "10001:10001")
                     self.assertTrue(local["services"][name]["read_only"])
+                    for document in (local, registry):
+                        mount = next(m for m in document["services"][name]["volumes"]
+                                     if m["target"] == "/etc/vpn")
+                        self.assertEqual(mount["source"], "./runtime")
+                        self.assertTrue(mount["read_only"])
+                        self.assertFalse(mount["bind"]["create_host_path"])
+                self.assertIn("scripts/deployment.py", archive.getnames())
                 self.assertEqual(archive.getmember("scripts/install-docker-ubuntu.sh").mode, 0o755)
 
     def test_invalid_repository_versions_and_digests_rejected(self):

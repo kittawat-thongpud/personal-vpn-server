@@ -178,6 +178,32 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertNotIn("::ffff:0:0/96", json.dumps(xray))
         self.assertNotIn("::ffff:0:0/96", json.dumps(hy2))
 
+    def test_missing_runtime_config_is_recoverable_without_changing_credentials(self):
+        self.cli("add-device", "phone")
+        state = (self.root / ".state/server.json").read_bytes()
+        certificate = (self.root / "runtime/tls.crt").read_bytes()
+        config = self.root / "runtime/xray.json"
+        expected = config.read_bytes()
+        config.unlink()
+        result = self.cli("start", ok=False)
+        self.assertIn(str(config.resolve()), result.stderr)
+        self.cli("render")
+        self.cli("doctor")
+        self.assertEqual(config.read_bytes(), expected)
+        self.assertEqual((self.root / ".state/server.json").read_bytes(), state)
+        self.assertEqual((self.root / "runtime/tls.crt").read_bytes(), certificate)
+
+    @unittest.skipUnless(os.name == "posix", "POSIX container group permissions")
+    def test_doctor_rejects_runtime_files_unreadable_by_container_gid(self):
+        config = self.root / "runtime/xray.json"
+        config.chmod(0o600)
+        self.assertIn("cannot read", self.cli("doctor", ok=False).stderr)
+        self.cli("render")
+        os.chown(config, -1, 0)
+        self.assertIn("cannot read", self.cli("doctor", ok=False).stderr)
+        self.cli("render")
+        self.cli("doctor")
+
 
 if __name__ == "__main__":
     unittest.main()
