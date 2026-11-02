@@ -71,7 +71,7 @@ public sealed partial class MainWindow
         rows.Children.Add(SettingsRow("App Tunnel", "Executable exceptions · Wintun required", "AppTunnel"));
         rows.Children.Add(SettingsRow("Site Tunnel", "Domain / IP exceptions · " + ModeName(settings.Sites!.Mode), "SiteTunnel"));
         rows.Children.Add(SettingsRow("Backend logs", "Session only · up to 1,000 records", "Diagnostics")); Put(body, rows, 1);
-        Put(body, Text("PERSONAL VPN  0.3.1\nProxy capture · Wintun module in development", 11, "#8395B2"), 2); return body;
+        Put(body, Text("PERSONAL VPN  0.3.2\nProxy capture · Wintun module in development", 11, "#8395B2"), 2); return body;
     }
     private Button SettingsRow(string title, string description, string target)
     {

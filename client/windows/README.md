@@ -1,4 +1,4 @@
-# Personal VPN for Windows — 0.3.1 preview
+# Personal VPN for Windows — 0.3.2 preview
 
 Real Windows x64 application, built in GitHub Actions. Unzip the Windows release
 and run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1`.
@@ -86,7 +86,7 @@ need their own entries. The TUN-plan compiler places explicit app exceptions
 before site exceptions, as requested. When enabled in the future TUN host, the
 App default follows exceptions; with App rules off the Site policy supplies the
 default. With both modules off all traffic tunnels. The elevated adapter host is
-not enabled in 0.3.1; see [WINTUN.md](WINTUN.md) for the implementation boundary.
+not enabled in 0.3.2; see [WINTUN.md](WINTUN.md) for the implementation boundary.
 
 **Settings > Backend logs** keeps diagnostics accessible without a top-level
 Logs tab. Clear, explicit Export and the session/size limits remain unchanged.

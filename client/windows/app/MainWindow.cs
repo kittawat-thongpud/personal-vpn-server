@@ -44,8 +44,9 @@ public sealed partial class MainWindow : Window
         settings = initial;
         Policy.Upgrade(settings);
         settings.SystemProxy = true;
-        Title = "Personal VPN · Windows preview 0.3.1";
-        Width = 438; Height = 800; MinWidth = 380; MinHeight = 640;
+        Title = "Personal VPN · Windows preview 0.3.2";
+        Width = Math.Min(438, SystemParameters.WorkArea.Width - 24); Height = Math.Min(800, SystemParameters.WorkArea.Height - 24);
+        MinWidth = Math.Min(380, Width); MinHeight = Math.Min(640, Height);
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = Color("#0D1627"); Foreground = Color("#EBEFF8"); FontFamily = new FontFamily("Segoe UI"); FontSize = 14;
         UseLayoutRounding = true; SnapsToDevicePixels = true;
@@ -138,7 +139,7 @@ public sealed partial class MainWindow : Window
         homeNav.Background = Color(target is "Home" or "Profiles" ? "#244C68" : "#18263A"); settingsNav.Background = Color(target is not ("Home" or "Profiles") ? "#244C68" : "#18263A");
         uploadRate = downloadRate = uploadTotal = downloadTotal = trafficStatus = null; trafficChart = null;
         if (target == "Diagnostics") { BuildLogs(); Refresh(); return; }
-        content.Content = target switch { "Home" => MobileHome(), "Profiles" => WidgetScroll(Profiles()), "Settings" => SettingsPage(), "AppTunnel" => TunnelEditor(true), "SiteTunnel" => TunnelEditor(false), _ => ProtocolPage() };
+        content.Content = target switch { "Home" => MobileHome(), "Profiles" => Profiles(), "Settings" => SettingsPage(), "AppTunnel" => TunnelEditor(true), "SiteTunnel" => TunnelEditor(false), _ => ProtocolPage() };
         Refresh();
     }
     private UIElement TrafficPanel()
@@ -154,10 +155,10 @@ public sealed partial class MainWindow : Window
     private static string Country(string code) => code switch { "JP" => "◉ JP", "SG" => "◒ SG", "US" => "★ US", "KR" => "◉ KR", "TH" => "▰ TH", _ => "◎ " + code };
     private UIElement Profiles()
     {
-        var body = Stack();
-        var controls = new DockPanel();
-        var add = Action("+  Import profile", Import); DockPanel.SetDock(add, Dock.Right); controls.Children.Add(add); body.Children.Add(controls);
-        body.Children.Add(Text("Import the folder exported by vpnctl. Credentials are encrypted for your Windows account. An IP alone is not a connection profile.", 13, "#9BAECD"));
+        var body = PageRows(Auto, Star); var header = Stack();
+        header.Children.Add(Action("+  Import profile", Import));
+        header.Children.Add(Text("Import a device profile folder. Credentials stay encrypted on this Windows account.", 12, "#9BAECD")); Put(body, header, 0);
+        var list = Stack();
         foreach (var profile in settings.Profiles.ToArray())
         {
             var row = Stack(); row.Children.Add(Text(Country(profile.Country) + "    " + profile.Name + (settings.SelectedId == profile.Id ? "   ✓" : ""), 17));
@@ -172,8 +173,9 @@ public sealed partial class MainWindow : Window
                 settings.Profiles.Remove(profile);
                 if (settings.SelectedId == profile.Id) settings.SelectedId = settings.Profiles.FirstOrDefault()?.Id;
                 Changed(); Navigate("Profiles");
-            })); row.Children.Add(actions); body.Children.Add(Card(row));
+            })); row.Children.Add(actions); list.Children.Add(Card(row));
         }
+        Put(body, Card(WidgetScroll(list)), 1);
         return body;
     }
     private void Import()

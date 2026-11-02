@@ -1,6 +1,6 @@
 param([string]$ProfileFolder, [switch]$NoLaunch)
 $ErrorActionPreference = 'Stop'
-$version = '0.3.1'
+$version = '0.3.2'
 $source = [IO.Path]::GetFullPath($PSScriptRoot)
 if (-not (Test-Path -LiteralPath (Join-Path $source 'PersonalVPN.exe'))) { throw 'Extract the Windows release ZIP before running install.ps1.' }
 $programRoot = Join-Path $env:LOCALAPPDATA 'Programs/PersonalVPN'
