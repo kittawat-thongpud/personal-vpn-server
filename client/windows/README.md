@@ -54,7 +54,7 @@ totals. Reconnect retains session totals and marks unavailable counters explicit
 
 All native downloads and runtime components are checksum pinned. Wintun's vendor
 signature is checked during packaging. No shared Wintun driver is uninstalled.
-The independent adapter guard closes the exact adapter it created on normal stop
+The independent adapter guard tracks the core-created adapter on normal stop
 or parent exit; startup can recover only its own recorded adapter GUID and name.
 
 CI builds both architectures, tests native Proxy restoration, real TUN capture,

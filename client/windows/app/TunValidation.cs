@@ -30,27 +30,29 @@ internal static partial class Tests
         string windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
         string curlPath = Path.Combine(windows, "System32", "curl.exe");
         string curlLaunch = Path.Combine(windows, Environment.Is64BitProcess ? "System32" : "Sysnative", "curl.exe");
+        string lastCurlError = "";
         async Task<int> Curl()
         {
             var info = new ProcessStartInfo(curlLaunch) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
-            foreach (string arg in new[] { "--noproxy", "*", "--max-time", "8", "-fsS", "-o", "NUL", "https://example.com/" }) info.ArgumentList.Add(arg);
+            foreach (string arg in new[] { "--noproxy", "*", "--max-time", "8", "-fsS", "-o", "NUL", "https://api.ipify.org/?format=json" }) info.ArgumentList.Add(arg);
             using var process = Process.Start(info)!; var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
-            await process.WaitForExitAsync(); await Task.WhenAll(output, error); return process.ExitCode;
+            await process.WaitForExitAsync(); await Task.WhenAll(output, error); lastCurlError = (await error)[..Math.Min(700, (await error).Length)]; return process.ExitCode;
         }
         await using (var backend = new Backend())
         {
             await backend.ConnectAsync(settings);
             Assert(backend.State == "Connected" && backend.ExitIp == expected && NetworkInterface.GetAllNetworkInterfaces().Any(x => x.Name == TunLease.Name && x.OperationalStatus == OperationalStatus.Up), "TUN capture did not verify.");
             checks.Add("real Wintun adapter, native authenticated frontend and captured DNS/HTTPS verified");
+            int baseline = await Curl(); Assert(baseline == 0, "External process baseline failed: exit=" + baseline + "; " + lastCurlError + "; " + backend.NativeTunDiagnostic);
             await SocksUdpEcho(settings.SocksPort); checks.Add("native SOCKS UDP relay traverses Xray and Hysteria");
             settings.Apps = new TunnelPolicy { Mode = "Tunnel", Entries = new() { new() { Kind = "App", Value = curlPath, Action = "Block" } } };
             await backend.ConnectAsync(settings);
             Assert(await Curl() != 0 && backend.State == "Connected", "App Block must block external process while private health remains connected.");
             checks.Add("real executable Block rule enforced without blocking private health");
             settings.Apps.Entries[0].Action = "Tunnel";
-            settings.Sites = new TunnelPolicy { Mode = "Block", Entries = new() { new() { Kind = "Domain", Value = "example.com", Action = "Block" } } };
+            settings.Sites = new TunnelPolicy { Mode = "Block", Entries = new() { new() { Kind = "Domain", Value = "api.ipify.org", Action = "Block" } } };
             await backend.ConnectAsync(settings);
-            Assert(await Curl() == 0, "Explicit app Tunnel must win over site Block.");
+            int appTunnel = await Curl(); Assert(appTunnel == 0, "Explicit app Tunnel must win over site Block: curl=" + appTunnel + "; " + lastCurlError + "; " + backend.NativeTunDiagnostic);
             checks.Add("explicit App Tunnel overrides a conflicting Site Block on an external process");
             await backend.StopAsync();
             Assert(!NetworkInterface.GetAllNetworkInterfaces().Any(x => x.Name == TunLease.Name), "Owned TUN adapter remained after stop.");

@@ -147,6 +147,7 @@ public sealed class Backend : IAsyncDisposable
     public string ExitIp { get { lock (gate) return exit; } }
     public Settings? Active { get { lock (gate) return active?.Snapshot(); } }
     public bool Running { get { lock (gate) return session != null; } }
+    public string NativeTunDiagnostic { get { lock (gate) return Environment.GetEnvironmentVariable("CI") == "true" ? cores.LastOrDefault(x => x.Name == "sing-box")?.StartupDiagnostic ?? "" : ""; } }
     public string CaptureStatus { get { lock (gate) return captureStatus; } }
     public Backend()
     {
@@ -443,6 +444,7 @@ public sealed class Backend : IAsyncDisposable
                         SetState("Verifying", "Authenticated server verified; preparing TUN adapter and checking the captured path.", expected);
                         adapterLease = await TunLease.Start(folder, token);
                         var plan = TunPlan.Compile(settings, transports.Select(x => x.ToString()), new[] { VerifyCore("xray.exe"), VerifyCore("hysteria.exe") }, adapterLease.InterfaceName, TunSupport.MeshPrefixes(), Environment.ProcessPath);
+                        if (Environment.GetEnvironmentVariable("CI") == "true") plan["log"]!["level"] = "debug";
                         string path = Path.Combine(folder, "tun.json"); await File.WriteAllTextAsync(path, plan.ToJsonString(), token);
                         var tunCore = new OwnedCore(job, VerifyCore("sing-box.exe"), new[] { "run", "-c", path }, Log); owned.Add(tunCore);
                         lock (gate) { cores.Clear(); cores.AddRange(owned); }

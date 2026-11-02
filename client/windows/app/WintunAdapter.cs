@@ -8,8 +8,8 @@ using Microsoft.Win32;
 
 namespace PersonalVpn;
 
-// A dedicated guard owns the CreateAdapter handle. Closing that handle removes
-// this adapter (including its addresses/routes); other adapters are untouched.
+// Native adapter ownership for signed-driver preparation and recovery tests.
+// The TUN core is the sole runtime creator; a guard recovers only its exact device.
 public sealed class WintunAdapter : IDisposable
 {
     private IntPtr library, adapter;
@@ -67,7 +67,7 @@ public sealed class WintunAdapter : IDisposable
             {
                 var device = new DeviceInfo { Size = (uint)Marshal.SizeOf<DeviceInfo>() };
                 if (!SetupDiEnumDeviceInfo(set, index, ref device)) break;
-                IntPtr handle = SetupDiOpenDevRegKey(set, ref device, 1, 0, 1, 0x20019);
+                IntPtr handle = SetupDiOpenDevRegKey(set, ref device, 1, 0, 2, 0x20019);
                 if (handle == new IntPtr(-1)) continue;
                 using var safe = new Microsoft.Win32.SafeHandles.SafeRegistryHandle(handle, true);
                 using var key = RegistryKey.FromHandle(safe);
