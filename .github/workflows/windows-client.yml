@@ -103,7 +103,12 @@ jobs:
           $base = if ('${{ matrix.arch }}' -eq 'x86') { $env:ProgramFiles + ' (x86)' } else { $env:ProgramFiles }
           $installed = Join-Path $base "PersonalVPN/$env:CLIENT_VERSION-${{ matrix.arch }}"
           $report = Get-Content (Join-Path $installed 'driver-install.json') -Raw | ConvertFrom-Json
-          if ($report.result -ne 'PASS') { throw 'Installed driver check failed' }
+          $report | ConvertTo-Json -Depth 6
+          if ($report.result -ne 'PASS') {
+            Get-CimInstance Win32_Service -Filter "Name='PersonalVPNAdapter'" | Select-Object Name,State,StartMode,PathName,ProcessId | ConvertTo-Json
+            Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Service Control Manager'; StartTime=(Get-Date).AddMinutes(-5)} -ErrorAction SilentlyContinue | Select-Object -First 6 Id,Message | Format-List
+            throw 'Installed driver check failed'
+          }
           if ((Get-FileHash (Join-Path $installed 'PersonalVPN.exe')).Hash -ne (Get-FileHash dist/windows/PersonalVPN.exe).Hash) { throw 'Installed executable differs from package' }
       - name: Package architecture-matched ZIP and checksums
         shell: pwsh
