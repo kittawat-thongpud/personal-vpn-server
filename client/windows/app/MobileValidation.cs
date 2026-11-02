@@ -77,6 +77,7 @@ public static class MobileValidation
                     foreach (string name in new[] { "ServerCard", "CaptureSelector", "ConnectButton", "TrafficCard" })
                     {
                         var item = elements.Single(x => x.Name == name); var bounds = item.TransformToAncestor(root).TransformBounds(new Rect(item.RenderSize));
+                        if (name == "ConnectButton") Assert(bounds.Height >= 96, "Connect button must remain readable at minimum height; actual=" + bounds.Height);
                         Assert(bounds.Top >= -.5 && bounds.Bottom <= size.Height + .5 && bounds.Left >= -.5 && bounds.Right <= size.Width + .5 && bounds.Height > 20, "Home widget clipped: " + name);
                     }
                     var server = elements.Single(x => x.Name == "ServerCard"); Assert(server.ActualWidth <= 460, "Maximized window lost the centered mobile column.");

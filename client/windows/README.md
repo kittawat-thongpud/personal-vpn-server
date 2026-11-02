@@ -1,4 +1,4 @@
-# Personal VPN for Windows — 0.4.0 preview
+# Personal VPN for Windows — 0.4.1 preview
 
 Real Windows x64 application, built in GitHub Actions. The app lives in the Windows
 system tray rather than the taskbar. X and Minimize hide the window and retain the
@@ -92,13 +92,14 @@ addresses without adding local DNS lookups. HTTPS health has a private Tunnel
 inbound independent of the user policy. Existing Global / Rules and category
 settings migrate into this model without discarding connection credentials.
 
-**Settings > App Tunnel** stores full executable paths and individual actions as
-Wintun drafts. These rules NEVER affect Proxy routing. Child/helper executables
+**Settings > App Tunnel** is visible but disabled while Proxy is selected.
+Previously saved full executable paths and individual actions remain as Wintun
+drafts until the TUN runtime is available. These rules NEVER affect Proxy routing. Child/helper executables
 need their own entries. The TUN-plan compiler places explicit app exceptions
 before site exceptions, as requested. When enabled in the future TUN host, the
 App default follows exceptions; with App rules off the Site policy supplies the
 default. With both modules off all traffic tunnels. The elevated adapter host is
-not enabled in 0.4.0; see [WINTUN.md](WINTUN.md) for the implementation boundary.
+not enabled in 0.4.1; see [WINTUN.md](WINTUN.md) for the implementation boundary.
 
 **Settings > Backend logs** keeps diagnostics accessible without a top-level
 Logs tab. Clear, explicit Export and the session/size limits remain unchanged.
@@ -110,8 +111,8 @@ still produce a health failure. A failed check shows Degraded; repeated failure
 restarts the cores. Existing sessions can break during reconnect and need retry.
 
 Logs contain VPN backend states / failures / retries / results only, at most
-1,000 entries and 1 MiB in memory. Clear empties the ring. Close/reopen starts a
-new log session. Only an explicit Export writes logs to a file. Raw native-core
+1,000 entries and 1 MiB in memory. Clear empties the ring. Exit and reopen starts a
+new log session; X / Minimize retain the current session in the tray. Only an explicit Export writes logs to a file. Raw native-core
 output, imported credentials and website request URLs are not logged.
 
 This preview uses native Xray 26.10.31 and Hysteria 2.13.0, verified by pinned

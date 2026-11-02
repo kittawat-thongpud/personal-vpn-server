@@ -32,6 +32,7 @@ public sealed partial class MainWindow
     }
     private UIElement MobileHome()
     {
+        bool compact = lastCompactHome = Height < 680;
         var body = PageRows(Auto, Auto, Star, Auto);
         var profile = settings.Profiles.FirstOrDefault(x => x.Id == settings.SelectedId);
         var card = new Grid(); card.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) }); card.ColumnDefinitions.Add(new ColumnDefinition()); card.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
@@ -41,7 +42,7 @@ public sealed partial class MainWindow
         var labels = Stack(); var name = Text(profile?.Name ?? "Add your server", 14); name.TextWrapping = TextWrapping.NoWrap; name.TextTrimming = TextTrimming.CharacterEllipsis; labels.Children.Add(name);
         labels.Children.Add(Text(profile == null ? "Import a device profile" : DisplayEndpoint(profile), 11, "#9BAECD")); Grid.SetColumn(labels, 1); card.Children.Add(labels);
         var arrow = Text("›", 24, "#86B8FF"); arrow.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(arrow, 2); card.Children.Add(arrow);
-        var server = Action("", () => Navigate("Profiles")); server.Content = card; server.HorizontalContentAlignment = HorizontalAlignment.Stretch; server.Name = "ServerCard"; server.Height = 75; server.Margin = new Thickness(0, 0, 0, 8); Put(body, server, 0);
+        var server = Action("", () => Navigate("Profiles")); server.Content = card; server.HorizontalContentAlignment = HorizontalAlignment.Stretch; server.Name = "ServerCard"; server.Height = compact ? 64 : 75; server.Margin = new Thickness(0, 0, 0, 8); Put(body, server, 0);
         var capture = Stack(); capture.Children.Add(CaptureSelector());
         var badge = Text(settings.Protocol + "  ·  " + ModeName(settings.Sites!.Mode), 11, "#9BAECD"); badge.TextAlignment = TextAlignment.Center; badge.Margin = new Thickness(0, 1, 0, 3); capture.Children.Add(badge); Put(body, capture, 1);
         var center = PageRows(Auto, Star, Auto, Auto, Auto); center.Margin = new Thickness(0, 3, 0, 8);
@@ -55,11 +56,11 @@ public sealed partial class MainWindow
             </Grid><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Opacity" Value="0.86"/></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter Property="Foreground" Value="White"/></Trigger></ControlTemplate.Triggers>
           </ControlTemplate>
           """);
-        Put(center, new Viewbox { Child = connect, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, MaxHeight = 184, Margin = new Thickness(0, 4, 0, 5) }, 1);
-        detail = Text(backend.Detail, 11, "#9BAECD"); detail.TextAlignment = TextAlignment.Center; detail.MaxHeight = 35; detail.TextTrimming = TextTrimming.CharacterEllipsis; Put(center, detail, 2);
+        Put(center, new Viewbox { Child = connect, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, MaxHeight = compact ? 140 : 184, Margin = new Thickness(0, 4, 0, 5) }, 1);
+        detail = Text(backend.Detail, 11, "#9BAECD"); detail.Visibility = compact ? Visibility.Collapsed : Visibility.Visible; detail.TextAlignment = TextAlignment.Center; detail.MaxHeight = 35; detail.TextTrimming = TextTrimming.CharacterEllipsis; Put(center, detail, 2);
         exit = Text("Exit IP: —", 13, "#59DCB8"); exit.TextAlignment = TextAlignment.Center; Put(center, exit, 3);
         draftNotice = Text("", 11, "#F1C77A"); draftNotice.TextAlignment = TextAlignment.Center; Put(center, draftNotice, 4); Put(body, center, 2);
-        var traffic = (FrameworkElement)TrafficPanel(); traffic.Name = "TrafficCard"; Put(body, traffic, 3); return body;
+        var traffic = (FrameworkElement)TrafficPanel(compact); traffic.Name = "TrafficCard"; Put(body, traffic, 3); return body;
     }
     private UIElement SettingsPage()
     {
@@ -69,7 +70,7 @@ public sealed partial class MainWindow
         appTunnel.Name = "AppTunnelSettings"; appTunnel.IsEnabled = settings.CaptureMode == "TUN" && CaptureCapabilities.TunAvailable; rows.Children.Add(appTunnel);
         rows.Children.Add(SettingsRow("Site Tunnel", "Domain / IP exceptions · " + ModeName(settings.Sites!.Mode), "SiteTunnel"));
         rows.Children.Add(SettingsRow("Backend logs", "Session only · up to 1,000 records", "Diagnostics")); Put(body, rows, 1);
-        Put(body, Text("PERSONAL VPN  0.4.0\nProxy capture · Wintun module in development", 11, "#8395B2"), 2); return body;
+        Put(body, Text("PERSONAL VPN  0.4.1\nProxy capture · Wintun module in development", 11, "#8395B2"), 2); return body;
     }
     private Button SettingsRow(string title, string description, string target)
     {

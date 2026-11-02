@@ -27,7 +27,7 @@ public sealed partial class MainWindow : Window
     private Grid layoutRoot = null!;
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private string page = "Home";
-    private bool dirty, exiting;
+    private bool dirty, exiting, lastCompactHome;
     private bool connectBusy;
     private readonly bool previewOnly;
     private TextBlock? status, detail, exit, logCount, captureDetail;
@@ -46,7 +46,7 @@ public sealed partial class MainWindow : Window
         settings = initial;
         Policy.Upgrade(settings);
         settings.SystemProxy = true;
-        Title = "Personal VPN · Windows preview 0.4.0";
+        Title = "Personal VPN · Windows preview 0.4.1";
         Width = Math.Min(438, SystemParameters.WorkArea.Width - 24); Height = Math.Min(800, SystemParameters.WorkArea.Height - 24);
         MinWidth = Math.Min(380, Width); MinHeight = Math.Min(640, Height);
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -84,6 +84,7 @@ public sealed partial class MainWindow : Window
             args.Cancel = true; HideToTray();
         };
         InitializeTray();
+        SizeChanged += (_, _) => { if (page == "Home" && lastCompactHome != (Height < 680)) Navigate("Home"); };
         Navigate("Home");
         if (autoConnect) ContentRendered += async (_, _) => { try { await ConnectSelectedProxy(); } catch (Exception error) { ShowError(error); } };
     }
@@ -150,15 +151,16 @@ public sealed partial class MainWindow : Window
         content.Content = target switch { "Home" => MobileHome(), "Profiles" => Profiles(), "Settings" => SettingsPage(), "AppTunnel" => TunnelEditor(true), "SiteTunnel" => TunnelEditor(false), _ => ProtocolPage() };
         Refresh();
     }
-    private UIElement TrafficPanel()
+    private UIElement TrafficPanel(bool compact = false)
     {
-        var panel = Stack(); panel.Children.Add(Text("TUNNEL TRAFFIC", 10, "#9BAECD"));
+        var panel = Stack(); if (!compact) panel.Children.Add(Text("TUNNEL TRAFFIC", 10, "#9BAECD"));
         var values = new Grid(); values.ColumnDefinitions.Add(new ColumnDefinition()); values.ColumnDefinitions.Add(new ColumnDefinition());
         var tx = Stack(); uploadRate = Text("↑ 0 B/s", 19, "#16C8A0"); tx.Children.Add(uploadRate); uploadTotal = Text("0 B sent", 10, "#9BAECD"); tx.Children.Add(uploadTotal); values.Children.Add(tx);
         var rx = Stack(); downloadRate = Text("↓ 0 B/s", 19, "#64A8FF"); rx.Children.Add(downloadRate); downloadTotal = Text("0 B received", 10, "#9BAECD"); rx.Children.Add(downloadTotal); Grid.SetColumn(rx, 1); values.Children.Add(rx); panel.Children.Add(values);
-        trafficChart = new TrafficChart { Height = 36, HorizontalAlignment = HorizontalAlignment.Stretch, ToolTip = "60 samples · tunnel payload only · includes health traffic" };
+        if (compact) { uploadRate.FontSize = downloadRate.FontSize = 17; uploadTotal.Margin = downloadTotal.Margin = new Thickness(0, 0, 0, 3); }
+        trafficChart = new TrafficChart { Height = compact ? 24 : 36, HorizontalAlignment = HorizontalAlignment.Stretch, ToolTip = "60 samples · tunnel payload only · includes health traffic" };
         foreach (var sample in backend.Traffic.History) trafficChart.Sample(sample);
-        panel.Children.Add(trafficChart); trafficStatus = Text("Session totals", 10, "#8395B2"); panel.Children.Add(trafficStatus); var card = Card(panel); card.Margin = new Thickness(0); card.Padding = new Thickness(14, 9, 14, 9); return card;
+        panel.Children.Add(trafficChart); trafficStatus = Text("Session totals", 10, "#8395B2"); trafficStatus.Visibility = compact ? Visibility.Collapsed : Visibility.Visible; panel.Children.Add(trafficStatus); var card = Card(panel); card.Margin = new Thickness(0); card.Padding = compact ? new Thickness(12, 6, 12, 6) : new Thickness(14, 9, 14, 9); return card;
     }
     private static string Country(string code) => code switch { "JP" => "◉ JP", "SG" => "◒ SG", "US" => "★ US", "KR" => "◉ KR", "TH" => "▰ TH", _ => "◎ " + code };
     private UIElement Profiles()
@@ -228,6 +230,7 @@ public sealed partial class MainWindow : Window
         tray?.Update();
         if (status != null) { status.Text = backend.State; status.Foreground = Color(backend.State == "Connected" ? "#57DCB5" : "#D7E4F8"); }
         if (detail != null) detail.Text = backend.Detail;
+        if (status != null) status.ToolTip = backend.Detail;
         if (exit != null) exit.Text = "Exit IP: " + backend.ExitIp;
         if (captureDetail != null) captureDetail.Text = backend.CaptureStatus;
         if (uploadRate != null)
