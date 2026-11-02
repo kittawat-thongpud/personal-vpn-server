@@ -3,4 +3,8 @@
 *.py text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+*.html text eol=lf
+*.svg text eol=lf
+*.json text eol=lf
+*.ps1 text eol=lf
 Dockerfile text eol=lf

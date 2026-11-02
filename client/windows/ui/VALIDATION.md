@@ -1,7 +1,8 @@
 # UI preview validation
 
 2026-11-02, Windows host, installed Chrome in a separate headless profile.
-Only the local preview was exercised. The user's browser/VPN was not controlled.
+The user's browser/VPN was not controlled. These are UI checks; separate native
+protocol probes are recorded in `../tools/VPS-VALIDATION.md`.
 
 Verified interactions:
 
@@ -11,15 +12,29 @@ Verified interactions:
 - Disconnect cancels a pending recovery attempt; stale timers do not reconnect.
 - While Connected, changing settings preserves the active selection until
   Apply & reconnect. The connection state remains visibly simulated.
-- Domain suffix matching respects label boundaries. IPv4/IPv6 sample mesh
-  destinations retain the mesh decision. App-path matches apply in TUN preview
-  and are not presented as whole-machine protection in Proxy preview.
-- IPv4/IPv6 CIDR rules, invalid URL rejection, user-rule ordering and explicit
-  Block precedence were exercised through the UI.
+- Profile add/edit/select, malformed-endpoint rejection and country flag updates
+  were exercised. Connected selection retains the old profile until Apply.
+  Active-profile deletion requires an explicit disconnect/delete confirmation.
+- Profile metadata restoration preserves the selected profile and category modes,
+  without restoring log events. Failed metadata persistence is visible in the UI
+  and does not enter the backend log stream.
+- Separate Apps/Websites/IP lists and category modes were exercised, including
+  Disabled, website-before-app precedence, IPv6 CIDR Block and sample mesh routes.
+- Connect's button and label were measured at exact horizontal/vertical center.
+  Back and Add controls remained visible in direct-file mode without Lucide.
+- UI navigation, category edits and protocol selection produced zero backend log
+  entries. Simulated connection/retry/health events entered the backend stream.
+- A 1,500-event burst retained exactly the newest 1,000 records. A separate
+  multibyte-message burst reached the 1 MiB cap and retained 629 entries (1,047,288
+  encoded bytes), within both limits. Clear reset the ring and any prepared export;
+  reloading started at zero. No automatic event-log file was written.
+- With 1,000 entries the log pane scrolled (52,000 pixels of content) at a bounded
+  height. Its length did not grow the window. Short-window height was also checked.
 - JSON export displays parseable session events for copying inside the sandbox,
   without relying on a download or clipboard API.
-- All three pages in both layouts were checked at 320, 736 and 1040 pixel viewports
-  with light and dark appearance: 36 combinations, no horizontal document overflow.
+- Home, Profiles, Rules, VPN and Logs in both layouts were checked at 320, 736 and
+  1040 pixel viewports with light/dark appearance: 60 combinations, no horizontal
+  document overflow.
 - No JavaScript page errors were observed during these checks.
 
 The browser renderer supplies icons and layout controls. The application fragment

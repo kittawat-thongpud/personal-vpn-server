@@ -10,9 +10,23 @@ sample rule decisions only; it has no core, service or network integration.
 **UI modes and protocol guidance**
 
 Use the compact layout in the user's VPN07/Astrill reference as the starting
-point: server, capture and traffic choices, protocol, visible connection state,
-connect control, and Home / Rules / Logs navigation. A wider workspace can expose
-the routing inspector alongside connection controls.
+point. Home contains the server picker, capture/traffic choices and a centered
+Connect label/control. Navigation is Home / Rules / VPN / Logs. Protocol and mesh
+settings belong to VPN. A wider workspace can expose the category rules alongside
+Home. Back/add controls must remain visible without an optional icon runtime.
+
+Server selection opens a dedicated profile menu. Add, edit, select and delete
+profiles independently of application releases. Choose the country/flag explicitly;
+do not infer a verified location from an untested IP. A connected session retains
+its active profile snapshot until Apply & reconnect. Deleting an active profile
+requires an explicit disconnect/delete confirmation. With no profiles, Connect is
+disabled and an Add profile action remains available.
+
+The preview stores metadata only. The installed client must import complete
+per-device connection material and keep credentials in protected Windows storage,
+separate from metadata/logs. An IP alone is insufficient. A different VPS may need
+a different UUID, REALITY key/SNI/short ID or Hysteria password/certificate pin.
+Replacing that profile must not require rebuilding/downloading the application.
 
 Keep three separate choices:
 
@@ -27,6 +41,13 @@ a compatible target and can lose throughput under TCP packet loss. Hysteria
 requires usable UDP and verified TLS identity. Protocol changes may terminate
 existing connections. Both can be blocked; using the same VPS IP limits fallback.
 Display planned versus verified capabilities separately from connection status.
+
+Rules uses separate Apps, Websites and IP/Networks cards and lists. Each category
+has Tunnel listed, Bypass listed, Block listed and Disabled modes. Disabled keeps
+its list while excluding the category from matching. Whole-machine app selection
+applies to TUN. All category rules are evaluated before the selected traffic
+mode's default. Website exceptions take priority over an app's category decision;
+Block takes priority over category routing. Make that order visible in the inspector.
 
 Use website/domain rules as the first version's web granularity. Whole-machine
 executable selection belongs to the verified TUN integration in this version;
@@ -123,10 +144,10 @@ Apply these layers in order:
 2. PreserveMesh for confirmed mesh interfaces, managed destination routes and
    their private DNS namespaces. Do not guess all mesh ranges from a service
    name, and do not blanket-exclude all private IP space.
-3. Explicit user Block rules.
-4. User rules in a visible, ordered list. A rule can combine executable path and
-   domain/IP constraints; constraints inside one rule are AND, alternatives
-   inside a field are OR. The first matching rule wins.
+3. Matching entries in categories whose mode is Block.
+4. Enabled categories in the visible order Websites, Apps, IP/Networks. The first
+   matching category decides TunnelRequired or Direct. Separate category lists
+   are the initial UI contract; advanced combined-constraint rules are not implied.
 5. The selected mode's explicit default action.
 
 Protected mesh rules must be shown before user rules and conflict checks must
@@ -205,26 +226,34 @@ Recovery must clearly describe that removing protection can allow direct traffic
 
 Use structured local event logs with UTC timestamps and monotonic durations,
 severity, component, event ID, session/attempt IDs, network/policy generation,
-command/rule ID, action, result and sanitized reason. Each accepted user command
+command/rule ID, action, result and sanitized reason. Each accepted backend command
 has a received event and an eventual completion/failure/cancellation event.
 
-Log supervisor/core lifecycle, network changes, auth/pin failure categories,
-health-check outcomes, retries/failover, policy validation/application/rollback,
-flow routing decisions and log-write failures. Network changes alone must not
-produce unlimited duplicate events. Flow summaries may be aggregated with visible
-counts; command and failure events must not be silently sampled away.
+Log only VPN backend lifecycle, network changes, auth/pin failure categories,
+health-check outcomes, retry/failover, backend configuration results and core
+exceptions/results. Exclude UI navigation, menu clicks, metadata edits, unsubmitted
+rule edits, diagnostic-export clicks and browsing/packet histories. A backend
+operation triggered from the UI can log its backend request and result.
+
+Keep the newest **1,000 records**, also capped at **1 MiB** of serialized event
+data, in RAM for the current application session. Bound individual messages,
+coalesce rendering and evict the oldest entries at the limits. Do not write
+automatic session log files, rotate disk logs, or restore events from saved UI
+state. Close/reopen starts a fresh log session. Clear empties the ring and any
+prepared export, without adding a UI action record to the backend stream.
+The log list has a bounded height and vertical scrolling; its length must not
+grow the application window. Profile/settings persistence is independent of logs.
 
 Store credentials separately. Exclude passwords, UUIDs/private keys, complete
 profiles, authorization headers, URL query strings and packet payloads from logs
 and diagnostic exports. Domains/process paths/IPs can be useful local metadata;
 make their inclusion in exported diagnostics explicit and previewable.
 
-Provide UI filtering, recent failure summaries, bounded rotation/retention and
-manual export. Display the configured retention period. Log truncation/deletion
-must be visible. A full disk or failed log sink is a visible degraded condition,
-not permission to pretend auditing is healthy. The export includes versions,
-sanitized policy, state history and relevant interface/route metadata; credentials
-and full browsing histories are excluded.
+Provide current-session viewing, visible usage limits, Clear and explicit manual
+export. An export failure must be visible; credentials and full browsing histories
+are excluded. The separate minimal ownership/recovery journal needed for safe OS
+cleanup is operational configuration, not a persistent traffic/event log. A
+continuing background service must obey the chosen UI-session logging lifetime.
 
 **Development and acceptance sequence**
 
