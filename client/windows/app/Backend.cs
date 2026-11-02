@@ -159,17 +159,25 @@ public sealed class Backend : IAsyncDisposable
     }
     private void OnNetworkChange(object? sender, EventArgs args) => networkDebounce.Change(1200, Timeout.Infinite);
     private void OnAvailabilityChange(object? sender, NetworkAvailabilityEventArgs args) => networkDebounce.Change(1200, Timeout.Infinite);
-    private static string NetworkSignature() => string.Join("|", NetworkInterface.GetAllNetworkInterfaces()
+    private static string NetworkSignature()
+    {
+        try
+        {
+            return string.Join("|", NetworkInterface.GetAllNetworkInterfaces()
         .Where(x => !x.Name.StartsWith("PersonalVPN", StringComparison.Ordinal))
         .OrderBy(x => x.Id).Select(x => x.Id + ":" + x.OperationalStatus + ":" +
             string.Join(",", x.GetIPProperties().UnicastAddresses.Select(a => a.Address + "/" + a.PrefixLength).OrderBy(a => a)) + ":" +
             string.Join(",", x.GetIPProperties().GatewayAddresses.Select(a => a.Address.ToString()).OrderBy(a => a)) + ":" +
             string.Join(",", x.GetIPProperties().DnsAddresses.Select(a => a.ToString()).OrderBy(a => a))));
+        }
+        catch (NetworkInformationException) { return ""; }
+    }
     private void NetworkChanged()
     {
         lock (gate)
         {
             string observed = NetworkSignature();
+            if (observed.Length == 0) { networkDebounce.Change(1200, Timeout.Infinite); return; }
             if (observed == networkSignature) return;
             networkSignature = observed;
             if (session == null) return;
