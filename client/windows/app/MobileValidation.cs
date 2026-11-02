@@ -59,6 +59,11 @@ public static class MobileValidation
             settings.Apps.Entries.Add(new TunnelException { Kind = "App", Value = @"C:\Apps\browser.exe", Action = "Bypass" });
             window = new MainWindow(settings);
             window.FillPreviewLogs();
+            // TextBox scroll metrics are published after a real presentation
+            // source/layout pass. Keep this synthetic window offscreen/inactive.
+            window.WindowStartupLocation = WindowStartupLocation.Manual; window.WindowStyle = WindowStyle.None;
+            window.MinHeight = window.MinWidth = 0; window.Left = window.Top = -30000;
+            window.ShowActivated = false; window.ShowInTaskbar = false; window.Show();
             foreach (var size in new[] { new Size(380, 590), new Size(438, 750), new Size(1280, 760) })
             foreach (string page in new[] { "Home", "Settings", "AppTunnel", "SiteTunnel", "Diagnostics", "VpnConfig", "Profiles" })
             {
@@ -73,7 +78,11 @@ public static class MobileValidation
                     }
                     var server = elements.Single(x => x.Name == "ServerCard"); Assert(server.ActualWidth <= 460, "Maximized window lost the centered mobile column.");
                 }
-                if (page == "Diagnostics") Assert(elements.OfType<TextBox>().Any(x => x.IsReadOnly && x.VerticalScrollBarVisibility == ScrollBarVisibility.Auto && x.ExtentHeight > x.ViewportHeight), "Long backend logs must scroll inside a bounded viewport.");
+                if (page == "Diagnostics")
+                {
+                    var text = elements.OfType<TextBox>().Single(x => x.IsReadOnly);
+                    Assert(text.Text.Length > 1000 && text.VerticalScrollBarVisibility == ScrollBarVisibility.Auto && text.ExtentHeight > text.ViewportHeight, "Long logs viewport: text=" + text.Text.Length + ", extent=" + text.ExtentHeight + ", viewport=" + text.ViewportHeight);
+                }
                 foreach (var scrollbar in elements.OfType<System.Windows.Controls.Primitives.ScrollBar>().Where(x => x.Orientation == Orientation.Vertical && x.Visibility == Visibility.Visible && x.ActualWidth > 0))
                     Assert(scrollbar.ActualWidth <= 6.5, "Internal scrollbar exceeds the slim 6-DIP theme.");
                 var bitmap = new RenderTargetBitmap((int)size.Width, (int)size.Height, 96, 96, PixelFormats.Pbgra32); bitmap.Render(root);

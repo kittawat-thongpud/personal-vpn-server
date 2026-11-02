@@ -172,8 +172,10 @@ public sealed partial class MainWindow
     }
     internal FrameworkElement LayoutForTest(string target, Size size)
     {
-        Navigate(target); layoutRoot.InvalidateMeasure(); layoutRoot.Measure(size); layoutRoot.Arrange(new Rect(size)); layoutRoot.UpdateLayout(); return layoutRoot;
+        if (IsVisible) { Width = size.Width; Height = size.Height; }
+        Navigate(target); layoutRoot.InvalidateMeasure(); layoutRoot.Measure(size); layoutRoot.Arrange(new Rect(size)); layoutRoot.UpdateLayout();
+        Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle); return layoutRoot;
     }
     internal void FillPreviewLogs() { for (int i = 0; i < 200; i++) backend.Log.Add("INFO", "backend.retry", "Synthetic layout preview · retry result " + i); }
-    internal void StopPreview() { timer.Stop(); backend.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
+    internal void StopPreview() { exiting = true; timer.Stop(); backend.DisposeAsync().AsTask().GetAwaiter().GetResult(); Close(); }
 }
