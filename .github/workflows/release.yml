@@ -3,6 +3,9 @@ name: Verify and publish VPN images
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'client/**'
+      - '.github/workflows/windows-client.yml'
   pull_request:
   workflow_dispatch:
 

@@ -1,0 +1,403 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text.Json.Nodes;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace PersonalVpn;
+
+// All children belong to a kill-on-close job: a GUI crash must not leave listeners behind.
+public sealed class ProcessJob : IDisposable
+{
+    private readonly IntPtr handle;
+    public ProcessJob()
+    {
+        handle = CreateJobObject(IntPtr.Zero, null);
+        if (handle == IntPtr.Zero) throw new Win32Exception();
+        var limits = new ExtendedLimits();
+        limits.BasicLimitInformation.LimitFlags = 0x2000; // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        int size = Marshal.SizeOf<ExtendedLimits>();
+        IntPtr pointer = Marshal.AllocHGlobal(size);
+        try
+        {
+            Marshal.StructureToPtr(limits, pointer, false);
+            if (!SetInformationJobObject(handle, 9, pointer, (uint)size)) throw new Win32Exception();
+        }
+        finally { Marshal.FreeHGlobal(pointer); }
+    }
+    public void Add(Process process)
+    {
+        if (!AssignProcessToJobObject(handle, process.Handle))
+        {
+            try { process.Kill(true); } catch (InvalidOperationException) { }
+            throw new InvalidOperationException("Could not supervise the VPN core safely.");
+        }
+    }
+    public void Dispose() { CloseHandle(handle); }
+    [StructLayout(LayoutKind.Sequential)] private struct BasicLimits
+    {
+        public long PerProcessUserTimeLimit, PerJobUserTimeLimit;
+        public uint LimitFlags;
+        public UIntPtr MinimumWorkingSetSize, MaximumWorkingSetSize;
+        public uint ActiveProcessLimit;
+        public UIntPtr Affinity;
+        public uint PriorityClass, SchedulingClass;
+    }
+    [StructLayout(LayoutKind.Sequential)] private struct IoCounters { public ulong A, B, C, D, E, F; }
+    [StructLayout(LayoutKind.Sequential)] private struct ExtendedLimits
+    {
+        public BasicLimits BasicLimitInformation;
+        public IoCounters IoInfo;
+        public UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed;
+    }
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern IntPtr CreateJobObject(IntPtr security, string? name);
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool SetInformationJobObject(IntPtr job, int info, IntPtr data, uint length);
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+    [DllImport("kernel32.dll")] private static extern bool CloseHandle(IntPtr handle);
+}
+
+public sealed class OwnedCore : IDisposable
+{
+    public Process Process { get; }
+    public string Name { get; }
+    private readonly Task reader;
+    private readonly Task errorReader;
+    private readonly SessionLog log;
+    private int errorCount;
+    public OwnedCore(ProcessJob job, string binary, string[] arguments, SessionLog log)
+    {
+        this.log = log; Name = Path.GetFileNameWithoutExtension(binary);
+        var info = new ProcessStartInfo(binary) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = AppContext.BaseDirectory };
+        foreach (string arg in arguments) info.ArgumentList.Add(arg);
+        foreach (string variable in info.Environment.Keys.Where(x => x.StartsWith("HYSTERIA_", StringComparison.OrdinalIgnoreCase) || x.StartsWith("XRAY_", StringComparison.OrdinalIgnoreCase)).ToArray())
+            info.Environment.Remove(variable);
+        info.Environment["HYSTERIA_DISABLE_UPDATE_CHECK"] = "1";
+        Process = Process.Start(info) ?? throw new InvalidOperationException("VPN core failed to launch.");
+        job.Add(Process);
+        reader = Drain(Process.StandardOutput);
+        errorReader = Drain(Process.StandardError);
+        log.Add("INFO", "backend.core_started", Name + " started (owned child).");
+    }
+    private async Task Drain(StreamReader stream)
+    {
+        // Fixed-size reads also bound a malicious or broken core's unterminated line.
+        char[] buffer = new char[1024];
+        try
+        {
+            int count;
+            while ((count = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            {
+                var line = new string(buffer, 0, count).ToLowerInvariant();
+                if (!(line.Contains("error") || line.Contains("fatal") || line.Contains("failed"))) continue;
+                if (Interlocked.Increment(ref errorCount) > 20) continue;
+                string category = line.Contains("certificate") || line.Contains("pinsha") ? "TLS / certificate verification failed."
+                    : line.Contains("auth") ? "Authentication failed."
+                    : line.Contains("timeout") ? "Network / handshake timed out." : "Core reported an error; health verification will decide connection state.";
+                // No raw core output, credentials, URLs or configuration text enter session logs.
+                log.Add("WARN", "backend.core_result", Name + ": " + category);
+            }
+        }
+        catch (IOException) { }
+        catch (ObjectDisposedException) { }
+    }
+    public bool Exited => Process.HasExited;
+    public void Dispose()
+    {
+        try { if (!Process.HasExited) { Process.Kill(true); Process.WaitForExit(3000); } }
+        catch (InvalidOperationException) { }
+        try { Task.WaitAll(new[] { reader, errorReader }, 1000); } catch (AggregateException) { }
+        Process.Dispose();
+        log.Add("INFO", "backend.core_stopped", Name + " stopped.");
+    }
+}
+
+public sealed class Backend : IAsyncDisposable
+{
+    private readonly SemaphoreSlim lifecycle = new(1);
+    private readonly object gate = new();
+    private CancellationTokenSource? session;
+    private CancellationTokenSource? cycle;
+    private Task? worker;
+    private long generation;
+    private readonly Timer networkDebounce;
+    private string state = "Disconnected", detail = "Ready", exit = "—";
+    private Settings? active;
+    private readonly List<OwnedCore> cores = new();
+    public SessionLog Log { get; } = new();
+    public string State { get { lock (gate) return state; } }
+    public string Detail { get { lock (gate) return detail; } }
+    public string ExitIp { get { lock (gate) return exit; } }
+    public Settings? Active { get { lock (gate) return active?.Snapshot(); } }
+    public bool Running { get { lock (gate) return session != null; } }
+    public Backend()
+    {
+        networkDebounce = new Timer(_ => NetworkChanged(), null, Timeout.Infinite, Timeout.Infinite);
+        NetworkChange.NetworkAddressChanged += OnNetworkChange;
+        NetworkChange.NetworkAvailabilityChanged += OnAvailabilityChange;
+    }
+    private void OnNetworkChange(object? sender, EventArgs args) => networkDebounce.Change(1200, Timeout.Infinite);
+    private void OnAvailabilityChange(object? sender, NetworkAvailabilityEventArgs args) => networkDebounce.Change(1200, Timeout.Infinite);
+    private void NetworkChanged()
+    {
+        lock (gate)
+        {
+            if (session == null) return;
+            generation++;
+            cycle?.Cancel();
+        }
+        Log.Add("WARN", "backend.network_changed", "Network address / availability changed; discard old health result and re-verify.");
+    }
+    private void SetState(string value, string reason, long? expected = null)
+    {
+        lock (gate)
+        {
+            if (expected != null && expected.Value != generation) return;
+            state = value; detail = reason;
+            if (value != "Connected") exit = "—";
+        }
+        Log.Add(value is "Error" or "Reconnecting" ? "WARN" : "INFO", "state." + value.ToLowerInvariant(), reason);
+    }
+    public async Task StartAsync(Settings settings)
+    {
+        settings.Validate();
+        await lifecycle.WaitAsync();
+        try
+        {
+            await StopInternal();
+            lock (gate)
+            {
+                active = settings.Snapshot(); session = new CancellationTokenSource(); generation++;
+                var token = session.Token;
+                var snapshot = active.Snapshot();
+                worker = Task.Run(() => Run(snapshot, token));
+            }
+        }
+        finally { lifecycle.Release(); }
+    }
+    public async Task StopAsync()
+    {
+        await lifecycle.WaitAsync();
+        try { await StopInternal(); } finally { lifecycle.Release(); }
+    }
+    private async Task StopInternal()
+    {
+        Task? pending;
+        lock (gate) { session?.Cancel(); cycle?.Cancel(); pending = worker; }
+        if (pending != null) await pending;
+        lock (gate) { session?.Dispose(); session = null; worker = null; active = null; }
+        SetState("Disconnected", "Local proxy stopped. Existing Windows network settings are unchanged.");
+    }
+    private async Task Run(Settings settings, CancellationToken token)
+    {
+        int failures = 0;
+        while (!token.IsCancellationRequested)
+        {
+            long attemptGeneration;
+            using var attempt = CancellationTokenSource.CreateLinkedTokenSource(token);
+            lock (gate) { cycle = attempt; attemptGeneration = generation; }
+            try
+            {
+                if (!NetworkInterface.GetIsNetworkAvailable())
+                {
+                    SetState("Waiting for network", "No usable network. Waiting before another attempt.");
+                    await Task.Delay(3000, attempt.Token); continue;
+                }
+                SetState(failures == 0 ? "Connecting" : "Reconnecting", "Starting " + settings.Protocol + "; authentication and TLS checks required.");
+                await RunCycle(settings, attemptGeneration, attempt.Token);
+            }
+            catch (OperationCanceledException) when (attempt.IsCancellationRequested) { }
+            catch (Exception error)
+            {
+                if (token.IsCancellationRequested) break;
+                failures++;
+                string reason = error is InvalidOperationException ? error.Message : "VPN attempt failed (" + error.GetType().Name + ").";
+                SetState("Reconnecting", reason, attemptGeneration);
+                int delay = Math.Min(30, 1 << Math.Min(failures, 5)) * 1000 + Random.Shared.Next(0, 750);
+                Log.Add("WARN", "backend.retry", "Attempt " + failures + "; retry in " + (delay / 1000) + "s. No automatic Direct fallback.");
+                try { await Task.Delay(delay, attempt.Token); } catch (OperationCanceledException) { }
+            }
+            finally { lock (gate) { if (cycle == attempt) cycle = null; } }
+        }
+    }
+    private static int FreePort(params int[] excluded)
+    {
+        for (int tries = 0; tries < 50; tries++)
+        {
+            var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
+            int port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
+            if (!excluded.Contains(port)) return port;
+        }
+        throw new InvalidOperationException("Could not allocate an internal loopback port.");
+    }
+    private static object Listener(string tag, string protocol, int port) => new
+    {
+        tag, protocol, listen = "127.0.0.1", port,
+        settings = protocol == "socks" ? (object)new { auth = "noauth", udp = false } : new { },
+    };
+    private async Task RunCycle(Settings settings, long expected, CancellationToken token)
+    {
+        string runtimeRoot = Path.Combine(Store.Root, "runtime");
+        Store.SecureDirectory(runtimeRoot);
+        string folder = Path.Combine(runtimeRoot, Guid.NewGuid().ToString("N"));
+        Store.SecureDirectory(folder);
+        using var job = new ProcessJob();
+        var owned = new List<OwnedCore>();
+        try
+        {
+            // Fail before launch if another program owns one of our public proxy ports.
+            foreach (int port in new[] { settings.HttpPort, settings.SocksPort })
+            {
+                var reservation = new TcpListener(IPAddress.Loopback, port) { ExclusiveAddressUse = true };
+                try { reservation.Start(); }
+                catch (SocketException) { throw new InvalidOperationException("Local proxy port " + port + " is already occupied. No other process was stopped."); }
+                finally { reservation.Stop(); }
+            }
+            int health = FreePort(settings.HttpPort, settings.SocksPort);
+            int inner = FreePort(settings.HttpPort, settings.SocksPort, health);
+            var outbounds = new JsonArray();
+            if (settings.Protocol == "Hysteria 2")
+            {
+                var hy = JsonNode.Parse(settings.Selected.Hysteria!)!.AsObject();
+                hy["socks5"] = new JsonObject { ["listen"] = "127.0.0.1:" + inner, ["disableUDP"] = true };
+                hy["quic"] = new JsonObject { ["maxIdleTimeout"] = "30s", ["keepAlivePeriod"] = "10s" };
+                string path = Path.Combine(folder, "hysteria.json");
+                await File.WriteAllTextAsync(path, hy.ToJsonString(), token);
+                owned.Add(new OwnedCore(job, VerifyCore("hysteria.exe"), new[] { "client", "-c", path }, Log));
+                outbounds.Add(new JsonObject { ["tag"] = "tunnel", ["protocol"] = "socks", ["settings"] = new JsonObject { ["servers"] = new JsonArray(new JsonObject { ["address"] = "127.0.0.1", ["port"] = inner }) } });
+            }
+            else
+            {
+                var reality = JsonNode.Parse(settings.Selected.Xray!)!["outbounds"]![0]!.DeepClone();
+                reality["tag"] = "tunnel";
+                reality["streamSettings"]!["sockopt"] = settings.ChainReality ? new JsonObject { ["dialerProxy"] = "existing-proxy" } : new JsonObject();
+                outbounds.Add(reality);
+                if (settings.ChainReality) outbounds.Add(new JsonObject { ["tag"] = "existing-proxy", ["protocol"] = "http", ["settings"] = new JsonObject { ["servers"] = new JsonArray(new JsonObject { ["address"] = "127.0.0.1", ["port"] = settings.UpstreamPort }) } });
+            }
+            outbounds.Add(new JsonObject { ["tag"] = "direct", ["protocol"] = "freedom" });
+            outbounds.Add(new JsonObject { ["tag"] = "block", ["protocol"] = "blackhole" });
+            var router = new JsonObject
+            {
+                ["log"] = new JsonObject { ["loglevel"] = "warning" },
+                ["inbounds"] = System.Text.Json.JsonSerializer.SerializeToNode(new[] { Listener("http", "http", settings.HttpPort), Listener("socks", "socks", settings.SocksPort), Listener("health", "socks", health) }),
+                ["outbounds"] = outbounds,
+                // AsIs: proxy hostnames reach the remote resolver; local IP rules match literal IP destinations only.
+                ["routing"] = new JsonObject { ["domainStrategy"] = "AsIs", ["rules"] = Policy.Compile(settings) }
+            };
+            string routerPath = Path.Combine(folder, "xray.json");
+            await File.WriteAllTextAsync(routerPath, router.ToJsonString(), token);
+            owned.Add(new OwnedCore(job, VerifyCore("xray.exe"), new[] { "run", "-config", routerPath }, Log));
+            lock (gate) { cores.Clear(); cores.AddRange(owned); }
+            await WaitForListeners(owned, new[] { settings.HttpPort, settings.SocksPort, health }, token);
+            SetState("Verifying", "Checking authenticated HTTPS through the selected server.", expected);
+            using var healthHandler = new SocketsHttpHandler { Proxy = new WebProxy("socks5://127.0.0.1:" + health), UseProxy = true, ConnectTimeout = TimeSpan.FromSeconds(8), PooledConnectionLifetime = TimeSpan.Zero };
+            using var client = new HttpClient(healthHandler) { Timeout = TimeSpan.FromSeconds(10) };
+            int misses = 0, checks = 0;
+            while (true)
+            {
+                token.ThrowIfCancellationRequested();
+                EnsureAlive(owned);
+                try
+                {
+                    string observed = await Health(client, token);
+                    token.ThrowIfCancellationRequested();
+                    lock (gate) { if (generation != expected) throw new OperationCanceledException(token); exit = observed; }
+                    SetState("Connected", "Verified HTTPS exit " + observed + " · " + settings.Protocol, expected);
+                    lock (gate) { if (generation == expected) exit = observed; }
+                    misses = 0; checks++;
+                    Log.Add("INFO", "backend.health_ok", "Authenticated end-to-end check passed. Exit: " + observed);
+                }
+                catch (Exception error) when (error is HttpRequestException || error is TaskCanceledException || error is System.Text.Json.JsonException || error is InvalidDataException)
+                {
+                    token.ThrowIfCancellationRequested();
+                    misses++;
+                    SetState("Degraded", "Tunnel health check failed; verification retry " + misses + "/2.", expected);
+                    Log.Add("WARN", "backend.health_failed", "HTTPS health result failed (" + error.GetType().Name + ").");
+                    if (misses >= 2) throw new InvalidOperationException("Two tunnel health checks failed. Restarting owned VPN cores.");
+                }
+                for (int second = 0; second < (misses > 0 ? 3 : 25); second++)
+                {
+                    await Task.Delay(1000, token); EnsureAlive(owned);
+                }
+            }
+        }
+        finally
+        {
+            lock (gate) cores.Clear();
+            for (int i = owned.Count - 1; i >= 0; i--) owned[i].Dispose();
+            // Only a freshly generated child of our protected runtime directory is removed.
+            if (Path.GetDirectoryName(Path.GetFullPath(folder)) != Path.GetFullPath(runtimeRoot)) throw new InvalidOperationException("Invalid runtime cleanup path.");
+            if (Directory.Exists(folder)) Directory.Delete(folder, true);
+        }
+    }
+    public static string VerifyCore(string name)
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "cores", name);
+        string expected = name == "xray.exe" ? "D5B558191CCCB1E92A5772B68B8CAB67717B26F634B0F15153215F65AE982A7E" : "162EF8FE55DC7EC810DDA662908F8E65EC36BD6DA39CB87C3BD66184AB68F067";
+        using var file = File.OpenRead(path);
+        if (Convert.ToHexString(SHA256.HashData(file)) != expected) throw new InvalidOperationException("VPN core checksum mismatch; reinstall the verified package.");
+        return path;
+    }
+    private static void EnsureAlive(List<OwnedCore> owned)
+    {
+        if (owned.Any(x => x.Exited)) throw new InvalidOperationException("VPN core exited unexpectedly. Restarting and verifying a new connection.");
+    }
+    private static async Task WaitForListeners(List<OwnedCore> owned, int[] ports, CancellationToken token)
+    {
+        for (int i = 0; i < 100; i++)
+        {
+            token.ThrowIfCancellationRequested(); EnsureAlive(owned);
+            bool ready = true;
+            foreach (int port in ports)
+            {
+                try { using var socket = new TcpClient(); await socket.ConnectAsync(IPAddress.Loopback, port, token); }
+                catch (SocketException) { ready = false; break; }
+            }
+            if (ready) return;
+            await Task.Delay(100, token);
+        }
+        throw new InvalidOperationException("Local proxy failed to start. Check whether the chosen port is already in use.");
+    }
+    private static async Task<string> Health(HttpClient client, CancellationToken token)
+    {
+        foreach (string url in new[] { "https://api.ipify.org/?format=json", "https://checkip.amazonaws.com/" })
+        {
+            try
+            {
+                using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, token);
+                response.EnsureSuccessStatusCode();
+                if (response.Content.Headers.ContentLength > 4096) throw new InvalidDataException();
+                await using var stream = await response.Content.ReadAsStreamAsync(token);
+                byte[] bytes = new byte[4097]; int total = 0, read;
+                while (total < bytes.Length && (read = await stream.ReadAsync(bytes.AsMemory(total), token)) > 0) total += read;
+                if (total > 4096) throw new InvalidDataException();
+                string text = System.Text.Encoding.UTF8.GetString(bytes, 0, total).Trim();
+                string candidate = url.Contains("ipify") ? JsonNode.Parse(text)!["ip"]!.GetValue<string>() : text;
+                if (IPAddress.TryParse(candidate, out _)) return candidate;
+                throw new InvalidDataException();
+            }
+            catch (Exception error) when (!token.IsCancellationRequested && (error is HttpRequestException || error is TaskCanceledException || error is System.Text.Json.JsonException || error is InvalidDataException)) { }
+        }
+        throw new HttpRequestException("Independent HTTPS health endpoints failed.");
+    }
+    internal void KillOwnedCoreForTest()
+    {
+        lock (gate) { var process = cores.LastOrDefault()?.Process ?? throw new InvalidOperationException("No owned core."); process.Kill(); }
+    }
+    public async ValueTask DisposeAsync()
+    {
+        NetworkChange.NetworkAddressChanged -= OnNetworkChange;
+        NetworkChange.NetworkAvailabilityChanged -= OnAvailabilityChange;
+        await networkDebounce.DisposeAsync();
+        await StopAsync(); lifecycle.Dispose();
+    }
+}

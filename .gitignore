@@ -22,3 +22,6 @@ build/
 .vpnctl.lock/
 .test-runtime/
 vpn-server-source.tar.gz
+# Local .NET build intermediates (Windows releases are built by Actions).
+**/bin/
+**/obj/

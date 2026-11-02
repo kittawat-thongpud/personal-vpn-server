@@ -1,8 +1,9 @@
 # Windows client design
 
-Status: design and acceptance criteria, 2026-11-02. No client runtime, Windows
-service, network driver or firewall integration has been implemented by this
-document. The existing server release remains independent.
+Status: design and acceptance criteria, 2026-11-02. The native Windows application
+in `app/` implements the first Proxy preview; see [runtime limits](README.md).
+Windows service, TUN driver and firewall integration remain planned. The existing
+server release remains independent.
 
 The interactive [UI preview](ui/preview.html) contains local simulated states and
 sample rule decisions only; it has no core, service or network integration.
@@ -81,7 +82,13 @@ their mesh adapter. Exit-node/default-route ownership requires separate checks.
 
 **Runtime boundaries**
 
-Use a version-pinned sing-box core behind a supervisor and a separate desktop UI.
+The long-term candidate is a version-pinned sing-box core behind a supervisor and
+a separate desktop UI. The first installed Proxy preview instead uses the native
+Xray / Hysteria cores already validated against this server, preserving Hysteria's
+full-certificate pin without a public-key pin conversion. The per-user supervisor
+runs outside the UI thread and owns both processes; a Windows kill-on-close job
+cleans up children if the application crashes. The preview closes its tunnel on
+application exit. Service-backed persistence across UI closure remains planned.
 The supervisor owns core lifecycle, network-change notifications, health checks,
 policy compilation and local logs. The UI reports supervisor state; UI closure
 must not implicitly stop the protected tunnel. A Windows service and restricted

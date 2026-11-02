@@ -1,0 +1,73 @@
+name: Windows client
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'client/windows/app/**'
+      - 'client/windows/package.ps1'
+      - 'client/windows/install.ps1'
+      - 'client/windows/README.md'
+      - '.github/workflows/windows-client.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-client-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Publish self-contained Windows application
+        shell: pwsh
+        run: dotnet publish client/windows/app/PersonalVpn.csproj -c Release -r win-x64 --self-contained true -o dist/windows -p:DebugType=None -p:DebugSymbols=false
+      - name: Download and verify pinned native cores
+        shell: pwsh
+        run: ./client/windows/package.ps1
+      - name: Test backend policy, logs, safe imports and core integrity
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--self-test', '--report', "$env:RUNNER_TEMP/self-test.json") -PassThru -Wait -WindowStyle Hidden
+          Get-Content "$env:RUNNER_TEMP/self-test.json"
+          if ($process.ExitCode -ne 0) { throw 'Windows client self-tests failed' }
+      - name: Package and publish Windows preview
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = '0.2.0'
+          $tag = "windows-v$version"
+          $archive = "PersonalVPN-windows-x64-$version.zip"
+          Compress-Archive -Path dist/windows/* -DestinationPath "dist/$archive" -CompressionLevel Optimal
+          $hash = (Get-FileHash "dist/$archive" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $archive" | Set-Content dist/SHA256SUMS.txt -Encoding ascii
+          $notes = @'
+          Windows x64 per-user proxy preview. Real Hysteria 2 / REALITY connections, encrypted profile storage, domain/IP routing, end-to-end health checks, core supervision and bounded session logs.
+
+          Extract the ZIP and run install.ps1 with PowerShell. No administrator rights or separate .NET install required. Import device exports locally; no credentials are bundled.
+
+          Proxy only: configure an app proxy or use Test browser. TUN, process interception, service, system kill switch and mesh transport tunneling remain unavailable. No host network changes. Built and self-tested by GitHub Actions from source.
+          '@
+          $notes | Set-Content "$env:RUNNER_TEMP/windows-release.md" -Encoding utf8
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag "dist/$archive" dist/SHA256SUMS.txt --clobber
+            if ($LASTEXITCODE -ne 0) { throw 'Release asset upload failed' }
+            gh release edit $tag --target $env:GITHUB_SHA --notes-file "$env:RUNNER_TEMP/windows-release.md"
+          } else {
+            gh release create $tag "dist/$archive" dist/SHA256SUMS.txt --target $env:GITHUB_SHA --title "Windows client $version preview" --notes-file "$env:RUNNER_TEMP/windows-release.md" --prerelease
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }

@@ -7,4 +7,7 @@
 *.svg text eol=lf
 *.json text eol=lf
 *.ps1 text eol=lf
+*.cs text eol=lf
+*.csproj text eol=lf
+*.manifest text eol=lf
 Dockerfile text eol=lf
