@@ -1,5 +1,59 @@
 # Installed Windows preview validation
 
+## 0.2.3 browser capture update — 2026-11-02
+
+The initial IP mismatch was a capture gap: Windows still used the other VPN's
+proxy at `127.0.0.1:7688`. Version 0.2.0 verified tunnel health but did not apply
+Windows browser proxy settings. Version 0.2.3 implements verified-then-apply
+System proxy capture, conditional restore, an independent restoration watchdog,
+external proxy conflict reporting, and a deferred final window close.
+
+- Source: `6165d93`.
+- Build / self-tests: <https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/41432492002>
+- Release: <https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/windows-v0.2.3>
+- Downloaded ZIP SHA-256: `8554841a892537a6116c85ff36ce79c7176d62389865cb019b611735105b8650`.
+- Per-user installation succeeded without administrator rights. The installer
+  updates the DACL access section directly, avoiding an upgrade failure caused
+  by PowerShell Set-Acl requesting a security privilege.
+- Installed self-tests passed, including native WinINet proxy query / ownership
+  checks. No credentials or backend session logs are stored in the release.
+- The GUI was opened disconnected with Hysteria 2, Global and System proxy
+  selected. Existing device credentials and rule entries were retained.
+
+Repeated native tests using the genuine device export:
+
+| Test | Observed result |
+| --- | --- |
+| Hysteria 2 on OS route, without the other HTTP proxy | VPS exit `45.77.179.227`, four parallel HTTPS requests passed |
+| Google generate_204 over Hysteria SOCKS | HTTP 204 |
+| Wikipedia over Hysteria SOCKS | HTTP 200 |
+| REALITY through the other HTTP proxy | VPS exit and four parallel requests passed |
+| REALITY on OS route | Connection reset |
+| Unauthenticated TCP 443 | TCP connection succeeded |
+| TLS fallback with Amazon SNI on TCP 443 | Connection reset |
+| Experimental client fragmentation setting | Connection reset |
+
+Only Wi-Fi was reported as an Up network adapter during these probes. The native
+Hysteria configuration did not use the other VPN's HTTP proxy. This establishes
+working HTTPS through the selected VPS on the tested route; it does not promise
+future availability or establish which network component resets TCP / TLS.
+
+**System proxy acceptance remains pending.** An earlier 0.2.1 integration attempt
+failed with HttpRequestException during external HTTPS testing and restored the
+previous Windows proxy. It is not counted as an end-to-end pass. The newer test
+distinguishes a website's HTTP error response from a failed tunnel. Automatic
+approval review rejected the combined download / install / proxy-test command
+with `blocked by policy`, so the final 0.2.3 System proxy, crash-watchdog and
+normal-browser checks were not rerun automatically. Download, checksum,
+installation and non-mutating self-tests were completed separately. The user
+was asked to click Connect and verify the ordinary browser's numeric exit IP and
+Google access. Do not describe that acceptance as passed until confirmed.
+
+WinINet integration follows the per-connection query/set API and restore flags
+described in [Microsoft's documentation](https://learn.microsoft.com/en-us/windows/win32/api/wininet/ns-wininet-internet_per_conn_optionw).
+
+## Historical 0.2.0 validation
+
 Validated on Windows 11 x64, 2026-11-02, using the package downloaded from the
 private GitHub Release `windows-v0.2.0`. The development machine did not compile
 or upload native application binaries. Build source: `5e4b876111217672e783f6ec909e8757c095c498`.
