@@ -1,67 +1,60 @@
-# Windows Wintun module
+# Windows TUN runtime — 0.5.0
 
-The first implementation in 0.3.2 is `app/TunPlan.cs`: a deterministic compiler
-from the same persisted App / Site policies to a Windows TUN routing plan. CI
-validates its output with the official, checksum-pinned sing-box 1.14.4 `check`
-command. It does not run an adapter or install a driver. No TUN core or driver
-is shipped or activated by this release.
+The application manifest requires Administrator, as requested. The setup EXE is
+built for x86 and x64. It includes architecture-matched self-contained .NET,
+native Xray / Hysteria, sing-box 1.14.4 and the official signed Wintun 0.14.1.
+All archive and runtime hashes are pinned; Wintun signature verification runs
+in packaging. Native device cleanup on WOW64 uses the native Windows PnP utility
+for the exact matched device instance, not a shell command or a wildcard.
 
-Versions before 0.4 stored full `.exe` paths and per-target Tunnel / Bypass / Block
-actions as drafts. Version 0.4.1 preserves these drafts but disables the App Tunnel
-settings row in Proxy mode. Home has a confirmed Proxy / TUN selector. TUN
-confirmation is disabled until the runtime is available; selecting it never stops
-a Proxy session or silently starts a Proxy session as TUN. A backend capability
-guard enforces this independently of the UI. Site policies remain active for
-captured Proxy traffic.
+## Connection lifecycle
+
+Mode changes require confirmation. A TUN connection verifies native authenticated
+HTTPS first, resolves transport addresses for route exclusions, prepares an
+independent recovery guard and starts the TUN core. The core is the sole adapter
+creator. Captured DNS / HTTPS must verify before Connected. TCP and UDP are
+enabled on the native SOCKS frontend; Proxy mode retains its existing behavior.
+
+The adapter name is scoped to the current user. Its native GUID is observed and
+recorded in the ACL-protected runtime child. The guard validates parent PID,
+creation time and executable identity and removes only the recorded GUID / name
+on parent exit. Startup recovery checks the same ownership. A graceful console
+interrupt lets the TUN core release its own routes, addresses, WFP session and
+device before forced termination is considered. A scoped native device fallback
+handles non-present devices. Teardown errors are logged and produce Error.
+
+DNS settings are applied on the owned interface. Physical interface settings are
+not rewritten. Disconnect releases the owned adapter and conditional proxy lease.
+The shared Wintun driver is not uninstalled. Reconnect can temporarily release
+capture; this preview does not implement a whole-machine kill switch.
 
 ## Routing contract
 
-1. Protect control traffic: explicit VPN transport IP route exclusions, direct
-   rules for the owned native core executables, and DNS handling.
-2. Explicit App exceptions, matching full process paths. These win over Site
-   exceptions, including an explicit Site Block.
-3. Explicit Site exceptions; Block exceptions precede other Site exceptions.
-4. App default when App rules are enabled; otherwise Site default.
-5. If both policy modules are off, Tunnel is the final action.
+1. Native transport addresses are excluded to prevent recursion. The owned
+   protocol engines use reserved Direct rules; private health uses Tunnel.
+2. Explicit App exceptions precede explicit Site exceptions. Windows executable
+   paths use escaped, anchored, case-insensitive matching. Child executables need
+   their own entries.
+3. Site Block exceptions precede other Site exceptions.
+4. App default applies when enabled; otherwise Site default.
+5. With both modules off, captured traffic tunnels.
 
-Defaults never precede exceptions, so a Tunnel exception can override a Block
-default. Turning a module off retains but ignores that module's exceptions. If
-App rules are off, Site rules still apply. An unknown process uses defaults; an
-executable's child/helper processes require separate explicit entries.
+Current ZeroTier / Tailscale inner address prefixes are excluded from capture.
+Outer mesh transport follows the chosen App policy. Mesh service health,
+membership authorization and peer firewall configuration remain separate.
 
-The plan uses dual-stack TUN addresses, strict routing, sniffing and DNS over
-HTTPS through the tunnel. Transport hosts must be resolved before creating the
-plan, with explicit IPv4/IPv6 route exclusions to prevent a recursive tunnel.
-The native Hysteria and Xray engines retain ownership of authentication and
-full-certificate pin verification; TUN forwards to their local SOCKS frontend.
+## Verification
 
-## Next implementation: elevated Windows adapter host
+Both architectures are exercised on isolated Windows x64 CI runners. Tests create
+a real adapter, verify captured HTTPS, relay UDP through Xray / Hysteria, block a
+separate executable, verify App Tunnel overrides Site Block, stop and check adapter
+removal / unchanged physical DNS, then abruptly kill a parent to exercise recovery.
+The setup EXE is compiled and installed silently, including driver preparation.
+The x86 app runs under WOW64; physical 32-bit Windows hardware is not tested.
 
-The normal UI must stay unprivileged. A small elevated helper will own Wintun,
-routes, DNS interception and supervised TUN core lifetime, with authenticated
-current-user IPC, cancellation and a parent-death watchdog. Elevation is only
-requested for an explicit TUN connection. Proxy mode keeps its existing path.
-
-Before enabling TUN in the product, qualify all of these on an isolated Windows
-machine rather than the development host used to communicate from China:
-
-- Native authenticated TCP AND UDP forwarding, both protocols, and DNS policy.
-  The existing Proxy frontend intentionally disables UDP; it must gain a separate
-  verified TUN path before this plan can be used.
-- Driver signature / binary integrity; no shell interpolation from policy data.
-- Exact route/DNS/firewall restoration on disconnect, helper crash and UI crash.
-- No Direct fallback during authentication failure or reconnect; explicit Bypass
-  remains available according to policy. A clear protection-state indicator is
-  required; `Connected` cannot mean only that the adapter exists.
-- Actual per-process identity, child processes, domain/IP precedence and blocked
-  defaults with exceptions; IPv4 and IPv6 leak tests.
-- Wi-Fi/cellular change, sleep/resume, adapter replacement, occupied ports,
-  competing VPNs and recovery after a killed helper/core.
-- Mesh address and DNS ownership for Tailscale / ZeroTier, including their outer
-  transport. Existing mesh routes alone are not proof of qualified coexistence.
-
-Upstream references:
-[TUN](https://sing-box.sagernet.org/configuration/inbound/tun/),
-[process-path rules](https://sing-box.sagernet.org/configuration/route/rule/),
-[routing actions](https://sing-box.sagernet.org/configuration/route/rule_action/),
-[Wintun](https://www.wintun.net/).
+Upstream sources:
+- https://sing-box.sagernet.org/configuration/inbound/tun/
+- https://sing-box.sagernet.org/configuration/route/rule/
+- https://github.com/SagerNet/sing-box/tree/v1.14.4
+- https://www.wintun.net/
+- https://github.com/WireGuard/wintun

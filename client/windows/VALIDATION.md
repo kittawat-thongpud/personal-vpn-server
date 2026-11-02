@@ -1,5 +1,51 @@
 # Installed Windows preview validation
 
+## 0.5.0 Administrator TUN and Windows installers — 2026-11-03
+
+- Runtime source: `2c6677a`; all x86 / x64 build, native integration and
+  installer checks passed:
+  <https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/41484530050>.
+- Release: <https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/windows-v0.5.0>.
+  Includes x86 (32-bit) and x64 Setup EXEs, self-contained ZIPs, UI previews
+  and SHA256SUMS. No local compilation or binary upload was used.
+- The manifest requires Administrator. Setup contains pinned native cores
+  and vendor-signed Wintun 0.14.1. x86 WinINet uses its correct native union
+  alignment; the x86 package includes 386 cores and is tested under WOW64.
+- Actual CI TUN tests (Hysteria 2) passed on both architecture builds:
+  adapter creation and captured HTTPS, native UDP forwarding, external-process
+  Block, explicit App Tunnel over a conflicting Site Block, owned-device
+  removal / physical DNS retention, and abrupt-parent cleanup.
+- Both Setup EXEs compiled and installed silently on isolated Windows runners.
+  x86 cleanup on 64-bit Windows uses the native device manager for the exact
+  recorded device. Device cleanup has a deadline; errors are surfaced.
+- Home protocol selection replaces the old badge. Logs have no explanatory
+  banner or size counters; internal 1,000-record / 1-MiB bounds remain.
+  The tray close decision retains focus-change menus while allowing outside
+  click, Escape and selected actions to close them. Synthetic renders and
+  bounded log widgets passed at small, default and wide sizes.
+- Downloaded x86 installer SHA-256:
+  `2f3133afe43f96c3dbb7a8b8e123341de8edbeace0c07ef5f974a0aaf9ef2a86`.
+- Installed x86 on the development machine in
+  `C:\Program Files (x86)\PersonalVPN\0.5.0-x86`.
+  Driver preparation, installed-package self-tests and layouts passed.
+  Legacy per-user shortcuts were updated to the new executable.
+- REALITY and Hysteria 2 isolated native probes both verified HTTPS exit
+  `45.77.179.227` from the installed package. Protected settings were
+  byte-for-byte unchanged. An encrypted pre-upgrade DPAPI backup was kept.
+- The old connected client remained running. No TUN connection or route
+  takeover was activated on the development machine. User-side captured TUN
+  traffic from China, REALITY-over-TUN and physical 32-bit Windows are not
+  claimed as live-tested here.
+- ZeroTier initially showed a disconnected adapter and tentative
+  `10.46.136.123/24`, with no mesh route. Later read-only Administrator
+  diagnostics showed network OK, adapter Up, preferred address and the
+  `10.46.136.0/24` route. Both self and peer `10.46.136.125` ping passed
+  before and after installation. No repair / join / service restart was
+  executed; the cause of the recovery was not established.
+- Known boundary: no whole-machine kill switch; reconnect may release capture.
+  Existing mesh inner prefixes are excluded, but live user-side TUN / mesh
+  coexistence still needs an operator-run test.
+
 ## 0.4.1 tray client and capture selector — 2026-11-02
 
 - Runtime source: `e1fc9db`. Build and all CI checks passed:
