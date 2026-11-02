@@ -1,5 +1,8 @@
 using System;
 using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
+using System.Text;
 using System.Linq;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
@@ -72,6 +75,19 @@ public sealed class WintunAdapter : IDisposable
                 using var safe = new Microsoft.Win32.SafeHandles.SafeRegistryHandle(handle, true);
                 using var key = RegistryKey.FromHandle(safe);
                 if (!Guid.TryParse(key.GetValue("NetCfgInstanceId") as string, out var current) || current != id) continue;
+                if (!Environment.Is64BitProcess && Environment.Is64BitOperatingSystem)
+                {
+                    var instance = new StringBuilder(512);
+                    if (!SetupDiGetDeviceInstanceId(set, ref device, instance, instance.Capacity, out _)) throw new Win32Exception();
+                    var info = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Sysnative", "pnputil.exe")) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+                    info.ArgumentList.Add("/remove-device"); info.ArgumentList.Add(instance.ToString());
+                    using var process = Process.Start(info) ?? throw new InvalidOperationException("Native device cleanup did not start.");
+                    var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
+                    if (!process.WaitForExit(15000)) { process.Kill(); throw new InvalidOperationException("Native device cleanup timed out."); }
+                    System.Threading.Tasks.Task.WaitAll(output, error);
+                    if (process.ExitCode != 0) throw new InvalidOperationException("Native device cleanup failed: " + process.ExitCode);
+                    return;
+                }
                 var remove = new RemoveParameters { HeaderSize = 8, Function = 5, Scope = 1 };
                 if (!SetupDiSetClassInstallParams(set, ref device, ref remove, Marshal.SizeOf<RemoveParameters>()) || !SetupDiCallClassInstaller(5, set, ref device)) throw new Win32Exception();
                 return;
@@ -82,6 +98,7 @@ public sealed class WintunAdapter : IDisposable
     [DllImport("setupapi.dll", EntryPoint = "SetupDiGetClassDevsW", CharSet = CharSet.Unicode, SetLastError = true)] private static extern IntPtr SetupDiGetClassDevs(ref Guid guid, string? enumerator, IntPtr window, uint flags);
     [DllImport("setupapi.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetupDiEnumDeviceInfo(IntPtr set, uint index, ref DeviceInfo info);
     [DllImport("setupapi.dll", SetLastError = true)] private static extern IntPtr SetupDiOpenDevRegKey(IntPtr set, ref DeviceInfo info, uint scope, uint profile, uint keyType, uint access);
+    [DllImport("setupapi.dll", EntryPoint = "SetupDiGetDeviceInstanceIdW", CharSet = CharSet.Unicode, SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetupDiGetDeviceInstanceId(IntPtr set, ref DeviceInfo info, StringBuilder id, int size, out int required);
     [StructLayout(LayoutKind.Sequential)] private struct DeviceInfo { public uint Size; public Guid Class; public uint DevInst; public UIntPtr Reserved; }
     [StructLayout(LayoutKind.Sequential)] private struct RemoveParameters { public uint HeaderSize, Function, Scope, HardwareProfile; }
     [DllImport("setupapi.dll", SetLastError = true)] private static extern IntPtr SetupDiCreateDeviceInfoList(IntPtr guid, IntPtr window);

@@ -331,7 +331,7 @@ public sealed class Backend : IAsyncDisposable
             catch (OperationCanceledException) when (attempt.IsCancellationRequested) { }
             catch (Exception error)
             {
-                if (token.IsCancellationRequested) { Log.Add("ERROR", "backend.cleanup_failed", "Capture teardown failed (" + error.GetType().Name + "). Reopen as Administrator for recovery."); throw; }
+                if (token.IsCancellationRequested) { SetState("Error", "Capture cleanup failed; reopen as Administrator for recovery."); Log.Add("ERROR", "backend.cleanup_failed", "Capture teardown failed (" + error.GetType().Name + "). Reopen as Administrator for recovery."); throw; }
                 failures++;
                 string reason = error is InvalidOperationException ? error.Message : "VPN attempt failed (" + error.GetType().Name + ").";
                 SetState("Reconnecting", reason, attemptGeneration);

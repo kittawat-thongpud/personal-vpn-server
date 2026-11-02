@@ -11,6 +11,7 @@ public static class CaptureCapabilities
         if (mode != "Proxy" && mode != "TUN") throw new InvalidOperationException("Unknown capture mode.");
         if (mode == "TUN")
         {
+            if (Environment.OSVersion.Version.Build < 19041) throw new InvalidOperationException("TUN requires Windows 10 build 19041 or later.");
             if (!TunAvailable) throw new InvalidOperationException(TunNotice);
             _ = CoreIntegrity.Verify("sing-box.exe"); _ = CoreIntegrity.Verify("wintun.dll");
             if (!WintunAdapter.IsAdministrator) throw new InvalidOperationException("Open Personal VPN as Administrator to use TUN.");
