@@ -1,0 +1,239 @@
+<div id="personal-vpn-ui-preview">
+  <div class="viz-carousel viz-dotted-background" aria-label="Windows VPN client layouts">
+    <section data-variant="Compact" aria-label="Compact VPN client"><div class="pv-stage" data-layout="compact"></div></section>
+    <section data-variant="Workspace" aria-label="VPN client with routing workspace" hidden><div class="pv-stage" data-layout="workspace"></div></section>
+  </div>
+</div>
+<style>
+#personal-vpn-ui-preview{font-family:'Segoe UI',Tahoma,sans-serif;font-size:14px;line-height:1.5;color-scheme:light dark}
+#personal-vpn-ui-preview *{box-sizing:border-box}
+#personal-vpn-ui-preview [hidden]{display:none!important}
+#personal-vpn-ui-preview .pv-stage{min-height:1030px;padding:12px 0 28px}
+#personal-vpn-ui-preview .pv-window{--pv-bg:light-dark(#eef2f9,#0d1627);--pv-panel:light-dark(#fff,#172132);--pv-inset:light-dark(#e9eef6,#101a2b);--pv-line:light-dark(#d9e1ed,#2b3547);--pv-text:light-dark(#15223a,#edf2fc);--pv-muted:light-dark(#52617a,#a1afc5);--pv-blue:light-dark(#1562cd,#368cff);--pv-green:light-dark(#087e66,#13c89b);--pv-amber:light-dark(#8c5905,#f4bf62);--pv-red:light-dark(#b3263b,#ff7f91);--pv-on-blue:#fff;--pv-gap:16px;max-width:480px;margin:0 auto;background:var(--pv-bg);color:var(--pv-text);border:1px solid var(--pv-line);border-radius:22px;overflow:hidden;box-shadow:0 14px 38px light-dark(#1c2a4112,#00000030)}
+#personal-vpn-ui-preview button,#personal-vpn-ui-preview input,#personal-vpn-ui-preview select{font:inherit;line-height:inherit}
+#personal-vpn-ui-preview button{color:inherit}
+#personal-vpn-ui-preview button:disabled{opacity:.45;cursor:not-allowed}
+#personal-vpn-ui-preview button:focus-visible,#personal-vpn-ui-preview input:focus-visible,#personal-vpn-ui-preview select:focus-visible,#personal-vpn-ui-preview summary:focus-visible{outline:2px solid var(--pv-blue);outline-offset:3px}
+#personal-vpn-ui-preview .pv-titlebar{display:flex;align-items:center;gap:9px;padding:16px 20px;border-bottom:1px solid var(--pv-line)}
+#personal-vpn-ui-preview .pv-mark{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:var(--pv-blue);color:var(--pv-on-blue);font-size:12px;font-weight:600}
+#personal-vpn-ui-preview .pv-title{font-weight:600;letter-spacing:.2px}
+#personal-vpn-ui-preview .pv-eyebrow{font-size:10px;letter-spacing:1.4px;color:var(--pv-muted)}
+#personal-vpn-ui-preview .pv-preview{margin-left:auto;color:var(--pv-amber);font-size:11px;text-align:right;max-width:130px}
+#personal-vpn-ui-preview .pv-content{padding:20px;display:grid;gap:var(--pv-gap)}
+#personal-vpn-ui-preview .pv-home{display:grid;gap:var(--pv-gap)}
+#personal-vpn-ui-preview .pv-server{display:flex;gap:12px;align-items:center;padding:15px;background:var(--pv-panel);border:1px solid var(--pv-line);border-radius:16px}
+#personal-vpn-ui-preview .pv-japan{height:42px;width:42px;flex-shrink:0;display:grid;place-items:center;border-radius:50%;background:light-dark(#f5f7fb,#edf2fc);color:#bf304c;font-size:27px}
+#personal-vpn-ui-preview .pv-server strong{font-size:16px;font-weight:600;display:block}
+#personal-vpn-ui-preview .pv-small{font-size:12px;color:var(--pv-muted)}
+#personal-vpn-ui-preview .pv-tag{margin-left:auto;white-space:nowrap;font-size:10px;letter-spacing:.7px;padding:4px 7px;border:1px solid var(--pv-line);border-radius:6px;color:var(--pv-muted)}
+#personal-vpn-ui-preview .pv-modes{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+#personal-vpn-ui-preview .pv-card{padding:14px;background:var(--pv-panel);border:1px solid var(--pv-line);border-radius:16px;min-width:0}
+#personal-vpn-ui-preview .pv-label{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;margin-bottom:10px;color:var(--pv-text)}
+#personal-vpn-ui-preview .pv-label svg{width:16px;height:16px;color:var(--pv-muted)}
+#personal-vpn-ui-preview .pv-segment{display:flex;padding:4px;gap:3px;background:var(--pv-inset);border-radius:10px}
+#personal-vpn-ui-preview .pv-segment button{border:0;background:transparent;padding:8px 4px;flex:1;border-radius:8px;font-size:12px;color:var(--pv-muted);white-space:nowrap;min-height:34px}
+#personal-vpn-ui-preview .pv-segment button[aria-pressed=true]{background:var(--pv-blue);color:var(--pv-on-blue);font-weight:600}
+#personal-vpn-ui-preview .pv-mode-detail{font-size:11px;color:var(--pv-muted);margin-top:8px;min-height:34px}
+#personal-vpn-ui-preview .pv-field{display:grid;gap:6px;font-size:12px;color:var(--pv-muted)}
+#personal-vpn-ui-preview select,#personal-vpn-ui-preview input{color:var(--pv-text);background:var(--pv-inset);border:1px solid var(--pv-line);border-radius:9px;padding:9px 10px;width:100%;min-width:0;min-height:39px}
+#personal-vpn-ui-preview select option{background:var(--pv-panel);color:var(--pv-text)}
+#personal-vpn-ui-preview .pv-field-title{display:flex;align-items:center;justify-content:space-between;gap:10px}
+#personal-vpn-ui-preview details{font-size:12px;color:var(--pv-muted)}
+#personal-vpn-ui-preview summary{color:var(--pv-text);margin-top:10px}
+#personal-vpn-ui-preview .pv-protocol-facts{padding-top:8px;display:grid;gap:6px}
+#personal-vpn-ui-preview .pv-note{padding:11px 12px;border-left:3px solid var(--pv-amber);background:color-mix(in srgb,var(--pv-amber) 8%,var(--pv-inset));border-radius:0 8px 8px 0;font-size:12px;color:var(--pv-text)}
+#personal-vpn-ui-preview .pv-power-area{text-align:center;padding:18px 4px 8px;display:grid;justify-items:center;gap:12px}
+#personal-vpn-ui-preview .pv-power{height:118px;width:118px;border-radius:50%;border:8px solid color-mix(in srgb,var(--pv-green) 17%,var(--pv-bg));background:var(--pv-green);color:#042d25;display:grid;place-items:center;box-shadow:0 0 0 7px color-mix(in srgb,var(--pv-green) 7%,var(--pv-bg));transition:background .2s,border-color .2s}
+#personal-vpn-ui-preview .pv-power svg{width:39px;height:39px;stroke-width:2;transform:scale(2.3)}
+#personal-vpn-ui-preview .pv-power:has(svg) .pv-power-label{display:none}
+#personal-vpn-ui-preview .pv-power[aria-busy=true]{background:var(--pv-amber);border-color:color-mix(in srgb,var(--pv-amber) 17%,var(--pv-bg))}
+#personal-vpn-ui-preview .pv-status{font-size:21px;font-weight:500;color:var(--pv-text)}
+#personal-vpn-ui-preview .pv-status-reason{font-size:12px;color:var(--pv-muted);max-width:350px;min-height:36px}
+#personal-vpn-ui-preview .pv-live{display:inline-flex;gap:6px;align-items:center;font-size:11px;color:var(--pv-muted)}
+#personal-vpn-ui-preview .pv-dot{width:6px;height:6px;border-radius:50%;background:var(--pv-muted)}
+#personal-vpn-ui-preview .pv-live[data-state=connected] .pv-dot{background:var(--pv-green)}
+#personal-vpn-ui-preview .pv-live[data-state=blocked] .pv-dot{background:var(--pv-red)}
+#personal-vpn-ui-preview .pv-button{border:1px solid var(--pv-line);background:var(--pv-inset);border-radius:8px;padding:8px 11px;font-size:12px;min-height:36px}
+#personal-vpn-ui-preview .pv-primary{background:var(--pv-blue);border-color:var(--pv-blue);color:var(--pv-on-blue)}
+#personal-vpn-ui-preview .pv-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+#personal-vpn-ui-preview .pv-sim{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;margin-top:8px}
+#personal-vpn-ui-preview .pv-protection{display:flex;align-items:start;gap:8px;padding:12px;background:var(--pv-inset);border-radius:10px;font-size:11px;color:var(--pv-muted)}
+#personal-vpn-ui-preview .pv-protection svg{width:16px;height:16px;flex-shrink:0;color:var(--pv-green);margin-top:2px}
+#personal-vpn-ui-preview .pv-tabs{display:flex;gap:4px;margin:0 20px 16px;padding:5px;background:var(--pv-panel);border:1px solid var(--pv-line);border-radius:13px}
+#personal-vpn-ui-preview .pv-tabs button{display:flex;align-items:center;justify-content:center;gap:7px;flex:1;min-height:42px;background:transparent;border:0;border-radius:9px;font-size:12px;color:var(--pv-muted)}
+#personal-vpn-ui-preview .pv-tabs button svg{height:16px;width:16px}
+#personal-vpn-ui-preview .pv-tabs button[aria-selected=true]{background:var(--pv-inset);color:var(--pv-text)}
+#personal-vpn-ui-preview .pv-panel-title{font-size:18px;font-weight:500;margin:0 0 5px}
+#personal-vpn-ui-preview .pv-rule-list{display:grid;gap:8px;margin:12px 0}
+#personal-vpn-ui-preview .pv-rule{background:var(--pv-inset);border-radius:10px;padding:10px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;font-size:12px;align-items:center}
+#personal-vpn-ui-preview .pv-rule-target{font-family:Consolas,monospace;font-size:11px;overflow-wrap:anywhere;color:var(--pv-text)}
+#personal-vpn-ui-preview .pv-rule-action{font-size:10px;font-weight:600;color:var(--pv-blue)}
+#personal-vpn-ui-preview .pv-rule-controls{display:flex;gap:4px}
+#personal-vpn-ui-preview .pv-rule-controls button{min-width:30px;min-height:30px;padding:2px;background:transparent;border:1px solid var(--pv-line);border-radius:6px}
+#personal-vpn-ui-preview .pv-form{display:grid;gap:9px;margin-top:12px}
+#personal-vpn-ui-preview .pv-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#personal-vpn-ui-preview .pv-error{font-size:12px;color:var(--pv-red);min-height:18px}
+#personal-vpn-ui-preview .pv-verdict{padding:12px;margin-top:10px;border-radius:9px;background:var(--pv-inset);font-size:12px;overflow-wrap:anywhere;border-left:3px solid var(--pv-blue)}
+#personal-vpn-ui-preview .pv-log-list{display:grid;gap:0;margin:12px 0}
+#personal-vpn-ui-preview .pv-log{display:grid;grid-template-columns:62px minmax(0,1fr);gap:8px;padding:9px 0;border-bottom:1px solid var(--pv-line);font-size:11px;overflow-wrap:anywhere}
+#personal-vpn-ui-preview .pv-log time{color:var(--pv-muted);font-family:Consolas,monospace}
+#personal-vpn-ui-preview .pv-log b{display:block;font-size:11px;font-weight:500;color:var(--pv-blue)}
+#personal-vpn-ui-preview .pv-workspace-only{display:none}
+#personal-vpn-ui-preview .pv-app-body{display:block}
+#personal-vpn-ui-preview [data-layout=workspace] .pv-window{max-width:980px}
+#personal-vpn-ui-preview [data-layout=workspace] .pv-app-body{display:grid;grid-template-columns:minmax(300px,410px) minmax(0,1fr)}
+#personal-vpn-ui-preview [data-layout=workspace] .pv-content{align-content:start}
+#personal-vpn-ui-preview [data-layout=workspace] .pv-workspace-only{display:block;border-left:1px solid var(--pv-line);padding:20px}
+#personal-vpn-ui-preview [data-layout=workspace] .pv-window:not([data-current-page=home]) .pv-app-body{display:block}
+#personal-vpn-ui-preview [data-layout=workspace] .pv-window:not([data-current-page=home]) .pv-content{max-width:650px;margin:0 auto}
+#personal-vpn-ui-preview [data-layout=workspace] .pv-window:not([data-current-page=home]) .pv-workspace-only{display:none}
+#personal-vpn-ui-preview .pv-footnote{font-size:11px;color:var(--pv-muted);padding:0 20px 15px;text-align:center}
+@media(max-width:680px){#personal-vpn-ui-preview [data-layout=workspace] .pv-app-body{display:block}#personal-vpn-ui-preview [data-layout=workspace] .pv-workspace-only{border-left:0;border-top:1px solid var(--pv-line)}#personal-vpn-ui-preview .pv-stage{min-height:1030px}}
+@media(max-width:390px){#personal-vpn-ui-preview .pv-content{padding:14px}#personal-vpn-ui-preview .pv-modes{gap:8px}#personal-vpn-ui-preview .pv-card{padding:11px}#personal-vpn-ui-preview .pv-titlebar{padding:14px}#personal-vpn-ui-preview .pv-server{padding:11px;gap:9px}#personal-vpn-ui-preview .pv-server strong{font-size:14px}#personal-vpn-ui-preview .pv-tag{display:none}#personal-vpn-ui-preview .pv-sim{grid-template-columns:1fr}#personal-vpn-ui-preview .pv-form-grid{grid-template-columns:1fr}#personal-vpn-ui-preview .pv-preview{max-width:106px}#personal-vpn-ui-preview .pv-stage{min-height:1120px}}
+@media(prefers-reduced-motion:reduce){#personal-vpn-ui-preview *{transition:none!important}}
+</style>
+<script>
+(() => {
+  const root = document.getElementById('personal-vpn-ui-preview');
+  const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const protocolInfo = {
+    reality: {name:'VLESS · REALITY · Vision',wire:'TCP 443',brief:'ตัวหลัก · ต้องเลือก TLS target ที่เข้ากันได้',facts:['ใช้ TCP; เมื่อ packet loss สูง throughput อาจลดลง','เปลี่ยน IP แล้ว TCP session เดิมอาจขาด ต้องเชื่อมต่อใหม่','REALITY เป็น camouflage และไม่ได้รับประกันว่าจะไม่ถูกบล็อก']},
+    hy2: {name:'Hysteria 2',wire:'QUIC / UDP 443',brief:'ทางเลือก · ต้องใช้งาน UDP ได้และตรวจ certificate',facts:['UDP อาจถูกจำกัดหรือบล็อก จึงอาจเชื่อมต่อไม่ได้','ความเร็วขึ้นกับเส้นทางและ packet loss; ไม่มีตัวเลขรับประกัน','ต้องตรวจ certificate/pin; การเปลี่ยนเครือข่ายยังต้องทดสอบ recovery']},
+    auto: {name:'Auto · REALITY → Hysteria 2',wire:'TCP / UDP 443',brief:'นโยบายสลับ protocol · ไม่ใช่ protocol ใหม่',facts:['เปลี่ยนเมื่อ health check ผ่าน tunnel ล้มเหลวต่อเนื่อง','มีช่วงรอและตรวจ authentication ใหม่; connection เดิมอาจขาด','การสลับ protocol ไม่ช่วยเมื่อ IP ของ VPS ถูกบล็อกทั้งสองทาง']}
+  };
+  const stateLabels = {stopped:'Disconnected',connecting:'Connecting',verifying:'Verifying tunnel',connected:'Connected',reconnecting:'Reconnecting',blocked:'Blocked'};
+  const sampleRules = () => [{id:'web-example',kind:'domain',target:'*.example.com',action:'tunnel'},{id:'app-example',kind:'app',target:'C:\\Program Files\\Mozilla Firefox\\firefox.exe',action:'tunnel'}];
+  const instances = [];
+  function makeApp(stage,index){
+    const id = 'pv-' + index;
+    stage.innerHTML = `<div class="pv-window" aria-label="${stage.dataset.layout} personal VPN client">
+      <header class="pv-titlebar"><div class="pv-mark">PV</div><div><div class="pv-title">Personal VPN</div><div class="pv-eyebrow">WINDOWS CLIENT</div></div><div class="pv-preview">UI PREVIEW<br>ไม่มีการเชื่อมต่อจริง</div></header>
+      <div class="pv-app-body"><div class="pv-content">
+        <div class="pv-home" data-page="home">
+          <div class="pv-server"><div class="pv-japan" aria-hidden="true">●</div><div><div class="pv-small">Personal server</div><strong>Tokyo · Japan</strong><div class="pv-small">VPS ของคุณ · ข้อมูลตัวอย่าง</div></div><span class="pv-tag">PRIVATE</span></div>
+          <div class="pv-modes">
+            <div class="pv-card"><div class="pv-label"><i data-lucide="waypoints" aria-hidden="true"></i> Capture mode</div><div class="pv-segment" role="group" aria-label="Capture mode"><button type="button" data-capture="proxy" aria-pressed="true">Proxy</button><button type="button" data-capture="tun" aria-pressed="false">TUN</button></div><div class="pv-mode-detail" data-capture-note></div></div>
+            <div class="pv-card"><div class="pv-label"><i data-lucide="sliders-horizontal" aria-hidden="true"></i> Traffic mode</div><div class="pv-segment" role="group" aria-label="Traffic mode"><button type="button" data-traffic="rules" aria-pressed="true">Rules</button><button type="button" data-traffic="global" aria-pressed="false">Global</button></div><div class="pv-mode-detail" data-traffic-note></div></div>
+          </div>
+          <div class="pv-card"><label class="pv-field"><span class="pv-field-title"><span>VPN protocol</span><span data-wire></span></span><select data-protocol aria-label="VPN protocol"><option value="reality">VLESS + REALITY + Vision</option><option value="hy2">Hysteria 2</option><option value="auto">Auto · REALITY → Hysteria 2</option></select></label><div class="pv-small" data-protocol-brief style="margin-top:8px"></div><details open data-protocol-details><summary>ข้อจำกัดของตัวเลือกนี้</summary><div class="pv-protocol-facts" data-protocol-facts></div></details></div>
+          <div class="pv-note" data-scope></div>
+          <div class="pv-power-area"><button type="button" class="pv-power" data-power aria-label="Connect preview" aria-busy="false"><i data-lucide="power" aria-hidden="true"></i><span class="pv-power-label">Connect</span></button><div class="pv-status" data-status role="status" aria-live="polite">Disconnected</div><div class="pv-status-reason" data-reason></div><span class="pv-live" data-live><span class="pv-dot"></span><span data-active-label>Preview only · ไม่มี tunnel จริง</span></span><button type="button" class="pv-button pv-primary" data-apply hidden>Apply & reconnect · จำลอง</button></div>
+          <div class="pv-protection"><i data-lucide="shield-check" aria-hidden="true"></i><span>เป้าหมาย: traffic ที่เลือก Tunnel จะถูกบล็อกระหว่าง recovery ส่วน Direct และ mesh ใช้กฎของตัวเอง</span></div>
+          <div class="pv-card"><div class="pv-small">ลองดูสถานะ recovery · จำลองเท่านั้น</div><div class="pv-sim"><select data-scenario aria-label="Recovery scenario"><option value="network">Wi-Fi → Mobile hotspot</option><option value="udp">UDP ถูกบล็อก</option><option value="pin">Certificate pin ไม่ตรง</option><option value="offline">ไม่มีอินเทอร์เน็ต</option><option value="crash">Core หยุดทำงาน</option></select><button type="button" class="pv-button" data-sim disabled>จำลอง</button></div></div>
+        </div>
+        <div data-page="rules" hidden><h2 class="pv-panel-title">Routing rules</h2><div class="pv-small">กฎตัวอย่าง · เรียงลำดับก่อนหลังได้</div><div data-rules-editor></div></div>
+        <div data-page="logs" hidden><div class="pv-row"><h2 class="pv-panel-title">Activity log</h2><button type="button" class="pv-button" data-export>Export JSON</button></div><div class="pv-small">เหตุการณ์จำลองใน session นี้ · ไม่มี credential</div><div data-export-panel hidden><label class="pv-field" style="margin-top:12px">JSON สำหรับคัดลอก<textarea data-export-output readonly rows="6" aria-label="Exported preview event JSON" style="width:100%;font:12px Consolas,monospace;padding:10px;border-radius:8px;background:var(--pv-inset);color:var(--pv-text);border:1px solid var(--pv-line)"></textarea></label><button type="button" class="pv-button" data-close-export style="margin-top:8px">Close export</button></div><div class="pv-log-list" data-logs aria-live="polite"></div></div>
+      </div><aside class="pv-workspace-only"><h2 class="pv-panel-title">Routing workspace</h2><div class="pv-small">เลือกเว็บ แอป และปลายทาง พร้อมดูเหตุผล</div><div data-rules-editor></div></aside></div>
+      <nav class="pv-tabs" role="tablist" aria-label="VPN client pages"><button type="button" role="tab" id="${id}-home" aria-selected="true" aria-controls="${id}-home-panel" data-nav="home"><i data-lucide="house" aria-hidden="true"></i>Home</button><button type="button" role="tab" id="${id}-rules" aria-selected="false" aria-controls="${id}-rules-panel" data-nav="rules"><i data-lucide="list-filter" aria-hidden="true"></i>Rules</button><button type="button" role="tab" id="${id}-logs" aria-selected="false" aria-controls="${id}-logs-panel" data-nav="logs"><i data-lucide="scroll-text" aria-hidden="true"></i>Logs <span data-log-count>0</span></button></nav>
+      <div class="pv-footnote">Proxy / TUN = วิธีรับ traffic · Rules / Global = กฎเลือกเส้นทาง</div>
+    </div>`;
+    const app = stage.querySelector('.pv-window');
+    const s = {capture:'proxy',traffic:'rules',protocol:'reality',mesh:'preserve',page:'home',status:'stopped',reason:'กดปุ่มเพื่อดูขั้นตอนเชื่อมต่อแบบจำลอง',active:null,rules:sampleRules(),events:[],generation:0,timers:[],sequence:0,nextRule:1};
+    const q = selector => app.querySelector(selector);
+    const all = selector => [...app.querySelectorAll(selector)];
+    all('[data-page]').forEach(panel=>{panel.id=id+'-'+panel.dataset.page+'-panel';panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby',id+'-'+panel.dataset.page);});
+    const config = () => ({capture:s.capture,traffic:s.traffic,protocol:s.protocol,mesh:s.mesh,rules:s.rules.map(rule=>({...rule}))});
+    const dirty = () => s.active && JSON.stringify(config())!==JSON.stringify(s.active);
+    function save(){if(window.openai?.setWidgetState)window.openai.setWidgetState({modelContent:{capture:s.capture,traffic:s.traffic,protocol:s.protocol,mesh:s.mesh},privateContent:null}).catch(()=>{});}
+    function log(event,detail){s.events.unshift({time:new Date().toISOString(),event,detail,sequence:++s.sequence,generation:s.generation,simulation:true});if(s.events.length>100)s.events.pop();renderLogs();}
+    function renderLogs(){all('[data-log-count]').forEach(el=>el.textContent=s.events.length);q('[data-logs]').innerHTML=s.events.slice(0,18).map(e=>`<div class="pv-log"><time>${esc(e.time.slice(11,19))}</time><div><b>${esc(e.event)}</b>${esc(e.detail)}</div></div>`).join('');}
+    function transition(status,reason){s.status=status;s.reason=reason;log('state.'+status,reason);render();}
+    function cancel(){s.generation++;s.timers.forEach(clearTimeout);s.timers=[];}
+    function later(delay,callback){const generation=s.generation;s.timers.push(setTimeout(()=>{if(s.generation===generation)callback();},delay));}
+    function connect(){cancel();s.active=config();log('command.connect','เริ่มเชื่อมต่อจำลอง; ไม่มีการเปิด socket หรือเปลี่ยน network');transition('connecting','กำลังตรวจ profile และ authentication · จำลอง');later(650,()=>transition('verifying','กำลังตรวจการส่งข้อมูลผ่าน tunnel · จำลอง'));later(1350,()=>transition('connected','Health check ผ่านในสถานการณ์จำลองเท่านั้น'));
+    }
+    function disconnect(){cancel();s.active=null;transition('stopped','หยุดการเชื่อมต่อจำลองแล้ว');}
+    function simulate(){
+      const scenario=q('[data-scenario]').value;
+      if(s.status!=='connected')return;
+      cancel();log('scenario.'+scenario,'เหตุการณ์ตัวอย่าง ไม่มีการเปลี่ยนเครือข่ายจริง');
+      transition('reconnecting',scenario==='network'?'ตรวจพบ Wi-Fi → Mobile hotspot; ป้องกัน traffic ที่เลือก Tunnel · จำลอง':'ตรวจพบความผิดปกติ; ป้องกัน traffic ที่เลือก Tunnel · จำลอง');
+      if(scenario==='pin'||scenario==='offline'){later(1000,()=>transition('blocked',scenario==='pin'?'Certificate pin ไม่ตรง: หยุดเชื่อมต่อ และไม่ลดระดับการตรวจ TLS · จำลอง':'ไม่มี upstream ที่ใช้งานได้; รอเครือข่ายกลับมา · จำลอง'));return;}
+      if(scenario==='udp'&&s.active.protocol==='hy2'){later(1000,()=>transition('blocked','Hysteria 2 ใช้ UDP ไม่ได้; รอผู้ใช้เลือก REALITY หรือ Auto · จำลอง'));return;}
+      if(scenario==='udp'&&s.active.protocol==='auto')log('protocol.keep-primary','REALITY ยังผ่าน TCP; ไม่จำเป็นต้องสลับไปเส้นทาง UDP ที่ล้มเหลว');
+      if(scenario==='udp'&&s.active.protocol==='reality')log('protocol.unaffected','เส้นทาง REALITY ใช้ TCP; ต้องยืนยันด้วย health check ใหม่');
+      later(850,()=>transition('verifying','ตรวจ upstream และ authentication ใหม่ · จำลอง'));
+      later(1600,()=>transition('connected','กู้เส้นทางในสถานการณ์จำลองสำเร็จ; session เดิมบางรายการอาจต้องเปิดใหม่'));
+    }
+    function edit(event,detail){log(event,detail);render();save();}
+    function render(){
+      app.dataset.currentPage=s.page;
+      all('[data-capture]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.capture===s.capture));all('[data-traffic]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.traffic===s.traffic));
+      q('[data-protocol]').value=s.protocol;const p=protocolInfo[s.protocol];q('[data-wire]').textContent=p.wire;q('[data-protocol-brief]').textContent=p.brief;q('[data-protocol-facts]').innerHTML=p.facts.map(f=>'<div>• '+esc(f)+'</div>').join('');
+      q('[data-capture-note]').textContent=s.capture==='proxy'?'เฉพาะแอปที่ตั้งค่า Proxy':'รับ traffic ผ่าน virtual adapter';
+      q('[data-traffic-note]').textContent=s.traffic==='rules'?'เลือกเว็บ / แอป / IP ตามกฎ':'Tunnel traffic ที่ capture ได้';
+      q('[data-scope]').textContent=s.capture==='proxy'?(s.traffic==='global'?'Proxy + Global: ทุก traffic ที่ส่งเข้า Proxy ใช้ VPN; แอปอื่นยังไม่ได้ถูกครอบคลุม':'Proxy + Rules: ใช้กฎกับปลายทางใน Proxy; การเลือกแอปทั้งเครื่องต้องใช้ TUN ในรุ่นแรก'):(s.traffic==='global'?'TUN + Global: ตั้งเป้า tunnel ทั้งเครื่อง โดยรักษา mesh routes ที่ยืนยันแล้วและกฎ bypass':'TUN + Rules: เลือกแอป / เว็บ / IP; traffic อื่นออกตรงตาม default');
+      q('[data-status]').textContent=stateLabels[s.status]+(s.status==='stopped'?'':' · จำลอง');q('[data-reason]').textContent=s.reason;
+      q('[data-power]').setAttribute('aria-busy',['connecting','verifying','reconnecting'].includes(s.status));q('[data-power]').setAttribute('aria-label',s.status==='stopped'||s.status==='blocked'?'Connect preview':'Disconnect preview');q('.pv-power-label').textContent=s.status==='stopped'||s.status==='blocked'?'Connect':'Disconnect';
+      q('[data-live]').dataset.state=s.status;q('[data-active-label]').textContent=s.active?'กำลังใช้ '+protocolInfo[s.active.protocol].name+' · จำลอง':'Preview only · ไม่มี tunnel จริง';
+      q('[data-apply]').hidden=!(s.status==='connected'&&dirty());q('[data-sim]').disabled=s.status!=='connected';
+      all('[data-nav]').forEach(b=>b.setAttribute('aria-selected',b.dataset.nav===s.page));all('[data-page]').forEach(p=>p.hidden=p.dataset.page!==s.page);
+      all('[data-mesh]').forEach(select=>select.value=s.mesh);all('[data-mesh-note]').forEach(el=>el.textContent=s.mesh==='preserve'?'เก็บ peer/subnet routes และ private DNS ของ mesh ตามที่ตรวจพบ; compatibility ยังต้องทดสอบ':'แยก encrypted outer traffic ของ mesh ให้ผ่าน VPN; ต้องทดสอบ UDP, NAT และ relay ก่อนใช้งานจริง');
+      renderRuleLists();
+    }
+    function editorMarkup(prefix){return `<div class="pv-card" style="margin-top:14px"><label class="pv-field">Mesh coexistence<select data-mesh aria-label="Mesh policy"><option value="preserve">Preserve mesh routes · แนะนำ</option><option value="transport">Mesh transport ผ่าน VPN · วางแผน</option></select></label><div class="pv-small" data-mesh-note style="margin-top:8px"></div><details><summary>ขอบเขตการรองรับ</summary><div class="pv-protocol-facts">Private mesh routes กับ encrypted outer traffic เป็นคนละส่วน โหมด Tailscale exit node / ZeroTier default route ต้องตรวจแยก และยังไม่รับรองว่าจะใช้ Global TUN ร่วมกันได้</div></details></div>
+      <div class="pv-rule-list" data-rule-list></div>
+      <form class="pv-form" data-rule-form><div class="pv-form-grid"><label class="pv-field">Rule type<select name="kind" aria-label="Rule type"><option value="domain">Website / domain</option><option value="app">App executable · TUN</option><option value="ip">IP / CIDR</option></select></label><label class="pv-field">Action<select name="action" aria-label="Rule action"><option value="tunnel">Tunnel required</option><option value="direct">Direct / bypass</option><option value="block">Block</option></select></label></div><label class="pv-field">Match<input name="target" aria-label="Rule target" placeholder="*.example.com" autocomplete="off" required></label><button type="submit" class="pv-button">Add rule · preview</button><div class="pv-error" data-rule-error role="alert"></div></form>
+      <div class="pv-small">Rules: กฎ Block มาก่อน แล้วใช้กฎผู้ใช้จากบนลงล่าง Default = Direct<br>Global: traffic ที่ capture ได้ใช้ Tunnel ยกเว้น mesh และกฎ Direct / Block<br>เว็บไซต์ระดับ domain; URL path และแต่ละ tab ต้องมี browser integration เพิ่ม</div>
+      <div class="pv-card" style="margin-top:16px"><div class="pv-label">Why this route?</div><form class="pv-form" data-inspect-form><label class="pv-field">Destination<input name="destination" aria-label="Route destination" value="docs.example.com" required></label><label class="pv-field">App path · optional<input name="application" aria-label="Route app path" placeholder="C:\\Program Files\\App\\app.exe" autocomplete="off"></label><button type="submit" class="pv-button">Preview decision</button></form><div class="pv-verdict" data-verdict aria-live="polite">ดูผลจาก draft rules · ไม่มีการส่ง traffic จริง</div></div>`;}
+    all('[data-rules-editor]').forEach((el,i)=>el.innerHTML=editorMarkup(id+'-'+i));
+    function renderRuleLists(){all('[data-rule-list]').forEach(list=>list.innerHTML=s.rules.length?s.rules.map((rule,i)=>`<div class="pv-rule"><div><span class="pv-rule-action">${esc(rule.action==='tunnel'?'TUNNEL REQUIRED':rule.action.toUpperCase())}</span> <span class="pv-small">${i+1} · ${esc(rule.kind)}${rule.kind==='app'?' · TUN เท่านั้น':''}</span><div class="pv-rule-target">${esc(rule.target)}</div></div><div class="pv-rule-controls"><button type="button" class="cursor-interaction" data-move="${esc(rule.id)}" ${i===0?'disabled':''} aria-label="Move rule ${i+1} up">↑</button><button type="button" class="cursor-interaction" data-remove="${esc(rule.id)}" aria-label="Remove rule ${i+1}">×</button></div></div>`).join(''):'<div class="pv-small">ยังไม่มีกฎ ใช้ default ของโหมดที่เลือก</div>');}
+    function normalize(kind,value){
+      value=value.trim();if(!value)throw Error('กรอกปลายทางก่อน');
+      if(kind==='app'){if(!/^[a-z]:\\.+\.exe$/i.test(value))throw Error('ใช้ executable path เต็ม เช่น C:\\Program Files\\App\\app.exe');return value;}
+      if(kind==='ip'){cidr(value);return value.toLowerCase();}
+      const suffix=value.startsWith('*.');const raw=suffix?value.slice(2):value;
+      if(/[\s/:?#@*]/.test(raw))throw Error('ใช้ domain หรือ *.domain เท่านั้น');
+      let hostname;try{hostname=new URL('https://'+raw).hostname.toLowerCase();}catch{throw Error('ชื่อ domain ไม่ถูกต้อง');}
+      if(!hostname.includes('.')||hostname.length>253||!hostname.split('.').every(label=>/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)))throw Error('ชื่อ domain ไม่ถูกต้อง');
+      return (suffix?'*.':'')+hostname;
+    }
+    function address(value){
+      if(value.includes(':')){let host;try{host=new URL('http://['+value+']/').hostname.slice(1,-1);}catch{throw Error('IPv6 ไม่ถูกต้อง');}const halves=host.split('::');let left=halves[0]?halves[0].split(':'):[];let right=halves[1]?halves[1].split(':'):[];let words=halves.length===2?[...left,...Array(8-left.length-right.length).fill('0'),...right]:left;if(words.length!==8)throw Error('IPv6 ไม่ถูกต้อง');return {bits:128,n:words.reduce((n,w)=>(n<<16n)+BigInt('0x'+w),0n)};}
+      const parts=value.split('.');if(parts.length!==4||parts.some(p=>!/^\d{1,3}$/.test(p)||Number(p)>255||(p.length>1&&p[0]==='0')))throw Error('IPv4 ไม่ถูกต้อง');return {bits:32,n:parts.reduce((n,p)=>(n<<8n)+BigInt(p),0n)};
+    }
+    function cidr(value){const parts=value.split('/');if(parts.length>2)throw Error('CIDR ไม่ถูกต้อง');const ip=address(parts[0]);const prefix=parts.length===1?ip.bits:Number(parts[1]);if(parts.length===2&&!/^\d+$/.test(parts[1])||!Number.isInteger(prefix)||prefix<0||prefix>ip.bits)throw Error('CIDR prefix ไม่ถูกต้อง');return {...ip,prefix};}
+    function inRange(value,range){try{const ip=address(value),network=cidr(range);if(ip.bits!==network.bits)return false;const shift=BigInt(ip.bits-network.prefix);return ip.n>>shift===network.n>>shift;}catch{return false;}}
+    function decide(destination,application){
+      let host=destination.trim().toLowerCase();if(host.includes('://')||host.includes('/')||host.startsWith('*.'))throw Error('ใช้ hostname หรือ IP ไม่มี URL/path');if(!host)throw Error('กรอก destination');
+      try{address(host);}catch{host=normalize('domain',host);}
+      const mesh=inRange(host,'100.64.0.0/10')||inRange(host,'fd7a:115c:a1e0::/48')||host==='demo-tailnet.ts.net'||host.endsWith('.demo-tailnet.ts.net');
+      if(mesh)return {action:'mesh',reason:'Preserve mesh · ช่วงและ private DNS ตัวอย่าง; เครื่องจริงต้อง discover ก่อน'};
+      const match=rule=>rule.kind==='app'?s.capture==='tun'&&application.trim().toLowerCase()===rule.target.toLowerCase():rule.kind==='ip'?inRange(host,rule.target):rule.target.startsWith('*.')?(host===rule.target.slice(2)||host.endsWith('.'+rule.target.slice(2))):host===rule.target;
+      const blocked=s.rules.find(rule=>rule.action==='block'&&match(rule));if(blocked)return {action:'block',reason:'Block rule: '+blocked.target};
+      const rule=s.rules.find(rule=>match(rule));
+      if(s.traffic==='global'){if(rule?.action==='direct')return {action:'direct',reason:'Explicit bypass: '+rule.target};return {action:'tunnel',reason:'Global · เฉพาะ traffic ที่ capture ได้'};}
+      return rule?{action:rule.action,reason:'Matched '+rule.id+': '+rule.target}:{action:'direct',reason:'ไม่มีกฎตรงกัน · Rules default = Direct'};
+    }
+    app.addEventListener('click',event=>{
+      const button=event.target.closest('button');if(!button||button.disabled)return;
+      if(button.hasAttribute('data-capture')){s.capture=button.dataset.capture;edit('policy.capture',s.capture);}
+      else if(button.hasAttribute('data-traffic')){s.traffic=button.dataset.traffic;edit('policy.traffic',s.traffic);}
+      else if(button.hasAttribute('data-power')){if(['stopped','blocked'].includes(s.status))connect();else{log('command.disconnect','ยกเลิก attempt ที่ยังค้าง');disconnect();}}
+      else if(button.hasAttribute('data-apply')){log('policy.apply','ใช้ draft และ reconnect แบบจำลอง');connect();}
+      else if(button.hasAttribute('data-sim'))simulate();
+      else if(button.type==='submit'&&button.form){event.preventDefault();handleForm(button.form);}
+      else if(button.dataset.nav){s.page=button.dataset.nav;log('ui.navigate',s.page);render();}
+      else if(button.dataset.remove){s.rules=s.rules.filter(r=>r.id!==button.dataset.remove);edit('rule.remove',button.dataset.remove);}
+      else if(button.dataset.move){const i=s.rules.findIndex(r=>r.id===button.dataset.move);if(i>0){[s.rules[i-1],s.rules[i]]=[s.rules[i],s.rules[i-1]];edit('rule.reorder',button.dataset.move);}}
+      else if(button.hasAttribute('data-export')){log('diagnostics.export','เตรียม JSON เหตุการณ์จำลองสำหรับคัดลอก');q('[data-export-output]').value=JSON.stringify({schema:1,simulation:true,events:s.events},null,2);q('[data-export-panel]').hidden=false;}
+      else if(button.hasAttribute('data-close-export')){q('[data-export-panel]').hidden=true;log('diagnostics.close_export','ปิด JSON export preview');}
+    });
+    app.addEventListener('change',event=>{const el=event.target;if(el.matches('[data-protocol]')){s.protocol=el.value;edit('policy.protocol',s.protocol);}if(el.matches('[data-mesh]')){s.mesh=el.value;edit('policy.mesh',s.mesh);}if(el.name==='kind'){const input=el.form.elements.target;input.placeholder=el.value==='app'?'C:\\Program Files\\App\\app.exe':el.value==='ip'?'203.0.113.0/24':'*.example.com';}});
+    function handleForm(form){
+      if(form.matches('[data-rule-form]')){const error=form.querySelector('[data-rule-error]');try{const kind=form.elements.kind.value,target=normalize(kind,form.elements.target.value),action=form.elements.action.value;if(s.rules.some(r=>r.kind===kind&&r.target.toLowerCase()===target.toLowerCase()&&r.action===action))throw Error('มีกฎนี้แล้ว');const rule={id:'custom-'+s.nextRule++,kind,target,action};s.rules.push(rule);error.textContent='';form.elements.target.value='';edit('rule.add',kind+' → '+action+' · '+target);}catch(e){error.textContent=e.message;log('rule.validation_failed',e.message);}}
+      else if(form.matches('[data-inspect-form]')){const verdict=form.parentElement.querySelector('[data-verdict]');try{const result=decide(form.elements.destination.value,form.elements.application.value);const labels={tunnel:s.status==='connected'?'TUNNEL · จำลอง':'BLOCKED · ต้องมี tunnel',direct:'DIRECT / BYPASS',block:'BLOCK',mesh:'MESH ROUTE · รักษาเส้นทางเดิม'};verdict.textContent=labels[result.action]+' — '+result.reason+(s.capture==='proxy'?' · ใช้ได้กับ traffic ที่ส่งเข้า Proxy เท่านั้น':'');log('route.preview',result.action+' · '+result.reason);}catch(e){verdict.textContent=e.message;log('route.preview_failed',e.message);}}
+    }
+    app.addEventListener('submit',event=>{event.preventDefault();handleForm(event.target);});
+    function restore(initial){if(!initial)return;if(['proxy','tun'].includes(initial.capture))s.capture=initial.capture;if(['rules','global'].includes(initial.traffic))s.traffic=initial.traffic;if(protocolInfo[initial.protocol])s.protocol=initial.protocol;if(['preserve','transport'].includes(initial.mesh))s.mesh=initial.mesh;}
+    restore(window.openai?.widgetState?.modelContent);
+    window.addEventListener('openai:set_globals',event=>{restore(event.detail?.globals?.widgetState?.modelContent);render();});
+    log('preview.ready','เริ่ม UI preview; ไม่ได้ติดตั้ง service หรือเปลี่ยน route, DNS, proxy และ firewall');render();
+    if(globalThis.Tweak){const settings={radius:22,density:'comfortable'};const tweak=new Tweak({container:app,onChange:()=>{app.style.borderRadius=settings.radius+'px';app.style.setProperty('--pv-gap',settings.density==='compact'?'11px':'16px');}});tweak.addSlider(settings,'radius',{label:'Window corners',min:8,max:28,unit:'px'});tweak.addSelect(settings,'density',{label:'Spacing',options:['comfortable','compact']});}
+    instances.push({app,state:s,decide});
+  }
+  root.querySelectorAll('.pv-stage').forEach(makeApp);
+  root.querySelectorAll('button,summary').forEach(el=>el.classList.add('cursor-interaction'));
+  if(globalThis.lucide)lucide.createIcons({attrs:{width:16,height:16}});
+})();
+</script>

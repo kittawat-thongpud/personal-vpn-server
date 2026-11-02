@@ -4,6 +4,44 @@ Status: design and acceptance criteria, 2026-11-02. No client runtime, Windows
 service, network driver or firewall integration has been implemented by this
 document. The existing server release remains independent.
 
+The interactive [UI preview](ui/preview.html) contains local simulated states and
+sample rule decisions only; it has no core, service or network integration.
+
+**UI modes and protocol guidance**
+
+Use the compact layout in the user's VPN07/Astrill reference as the starting
+point: server, capture and traffic choices, protocol, visible connection state,
+connect control, and Home / Rules / Logs navigation. A wider workspace can expose
+the routing inspector alongside connection controls.
+
+Keep three separate choices:
+
+| Choice | Options | Meaning and limit |
+| --- | --- | --- |
+| Capture | Proxy / TUN | Proxy receives traffic from configured applications; TUN captures traffic using a virtual adapter. Neither label selects the VPN protocol. |
+| Traffic | Rules / Global | Rules applies ordered app/domain/IP policies with an explicit default. Global tunnels captured traffic, subject to mesh, Block and explicit Direct rules. Proxy + Global does not capture every application on the computer. |
+| Protocol | VLESS + REALITY + Vision / Hysteria 2 / Auto | REALITY uses TCP443; Hysteria uses UDP443. Auto is a recovery policy across protocols, with fresh verification and cooldown, not a third protocol or a bandwidth promise. |
+
+Present the selected protocol's limitations beside the picker. REALITY requires
+a compatible target and can lose throughput under TCP packet loss. Hysteria
+requires usable UDP and verified TLS identity. Protocol changes may terminate
+existing connections. Both can be blocked; using the same VPS IP limits fallback.
+Display planned versus verified capabilities separately from connection status.
+
+Use website/domain rules as the first version's web granularity. Whole-machine
+executable selection belongs to the verified TUN integration in this version;
+the Proxy preview must not present it as universal application protection.
+Expose a "why this route" inspector with the exact rule, action and default.
+
+While connected, edited settings remain a draft until Apply & reconnect.
+Preserve the active policy and visibly mark pending changes. A local UI success
+message is not proof that new route or protection settings reached the OS.
+
+Mesh behavior is distinct from Traffic mode. Preserve confirmed mesh peer/subnet
+routes and DNS in both Rules and Global. A separate future option can route mesh
+daemon outer traffic through the VPN after testing; the peer packets still use
+their mesh adapter. Exit-node/default-route ownership requires separate checks.
+
 **Accepted requirements**
 
 - Windows first; Android and Linux follow after the policy format is stable.
