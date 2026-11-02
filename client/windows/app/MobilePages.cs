@@ -20,7 +20,7 @@ public sealed partial class MainWindow
     }
     private static readonly GridLength Auto = GridLength.Auto, Star = new(1, GridUnitType.Star);
     private static void Put(Grid grid, UIElement element, int row) { Grid.SetRow(element, row); grid.Children.Add(element); }
-    private static ScrollViewer WidgetScroll(UIElement child) => new() { Content = child, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, PanningMode = PanningMode.VerticalOnly };
+    private static ScrollViewer WidgetScroll(UIElement child) => new() { Style = (Style)Application.Current.FindResource(typeof(ScrollViewer)), Content = child, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, PanningMode = PanningMode.VerticalOnly };
     private static readonly string[] ModeLabels = { "Tunnel by default", "Bypass by default", "Block by default", "Rules off · tunnel all" };
     private static readonly string[] ModeValues = { "Tunnel", "Bypass", "Block", "Disabled" };
     private static string ModeName(string mode) => ModeLabels[Math.Max(0, Array.IndexOf(ModeValues, mode))];

@@ -57,7 +57,7 @@ public static class MobileValidation
             Policy.Upgrade(settings);
             for (int i = 0; i < 120; i++) settings.Sites!.Entries.Add(new TunnelException { Kind = "Domain", Value = "site" + i + ".example", Action = i % 2 == 0 ? "Tunnel" : "Block" });
             settings.Apps.Entries.Add(new TunnelException { Kind = "App", Value = @"C:\Apps\browser.exe", Action = "Bypass" });
-            window = new MainWindow(settings);
+            window = new MainWindow(settings, preview: true);
             window.FillPreviewLogs();
             // TextBox scroll metrics are published after a real presentation
             // source/layout pass. Keep this synthetic window offscreen/inactive.
@@ -84,7 +84,7 @@ public static class MobileValidation
                     Assert(text.Text.Length > 1000 && text.VerticalScrollBarVisibility == ScrollBarVisibility.Auto && text.ExtentHeight > text.ViewportHeight, "Long logs viewport: text=" + text.Text.Length + ", extent=" + text.ExtentHeight + ", viewport=" + text.ViewportHeight);
                 }
                 foreach (var scrollbar in elements.OfType<System.Windows.Controls.Primitives.ScrollBar>().Where(x => x.Orientation == Orientation.Vertical && x.Visibility == Visibility.Visible && x.ActualWidth > 0))
-                    Assert(scrollbar.ActualWidth <= 6.5, "Internal scrollbar exceeds the slim 6-DIP theme.");
+                    Assert(scrollbar.ActualWidth <= 6.5, page + " scrollbar " + scrollbar.Name + " width=" + scrollbar.ActualWidth + " exceeds 6 DIP.");
                 var bitmap = new RenderTargetBitmap((int)size.Width, (int)size.Height, 96, 96, PixelFormats.Pbgra32); bitmap.Render(root);
                 var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap)); using var file = File.Create(Path.Combine(output, page + "-" + (int)size.Width + ".png")); encoder.Save(file);
             }

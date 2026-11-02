@@ -29,6 +29,7 @@ public sealed partial class MainWindow : Window
     private string page = "Home";
     private bool dirty, exiting;
     private bool connectBusy;
+    private readonly bool previewOnly;
     private TextBlock? status, detail, exit, logCount, captureDetail;
     private Button? connect;
     private TextBox? logText;
@@ -39,8 +40,9 @@ public sealed partial class MainWindow : Window
     private TrafficChart? trafficChart;
     private static Brush Color(string hex) => new SolidColorBrush((System.Windows.Media.Color)ColorConverter.ConvertFromString(hex));
 
-    public MainWindow(Settings initial, bool autoConnect = false)
+    public MainWindow(Settings initial, bool autoConnect = false, bool preview = false)
     {
+        previewOnly = preview;
         settings = initial;
         Policy.Upgrade(settings);
         settings.SystemProxy = true;
@@ -89,6 +91,7 @@ public sealed partial class MainWindow : Window
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
     private async Task ConnectSelectedProxy()
     {
+        if (previewOnly) throw new InvalidOperationException("Layout preview cannot connect or change system proxy settings.");
         connectBusy = true;
         try
         {
@@ -129,6 +132,7 @@ public sealed partial class MainWindow : Window
         "Personal VPN", MessageBoxButton.OK, MessageBoxImage.Warning);
     private void Changed(bool affectsConnection = true)
     {
+        if (previewOnly) return;
         Store.Save(settings); dirty = backend.Running && (dirty || affectsConnection); Refresh();
     }
     private StackPanel Stack() => new() { Orientation = Orientation.Vertical };
