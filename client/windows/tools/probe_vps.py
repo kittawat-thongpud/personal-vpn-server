@@ -140,7 +140,7 @@ def exit_ip(port, hostname="api.ipify.org", path="/?format=json"):
 
 
 @contextmanager
-def core_client(protocol, profile, chained=False, bad_auth=False):
+def core_client(protocol, profile, chained=False, bad_auth=False, fragment=False):
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         port = reservation.getsockname()[1]
@@ -159,6 +159,10 @@ def core_client(protocol, profile, chained=False, bad_auth=False):
             outbound["streamSettings"]["sockopt"]["dialerProxy"] = "existing-vpn"
             configuration["outbounds"].append({"tag": "existing-vpn", "protocol": "http",
                 "settings": {"servers": [{"address": "127.0.0.1", "port": 7688}]}})
+        elif fragment:
+            outbound["streamSettings"]["sockopt"]["dialerProxy"] = "fragment"
+            configuration["outbounds"].append({"tag": "fragment", "protocol": "freedom",
+                "settings": {"fragment": {"packets": "tlshello", "length": "100-200", "interval": "10-20"}}})
         binary = BINARIES / "xray.exe"
     else:
         configuration = {key: copy.deepcopy(profile[key]) for key in ("server", "auth", "tls", "obfs") if key in profile}

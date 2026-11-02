@@ -1,4 +1,4 @@
-# Personal VPN for Windows — 0.2.0 preview
+# Personal VPN for Windows — 0.2.1 preview
 
 Real Windows x64 application, built in GitHub Actions. Unzip the Windows release
 and run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1`.
@@ -13,12 +13,29 @@ Runtime configs need plaintext for the native cores; they are kept in an ACL
 restricted per-user runtime directory and removed after disconnect / next startup.
 Never share the source profiles or the application data directory.
 
-Click **Connect** and wait for **Connected** and a verified exit IP. The first
+Click **Connect** and wait for **Connected** and a verified exit IP. By default,
+the application then sets the per-user Windows HTTP / HTTPS proxy to its local
+listener. Browsers that follow Windows proxy settings use this path automatically.
+Home displays capture status separately from tunnel health. If another app
+overwrites Windows proxy settings, Home reports **Proxy conflict**; it does not
+silently keep claiming that browser capture is working.
+
+The previous manual proxy, bypass list, PAC URL and auto-detect flags are saved
+in a DPAPI protected recovery record. Disconnect restores the snapshot only while
+the current settings still belong to Personal VPN. A separate watchdog restores
+after a process crash; startup also recovers abandoned ownership. Reconnect keeps
+the selected local proxy in place while the core restarts. This is not a system
+kill switch: an app crash restores the previous path. Another app's newer proxy
+choice is retained instead of overwritten. Disable **VPN → Use Windows system
+proxy after Connect** for manual per-app proxy use.
+
+The first
 protocol is **Hysteria 2**; **VPN** also offers **REALITY**. The REALITY option can
 explicitly use an existing local HTTP proxy at `127.0.0.1:7688`. That option depends
 on the other VPN remaining running. Protocols never automatically switch to Direct.
 
-Configure an app's own HTTP proxy as `http://127.0.0.1:17890` or SOCKS5 proxy as
+For manual capture or an app with its own settings, use HTTP proxy
+`http://127.0.0.1:17890` or SOCKS5 proxy
 `127.0.0.1:17891`. **Test browser** opens a separate Edge / Chrome profile using
 the HTTP proxy and shows the exit IP. It does not modify the usual browser.
 Close that test window before changing proxy ports. Local listeners accept only
@@ -47,15 +64,17 @@ checksums. Hysteria's existing full-certificate SHA-256 pin remains enforced.
 The local Xray router forwards tunnel traffic to the native Hysteria SOCKS
 listener when Hysteria is selected. No new server configuration is required.
 
-This release is **Proxy only**. TUN, executable interception, Windows service,
+This release uses **System proxy or manual app proxy**. TUN, executable interception, Windows service,
 whole-machine kill switch, mesh transport tunneling and automatic protocol
 failover are not implemented. Existing Tailscale / ZeroTier routes are untouched;
 coexistence has not been qualified on an isolated test machine. Programs without
-a configured proxy continue to use their current route. This is not a guarantee
+a configured proxy and apps that ignore Windows proxy continue to use their current route. This is not a guarantee
 against leaks from an application's own proxy bypass or alternate network stack.
 Closing the app stops its owned cores; a Windows kill-on-close job also cleans
-up cores after an app crash. No system proxy / adapter / DNS / route / firewall
-changes are made, and no other VPN processes are stopped.
+up cores after an app crash. System proxy changes are reversible as described
+above. No adapter / DNS / route / firewall changes are made, and no other VPN
+processes are stopped. Separate browser proxy extensions can override Windows
+settings; WebRTC and other UDP traffic require separate TUN/leak qualification.
 
 Build: `.github/workflows/windows-client.yml`. Builds and packages run on GitHub;
 only source is pushed from the development machine. No device secrets are in the
@@ -63,3 +82,7 @@ release. `--self-test --report <path>` runs local deterministic checks.
 `--smoke-test --profile-dir <folder> --expected-exit <ip> --report <path>` is an
 explicit, loopback-only integration test with a genuine profile. It never changes
 Windows network settings. Do not run it concurrently with the regular app.
+`--system-proxy-test --profile-dir <folder> --expected-exit <ip> --report <path>`
+explicitly tests Windows proxy capture, ordinary HTTPS, restore, retry and the
+crash watchdog. This test temporarily changes and restores the per-user proxy.
+`--connect-hysteria` opens the GUI and connects Hysteria + Global + System proxy.

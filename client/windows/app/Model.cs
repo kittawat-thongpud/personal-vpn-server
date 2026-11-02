@@ -39,6 +39,7 @@ public sealed class Settings
     public string Protocol { get; set; } = "Hysteria 2";
     public string Traffic { get; set; } = "Global";
     public bool ChainReality { get; set; }
+    public bool SystemProxy { get; set; } = true;
     public int UpstreamPort { get; set; } = 7688;
     public int HttpPort { get; set; } = 17890;
     public int SocksPort { get; set; } = 17891;
@@ -173,7 +174,7 @@ public static class Store
     [DllImport("crypt32.dll", SetLastError = true, CharSet = CharSet.Unicode)] private static extern bool CryptProtectData(ref Blob input, string? description, IntPtr entropy, IntPtr reserved, IntPtr prompt, uint flags, out Blob output);
     [DllImport("crypt32.dll", SetLastError = true)] private static extern bool CryptUnprotectData(ref Blob input, IntPtr description, IntPtr entropy, IntPtr reserved, IntPtr prompt, uint flags, out Blob output);
     [DllImport("kernel32.dll")] private static extern IntPtr LocalFree(IntPtr memory);
-    private static byte[] Protect(byte[] data, bool encrypt)
+    internal static byte[] Protect(byte[] data, bool encrypt)
     {
         var input = new Blob { Length = data.Length, Data = Marshal.AllocHGlobal(data.Length) };
         try

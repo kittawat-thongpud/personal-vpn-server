@@ -48,18 +48,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $version = '0.2.0'
+          $version = '0.2.1'
           $tag = "windows-v$version"
           $archive = "PersonalVPN-windows-x64-$version.zip"
           Compress-Archive -Path dist/windows/* -DestinationPath "dist/$archive" -CompressionLevel Optimal
           $hash = (Get-FileHash "dist/$archive" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $archive" | Set-Content dist/SHA256SUMS.txt -Encoding ascii
           $notes = @'
-          Windows x64 per-user proxy preview. Real Hysteria 2 / REALITY connections, encrypted profile storage, domain/IP routing, end-to-end health checks, core supervision and bounded session logs.
+          Windows x64 preview with automatic browser capture via Windows system proxy after tunnel verification. Disconnect and a separate crash watchdog restore previous settings. Real Hysteria 2 / REALITY connections, encrypted profiles, domain/IP routing, bounded backend session logs.
 
           Extract the ZIP and run install.ps1 with PowerShell. No administrator rights or separate .NET install required. Import device exports locally; no credentials are bundled.
 
-          Proxy only: configure an app proxy or use Test browser. TUN, process interception, service, system kill switch and mesh transport tunneling remain unavailable. No host network changes. Built and self-tested by GitHub Actions from source.
+          System proxy captures browsers that follow Windows proxy settings. TUN, executable interception, service and whole-machine kill switch remain unavailable. No adapter, route, DNS or firewall changes. Built and self-tested by GitHub Actions from source.
           '@
           $notes | Set-Content "$env:RUNNER_TEMP/windows-release.md" -Encoding utf8
           gh release view $tag *> $null

@@ -20,13 +20,26 @@ public static class Program
     [STAThread]
     public static int Main(string[] arguments)
     {
+        if (arguments.Contains("--proxy-guard"))
+        {
+            try { return SystemProxyLease.Watch(Option(arguments, "--proxy-guard")!).GetAwaiter().GetResult(); }
+            catch { return 1; } // Recovery record remains for the next application startup.
+        }
+        if (arguments.Contains("--proxy-lease-child")) return Tests.LeaseChild(arguments);
         if (arguments.Contains("--self-test")) return Tests.SelfTest(arguments);
         if (arguments.Contains("--smoke-test")) return Tests.Smoke(arguments).GetAwaiter().GetResult();
+        if (arguments.Contains("--system-proxy-test")) return Tests.ProxyTest(arguments).GetAwaiter().GetResult();
         using var mutex = new Mutex(true, @"Local\PersonalVPN-" + Environment.UserName, out bool created);
         if (!created) { MessageBox.Show("Personal VPN is already running. Restore its window from the taskbar.", "Personal VPN"); return 0; }
         try
         {
+            SystemProxyLease.RecoverAbandoned();
             var settings = Store.Load();
+            if (arguments.Contains("--connect-hysteria"))
+            {
+                settings.Protocol = "Hysteria 2"; settings.ChainReality = false;
+                settings.SystemProxy = true; settings.Traffic = "Global"; Store.Save(settings);
+            }
             string? importFolder = Option(arguments, "--import-folder");
             if (importFolder != null)
             {
@@ -48,7 +61,7 @@ public static class Program
                 // Exit releases the Windows job and terminates only owned VPN cores.
                 Environment.Exit(1);
             };
-            return app.Run(new MainWindow(settings));
+            return app.Run(new MainWindow(settings, arguments.Contains("--connect") || arguments.Contains("--connect-hysteria")));
         }
         catch (Exception error)
         {
@@ -64,6 +77,15 @@ public static class Program
 
 internal static class Tests
 {
+    public static int LeaseChild(string[] args)
+    {
+        try
+        {
+            using var lease = new SystemProxyLease(int.Parse(Program.Option(args, "--port")!), new SessionLog());
+            Thread.Sleep(Timeout.Infinite); return 0;
+        }
+        catch { return 1; }
+    }
     private static void Assert(bool condition, string reason) { if (!condition) throw new InvalidOperationException(reason); }
     private static int Port() { var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); int port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop(); return port; }
     private static int Report(string[] args, object report, int result)
@@ -112,6 +134,8 @@ internal static class Tests
                 if (Path.GetFileName(temp).StartsWith("personal-vpn-self-test-", StringComparison.Ordinal) && Path.GetDirectoryName(temp) == Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar)) Directory.Delete(temp, true);
             }
             _ = Backend.VerifyCore("xray.exe"); _ = Backend.VerifyCore("hysteria.exe"); passed.Add("bundled native core hashes");
+            Assert(!WindowsProxy.Matches(new ProxySnapshot(2, "other", "", ""), WindowsProxy.ForPort(17890)), "Foreign proxy must not be owned.");
+            _ = WindowsProxy.Read(); passed.Add("WinINet native proxy query and ownership comparison");
             return Report(args, new { result = "PASS", checks = passed }, 0);
         }
         catch (Exception error) { return Report(args, new { result = "FAIL", checks = passed, error = error.GetType().Name, reason = error.Message }, 1); }
@@ -139,7 +163,7 @@ internal static class Tests
         {
             var profile = Store.Import(Program.Option(args, "--profile-dir") ?? throw new InvalidOperationException("Profile directory required."));
             string expected = Program.Option(args, "--expected-exit") ?? throw new InvalidOperationException("Expected exit required.");
-            var settings = new Settings { Profiles = new() { profile }, SelectedId = profile.Id, HttpPort = Port(), SocksPort = Port() };
+            var settings = new Settings { Profiles = new() { profile }, SelectedId = profile.Id, HttpPort = Port(), SocksPort = Port(), SystemProxy = false };
             await backend.StartAsync(settings); await WaitConnected(backend);
             Assert(backend.ExitIp == expected, "Health exit mismatch.");
             using var client = Through(settings.HttpPort);
@@ -191,5 +215,64 @@ internal static class Tests
             return Report(args, new { result = "PASS", checks = passed, expected_exit = expected, system_network_changes = false }, 0);
         }
         catch (Exception error) { return Report(args, new { result = "FAIL", checks = passed, error = error.GetType().Name, system_network_changes = false }, 1); }
+    }
+    public static async Task<int> ProxyTest(string[] args)
+    {
+        var passed = new List<string>();
+        var before = WindowsProxy.Read();
+        await using var backend = new Backend();
+        Process? child = null;
+        try
+        {
+            var profile = Store.Import(Program.Option(args, "--profile-dir") ?? throw new InvalidOperationException("Profile directory required."));
+            string expected = Program.Option(args, "--expected-exit")!;
+            var settings = new Settings { Profiles = new() { profile }, SelectedId = profile.Id, HttpPort = Port(), SocksPort = Port(), SystemProxy = true };
+            await backend.StartAsync(settings); await WaitConnected(backend);
+            Assert(WindowsProxy.Matches(WindowsProxy.Read(), WindowsProxy.ForPort(settings.HttpPort)), "System proxy was not captured.");
+#pragma warning disable SYSLIB0014
+            var systemProxy = WebRequest.GetSystemWebProxy();
+#pragma warning restore SYSLIB0014
+            Assert(systemProxy.GetProxy(new Uri("https://api.ipify.org"))!.Port == settings.HttpPort, "Windows proxy-aware client still uses another proxy.");
+            using (var client = new HttpClient(new SocketsHttpHandler { Proxy = systemProxy, UseProxy = true }) { Timeout = TimeSpan.FromSeconds(20) })
+            {
+                Assert(await Egress(client) == expected, "System proxy HTTPS exit mismatch.");
+                foreach (string url in new[] { "https://www.google.com/generate_204", "https://www.wikipedia.org/" })
+                {
+                    using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+                    response.EnsureSuccessStatusCode();
+                }
+            }
+            passed.Add("Windows system proxy → Hysteria VPS exit; Google and Wikipedia HTTPS");
+            backend.KillOwnedCoreForTest(); await Task.Delay(2000); await WaitConnected(backend);
+            Assert(WindowsProxy.Matches(WindowsProxy.Read(), WindowsProxy.ForPort(settings.HttpPort)), "Capture lost during core restart.");
+            passed.Add("system proxy retained across core crash / reconnect");
+            await backend.StopAsync(); Assert(WindowsProxy.Matches(WindowsProxy.Read(), before), "Disconnect did not restore previous proxy.");
+            passed.Add("disconnect restores exact previous manual / PAC / auto-detect snapshot");
+            settings.SystemProxy = false;
+            await backend.StartAsync(settings); await WaitConnected(backend);
+            var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
+            start.ArgumentList.Add("--proxy-lease-child"); start.ArgumentList.Add("--port"); start.ArgumentList.Add(settings.HttpPort.ToString());
+            child = Process.Start(start)!;
+            for (int i = 0; i < 60 && !WindowsProxy.Matches(WindowsProxy.Read(), WindowsProxy.ForPort(settings.HttpPort)); i++) await Task.Delay(250);
+            Assert(!child.HasExited && WindowsProxy.Matches(WindowsProxy.Read(), WindowsProxy.ForPort(settings.HttpPort)), "Crash test child did not capture proxy.");
+            child.Kill(); await child.WaitForExitAsync();
+            for (int i = 0; i < 60 && !WindowsProxy.Matches(WindowsProxy.Read(), before); i++) await Task.Delay(250);
+            Assert(WindowsProxy.Matches(WindowsProxy.Read(), before), "Watchdog did not restore after owner crash.");
+            passed.Add("separate watchdog restores previous proxy after owner process is killed");
+            using (var lease = new SystemProxyLease(settings.HttpPort, backend.Log)) WindowsProxy.Write(before);
+            Assert(WindowsProxy.Matches(WindowsProxy.Read(), before), "External proxy change was overwritten.");
+            passed.Add("external proxy choice retained on lease disposal");
+            await backend.StopAsync();
+            return Report(args, new { result = "PASS", checks = passed, previous_proxy_restored = WindowsProxy.Matches(WindowsProxy.Read(), before) }, 0);
+        }
+        catch (Exception error)
+        {
+            return Report(args, new { result = "FAIL", checks = passed, error = error.GetType().Name, reason = error is InvalidOperationException ? error.Message : "System proxy integration failed." }, 1);
+        }
+        finally
+        {
+            if (child != null) { if (!child.HasExited) { child.Kill(); await child.WaitForExitAsync(); } child.Dispose(); }
+            await backend.StopAsync(); SystemProxyLease.RecoverAbandoned();
+        }
     }
 }

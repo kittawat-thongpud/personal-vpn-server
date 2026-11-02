@@ -133,12 +133,15 @@ public sealed class Backend : IAsyncDisposable
     private string state = "Disconnected", detail = "Ready", exit = "—";
     private Settings? active;
     private readonly List<OwnedCore> cores = new();
+    private SystemProxyLease? proxyLease;
+    private string captureStatus = "Manual app proxy";
     public SessionLog Log { get; } = new();
     public string State { get { lock (gate) return state; } }
     public string Detail { get { lock (gate) return detail; } }
     public string ExitIp { get { lock (gate) return exit; } }
     public Settings? Active { get { lock (gate) return active?.Snapshot(); } }
     public bool Running { get { lock (gate) return session != null; } }
+    public string CaptureStatus { get { lock (gate) return captureStatus; } }
     public Backend()
     {
         networkDebounce = new Timer(_ => NetworkChanged(), null, Timeout.Infinite, Timeout.Infinite);
@@ -194,8 +197,10 @@ public sealed class Backend : IAsyncDisposable
         Task? pending;
         lock (gate) { session?.Cancel(); cycle?.Cancel(); pending = worker; }
         if (pending != null) await pending;
+        proxyLease?.Dispose(); proxyLease = null;
         lock (gate) { session?.Dispose(); session = null; worker = null; active = null; }
-        SetState("Disconnected", "Local proxy stopped. Existing Windows network settings are unchanged.");
+        lock (gate) captureStatus = "Not captured";
+        SetState("Disconnected", "Local proxy stopped. Any owned Windows proxy setting was restored.");
     }
     private async Task Run(Settings settings, CancellationToken token)
     {
@@ -310,8 +315,13 @@ public sealed class Backend : IAsyncDisposable
                 {
                     string observed = await Health(client, token);
                     token.ThrowIfCancellationRequested();
+                    if (settings.SystemProxy && proxyLease == null) proxyLease = new SystemProxyLease(settings.HttpPort, Log);
+                    bool captured = !settings.SystemProxy || proxyLease!.IsCurrent;
+                    lock (gate) captureStatus = settings.SystemProxy ? captured ? "Windows HTTP / HTTPS → Personal VPN" : "Proxy changed by another app" : "Manual app proxy only";
                     lock (gate) { if (generation != expected) throw new OperationCanceledException(token); exit = observed; }
-                    SetState("Connected", "Verified HTTPS exit " + observed + " · " + settings.Protocol, expected);
+                    SetState(captured ? "Connected" : "Proxy conflict", captured
+                        ? "Verified HTTPS exit " + observed + " · " + settings.Protocol
+                        : "Tunnel works, but Windows proxy was changed externally. Apply & reconnect to capture browser traffic again.", expected);
                     lock (gate) { if (generation == expected) exit = observed; }
                     misses = 0; checks++;
                     Log.Add("INFO", "backend.health_ok", "Authenticated end-to-end check passed. Exit: " + observed);

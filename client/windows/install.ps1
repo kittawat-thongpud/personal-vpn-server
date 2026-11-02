@@ -1,6 +1,6 @@
 param([string]$ProfileFolder, [switch]$NoLaunch)
 $ErrorActionPreference = 'Stop'
-$version = '0.2.0'
+$version = '0.2.1'
 $source = [IO.Path]::GetFullPath($PSScriptRoot)
 if (-not (Test-Path -LiteralPath (Join-Path $source 'PersonalVPN.exe'))) { throw 'Extract the Windows release ZIP before running install.ps1.' }
 $programRoot = Join-Path $env:LOCALAPPDATA 'Programs/PersonalVPN'
@@ -28,7 +28,7 @@ foreach ($shortcutPath in @((Join-Path ([Environment]::GetFolderPath('Desktop'))
     $shortcut.Save()
 }
 Write-Output "Installed: $executable"
-Write-Output 'No Windows network settings, firewall rules, services or startup entries were changed.'
+Write-Output 'Installation makes no network changes. Connect can apply the per-user system proxy and restore it on disconnect.'
 if (-not $NoLaunch) {
     if ($ProfileFolder) {
         $resolvedProfile = (Resolve-Path -LiteralPath $ProfileFolder).Path
