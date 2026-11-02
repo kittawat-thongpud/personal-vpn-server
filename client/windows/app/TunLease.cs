@@ -53,7 +53,8 @@ public sealed class TunLease : IDisposable
                 string error = Path.Combine(folder, "tun-error.txt");
                 if (File.Exists(error)) throw new InvalidOperationException("Adapter preparation failed: " + (await File.ReadAllTextAsync(error, token)));
                 if (guard.HasExited) throw new InvalidOperationException("Adapter recovery guard stopped.");
-                if (File.Exists(Path.Combine(folder, "tun-ready"))) return lease;
+                if (File.Exists(Path.Combine(folder, "tun-ready")))
+                { record.AdapterId = JsonSerializer.Deserialize<Record>(await File.ReadAllTextAsync(Path.Combine(folder, "tun-lease.json"), token))!.AdapterId; return lease; }
                 await Task.Delay(100, token);
             }
             throw new InvalidOperationException("Adapter preparation timed out.");
@@ -72,6 +73,7 @@ public sealed class TunLease : IDisposable
             using var mutex = new Mutex(true, @"Global\PersonalVPN-TUN-" + WindowsIdentity.GetCurrent().User!.Value, out bool created);
             if (!created) throw new InvalidOperationException("Another Personal VPN TUN session is still active.");
             using var adapter = new WintunAdapter(record.Name, record.AdapterId);
+            record.AdapterId = adapter.AdapterId; File.WriteAllText(Path.Combine(folder, "tun-lease.json"), JsonSerializer.Serialize(record));
             File.WriteAllText(Path.Combine(folder, "tun-ready"), "ready");
             while (!parent.WaitForExit(250))
                 if (File.Exists(Path.Combine(folder, "tun-stop"))) break;

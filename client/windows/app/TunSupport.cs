@@ -44,6 +44,7 @@ public static class TunSupport
             if (nic?.OperationalStatus == OperationalStatus.Up && nic.GetIPProperties().UnicastAddresses.Any(x => x.Address.ToString() == "172.28.255.1")) return;
             await Task.Delay(100, token);
         }
-        throw new InvalidOperationException("TUN adapter did not become ready.");
+        string devices = string.Join("; ", NetworkInterface.GetAllNetworkInterfaces().Where(x => x.Name.StartsWith("PersonalVPN", StringComparison.Ordinal)).Select(x => x.Name + " id=" + x.Id + " state=" + x.OperationalStatus + " addresses=" + string.Join(",", x.GetIPProperties().UnicastAddresses.Select(a => a.Address.ToString()))));
+        throw new InvalidOperationException("TUN adapter did not become ready. Expected=" + lease.AdapterId + "; " + devices);
     }
 }

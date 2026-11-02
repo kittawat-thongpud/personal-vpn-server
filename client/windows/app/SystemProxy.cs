@@ -15,12 +15,9 @@ public sealed record ProxyLeaseRecord(int OwnerPid, long OwnerStart, string Id, 
 // WinINet per-user LAN settings only. Never changes WinHTTP, adapters, routes or DNS.
 public static class WindowsProxy
 {
-    [StructLayout(LayoutKind.Explicit, Size = 16)] private struct Option
-    {
-        [FieldOffset(0)] public uint Id;
-        [FieldOffset(8)] public uint Flags;
-        [FieldOffset(8)] public IntPtr String;
-    }
+    // WinINet union alignment is 4 bytes on x86, 8 bytes on x64.
+    private static int OptionSize => IntPtr.Size == 8 ? 16 : 12;
+    private static int ValueOffset => IntPtr.Size == 8 ? 8 : 4;
     [StructLayout(LayoutKind.Sequential)] private struct OptionList
     {
         public uint Size;
@@ -35,28 +32,28 @@ public static class WindowsProxy
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern IntPtr SendMessageTimeout(IntPtr window, uint message, UIntPtr parameter, string text, uint flags, uint timeout, out UIntPtr result);
     private static OptionList Allocate()
     {
-        if (IntPtr.Size != 8) throw new InvalidOperationException("This Windows release requires x64.");
-        return new OptionList { Size = (uint)Marshal.SizeOf<OptionList>(), Count = 4, Options = Marshal.AllocHGlobal(4 * Marshal.SizeOf<Option>()) };
+        return new OptionList { Size = (uint)Marshal.SizeOf<OptionList>(), Count = 4, Options = Marshal.AllocHGlobal(4 * OptionSize) };
     }
     public static ProxySnapshot Read()
     {
         var list = Allocate();
         try
         {
-            for (int i = 0; i < 4; i++) Marshal.StructureToPtr(new Option { Id = (uint)(i + 1) }, IntPtr.Add(list.Options, i * 16), false);
-            Marshal.StructureToPtr(new Option { Id = 10 }, list.Options, false); // FLAGS_UI, as recommended on Windows 7+.
+            Marshal.Copy(new byte[4 * OptionSize], 0, list.Options, 4 * OptionSize);
+            for (int i = 0; i < 4; i++) Marshal.WriteInt32(list.Options, i * OptionSize, i + 1);
+            Marshal.WriteInt32(list.Options, 10); // FLAGS_UI, as recommended on Windows 7+.
             uint length = list.Size;
             if (!Query(IntPtr.Zero, 75, ref list, ref length))
             {
-                Marshal.StructureToPtr(new Option { Id = 1 }, list.Options, false);
+                Marshal.WriteInt32(list.Options, 1);
                 length = list.Size;
                 if (!Query(IntPtr.Zero, 75, ref list, ref length)) throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot read Windows proxy settings.");
             }
-            var flags = Marshal.PtrToStructure<Option>(list.Options).Flags;
+            var flags = unchecked((uint)Marshal.ReadInt32(list.Options, ValueOffset));
             string[] strings = new string[3];
             for (int i = 1; i < 4; i++)
             {
-                IntPtr pointer = Marshal.PtrToStructure<Option>(IntPtr.Add(list.Options, i * 16)).String;
+                IntPtr pointer = Marshal.ReadIntPtr(list.Options, i * OptionSize + ValueOffset);
                 try { strings[i - 1] = pointer == IntPtr.Zero ? "" : Marshal.PtrToStringUni(pointer) ?? ""; }
                 finally { if (pointer != IntPtr.Zero) GlobalFree(pointer); }
             }
@@ -69,12 +66,14 @@ public static class WindowsProxy
         var list = Allocate(); var allocated = new IntPtr[3];
         try
         {
-            Marshal.StructureToPtr(new Option { Id = 1, Flags = value.Flags }, list.Options, false);
+            Marshal.Copy(new byte[4 * OptionSize], 0, list.Options, 4 * OptionSize);
+            Marshal.WriteInt32(list.Options, 1); Marshal.WriteInt32(list.Options, ValueOffset, unchecked((int)value.Flags));
             string[] values = { value.Server, value.Bypass, value.AutoConfig };
             for (int i = 0; i < 3; i++)
             {
                 allocated[i] = Marshal.StringToHGlobalUni(values[i]);
-                Marshal.StructureToPtr(new Option { Id = (uint)(i + 2), String = allocated[i] }, IntPtr.Add(list.Options, (i + 1) * 16), false);
+                Marshal.WriteInt32(list.Options, (i + 1) * OptionSize, i + 2);
+                Marshal.WriteIntPtr(list.Options, (i + 1) * OptionSize + ValueOffset, allocated[i]);
             }
             if (!Set(IntPtr.Zero, 75, ref list, list.Size)) throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not apply Windows proxy settings.");
             Notify(IntPtr.Zero, 39, IntPtr.Zero, 0); // SETTINGS_CHANGED

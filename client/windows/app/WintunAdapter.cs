@@ -30,6 +30,16 @@ public sealed class WintunAdapter : IDisposable
         adapter = create(name, "PersonalVPN", ref id);
         if (adapter == IntPtr.Zero) { int code = Marshal.GetLastWin32Error(); NativeLibrary.Free(library); library = IntPtr.Zero; throw new Win32Exception(code, "Could not create Personal VPN adapter."); }
     }
+    public Guid AdapterId
+    {
+        get
+        {
+            ulong luid = 0; Marshal.GetDelegateForFunctionPointer<GetLuid>(NativeLibrary.GetExport(library, "WintunGetAdapterLUID"))(adapter, ref luid);
+            uint result = ConvertInterfaceLuidToGuid(ref luid, out var id); if (result != 0) throw new Win32Exception((int)result); return id;
+        }
+    }
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GetLuid(IntPtr adapter, ref ulong luid);
+    [DllImport("iphlpapi.dll")] private static extern uint ConvertInterfaceLuidToGuid(ref ulong luid, out Guid guid);
     public uint DriverVersion => Marshal.GetDelegateForFunctionPointer<Version>(NativeLibrary.GetExport(library, "WintunGetRunningDriverVersion"))();
     public void Dispose()
     {
