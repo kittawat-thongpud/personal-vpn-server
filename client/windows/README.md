@@ -1,4 +1,4 @@
-# Personal VPN for Windows — 0.2.1 preview
+# Personal VPN for Windows — 0.2.2 preview
 
 Real Windows x64 application, built in GitHub Actions. Unzip the Windows release
 and run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1`.

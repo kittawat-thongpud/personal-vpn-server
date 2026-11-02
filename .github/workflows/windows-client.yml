@@ -48,7 +48,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $version = '0.2.1'
+          $version = '0.2.2'
           $tag = "windows-v$version"
           $archive = "PersonalVPN-windows-x64-$version.zip"
           Compress-Archive -Path dist/windows/* -DestinationPath "dist/$archive" -CompressionLevel Optimal

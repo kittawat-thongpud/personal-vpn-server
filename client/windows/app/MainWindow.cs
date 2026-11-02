@@ -35,7 +35,7 @@ public sealed class MainWindow : Window
     public MainWindow(Settings initial, bool autoConnect = false)
     {
         settings = initial;
-        Title = "Personal VPN · Windows preview 0.2.1";
+        Title = "Personal VPN · Windows preview 0.2.2";
         Width = 560; Height = 850; MinWidth = 510; MinHeight = 710;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = Color("#0D1627"); Foreground = Color("#EBEFF8"); FontFamily = new FontFamily("Segoe UI"); FontSize = 14;
@@ -175,7 +175,7 @@ public sealed class MainWindow : Window
         var tools = new WrapPanel(); tools.Children.Add(Action("Copy HTTP proxy", () => Clipboard.SetText("http://127.0.0.1:" + (backend.Active?.HttpPort ?? settings.HttpPort))));
         tools.Children.Add(Action("Test browser ↗", OpenTestBrowser)); listeners.Children.Add(tools); body.Children.Add(Card(listeners));
         var protocol = Action(settings.Protocol + (settings.Protocol == "REALITY" && settings.ChainReality ? " · via existing proxy" : "") + "   •   Configure ›", () => Navigate("VPN"));
-        body.Children.Add(protocol); body.Children.Add(Text("Preview 0.2.1 · Closing disconnects and restores the previous proxy.", 11, "#8395B2"));
+        body.Children.Add(protocol); body.Children.Add(Text("Preview 0.2.2 · Closing disconnects and restores the previous proxy.", 11, "#8395B2"));
         return body;
     }
     private static string Country(string code) => code switch { "JP" => "◉ JP", "SG" => "◒ SG", "US" => "★ US", "KR" => "◉ KR", "TH" => "▰ TH", _ => "◎ " + code };

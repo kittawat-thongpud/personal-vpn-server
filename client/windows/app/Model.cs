@@ -112,8 +112,7 @@ public static class Store
     {
         Directory.CreateDirectory(folder);
         var sid = WindowsIdentity.GetCurrent().User!;
-        var acl = new DirectorySecurity();
-        acl.SetOwner(sid);
+        var acl = new DirectoryInfo(folder).GetAccessControl(AccessControlSections.Access);
         acl.SetAccessRuleProtection(true, false);
         foreach (var identity in new[] { sid, new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null) })
             acl.AddAccessRule(new FileSystemAccessRule(identity, FileSystemRights.FullControl,

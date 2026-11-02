@@ -1,6 +1,6 @@
 param([string]$ProfileFolder, [switch]$NoLaunch)
 $ErrorActionPreference = 'Stop'
-$version = '0.2.1'
+$version = '0.2.2'
 $source = [IO.Path]::GetFullPath($PSScriptRoot)
 if (-not (Test-Path -LiteralPath (Join-Path $source 'PersonalVPN.exe'))) { throw 'Extract the Windows release ZIP before running install.ps1.' }
 $programRoot = Join-Path $env:LOCALAPPDATA 'Programs/PersonalVPN'
@@ -9,14 +9,13 @@ $appData = Join-Path $env:LOCALAPPDATA 'PersonalVPN'
 # Installation is per-user. Keep profile data separate from versioned executables.
 New-Item -ItemType Directory -Force -Path $destination,$appData | Out-Null
 $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
-$acl = New-Object Security.AccessControl.DirectorySecurity
-$acl.SetOwner($sid)
+$acl = [IO.Directory]::GetAccessControl($appData, [Security.AccessControl.AccessControlSections]::Access)
 $acl.SetAccessRuleProtection($true, $false)
 foreach ($identity in @($sid, (New-Object Security.Principal.SecurityIdentifier('S-1-5-18')))) {
     $rule = New-Object Security.AccessControl.FileSystemAccessRule($identity, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
     $acl.AddAccessRule($rule)
 }
-Set-Acl -LiteralPath $appData -AclObject $acl
+[IO.Directory]::SetAccessControl($appData, $acl)
 Get-ChildItem -LiteralPath $source | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $destination -Recurse -Force }
 $executable = Join-Path $destination 'PersonalVPN.exe'
 $shell = New-Object -ComObject WScript.Shell
