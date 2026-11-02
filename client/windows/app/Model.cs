@@ -32,6 +32,19 @@ public sealed class CategoryRule
     public List<string> Entries { get; set; } = new();
 }
 
+public sealed class TunnelException
+{
+    public string Kind { get; set; } = "Domain";
+    public string Value { get; set; } = "";
+    public string Action { get; set; } = "Tunnel";
+}
+
+public sealed class TunnelPolicy
+{
+    public string Mode { get; set; } = "Disabled";
+    public List<TunnelException> Entries { get; set; } = new();
+}
+
 public sealed class Settings
 {
     public List<ServerProfile> Profiles { get; set; } = new();
@@ -45,6 +58,8 @@ public sealed class Settings
     public int SocksPort { get; set; } = 17891;
     public CategoryRule Websites { get; set; } = new();
     public CategoryRule Networks { get; set; } = new();
+    public TunnelPolicy? Sites { get; set; }
+    public TunnelPolicy Apps { get; set; } = new();
     public Settings Snapshot() => JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(this))!;
     [JsonIgnore] public ServerProfile Selected => Profiles.FirstOrDefault(x => x.Id == SelectedId)
         ?? throw new InvalidOperationException("Import and select a server profile first.");
@@ -60,6 +75,8 @@ public sealed class Settings
             throw new InvalidOperationException("The upstream proxy port must be different from our listener ports.");
         Policy.Validate(Websites, true);
         Policy.Validate(Networks, false);
+        if (Sites != null) Policy.ValidateTunnel(Sites, false);
+        Policy.ValidateTunnel(Apps, true);
     }
 }
 
@@ -92,6 +109,15 @@ public static class Policy
         var rules = new JsonArray();
         // Health checks use a private inbound that always tunnels, independent of user rules.
         rules.Add(new JsonObject { ["type"] = "field", ["inboundTag"] = new JsonArray("health"), ["outboundTag"] = "tunnel" });
+        if (settings.Sites != null)
+        {
+            var site = settings.Sites; ValidateTunnel(site, false);
+            if (site.Mode != "Disabled")
+                foreach (var entry in SiteEntries(site))
+                    rules.Add(new JsonObject { ["type"] = "field", [entry.Kind == "Domain" ? "domain" : "ip"] = new JsonArray(entry.Kind == "Domain" ? "domain:" + entry.Value.ToLowerInvariant() : entry.Value), ["outboundTag"] = Tag(entry.Action) });
+            rules.Add(new JsonObject { ["type"] = "field", ["network"] = "tcp,udp", ["outboundTag"] = Tag(site.Mode == "Disabled" ? "Tunnel" : site.Mode) });
+            return rules;
+        }
         var categories = new[] { (settings.Websites, "domain"), (settings.Networks, "ip") };
         foreach (var (category, field) in categories.Where(x => x.Item1.Mode == "Block").Concat(categories.Where(x => x.Item1.Mode != "Block")))
         {
@@ -101,6 +127,38 @@ public static class Policy
         }
         rules.Add(new JsonObject { ["type"] = "field", ["network"] = "tcp,udp", ["outboundTag"] = settings.Traffic == "Global" ? "tunnel" : "direct" });
         return rules;
+    }
+    public static string Tag(string action) => action switch { "Tunnel" => "tunnel", "Bypass" => "direct", "Block" => "block", _ => throw new InvalidOperationException("Invalid tunnel action.") };
+    public static IEnumerable<TunnelException> SiteEntries(TunnelPolicy policy) => policy.Entries.Where(x => x.Action == "Block").Concat(policy.Entries.Where(x => x.Action != "Block"));
+    public static void ValidateTunnel(TunnelPolicy policy, bool apps)
+    {
+        if (!Modes.Contains(policy.Mode) || policy.Entries.Count > 500) throw new InvalidOperationException("Invalid policy or more than 500 exceptions.");
+        var unique = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in policy.Entries)
+        {
+            _ = Tag(entry.Action);
+            if (!unique.Add(entry.Kind + ":" + entry.Value)) throw new InvalidOperationException("An exception for this target already exists.");
+            if (apps)
+            {
+                if (entry.Kind != "App" || entry.Value.Length > 1024 || !Path.IsPathFullyQualified(entry.Value) || !entry.Value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Choose the full path to an app.exe file.");
+            }
+            else
+            {
+                if (entry.Kind is not ("Domain" or "IP")) throw new InvalidOperationException("Choose Domain or IP / CIDR.");
+                Validate(new CategoryRule { Entries = new() { entry.Value } }, entry.Kind == "Domain");
+            }
+        }
+    }
+    public static void Upgrade(Settings settings)
+    {
+        if (settings.Sites != null) return;
+        settings.Sites = new TunnelPolicy { Mode = settings.Traffic == "Global" ? "Tunnel" : "Bypass" };
+        foreach (var (category, kind) in new[] { (settings.Websites, "Domain"), (settings.Networks, "IP") })
+            if (category.Mode != "Disabled")
+                foreach (string value in category.Entries)
+                    settings.Sites.Entries.Add(new TunnelException { Kind = kind, Value = value, Action = category.Mode });
+        ValidateTunnel(settings.Sites, false);
     }
 }
 

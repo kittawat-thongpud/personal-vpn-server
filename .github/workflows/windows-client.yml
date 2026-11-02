@@ -50,19 +50,35 @@ jobs:
           $process = Start-Process -FilePath (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--local-proxy-integration', '--report', $report) -PassThru -Wait -WindowStyle Hidden
           Get-Content $report
           if ($process.ExitCode -ne 0) { throw 'Local proxy integration failed' }
+      - name: Validate mobile layouts and Wintun routing plan without activating an adapter
+        shell: pwsh
+        run: |
+          $output = "$env:RUNNER_TEMP/mobile-layout"
+          $report = "$env:RUNNER_TEMP/mobile-layout-result.json"
+          $process = Start-Process -FilePath (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--layout-test', '--output', $output, '--report', $report) -PassThru -Wait -WindowStyle Hidden
+          Get-Content $report
+          if ($process.ExitCode -ne 0) { throw 'Mobile layout / routing tests failed' }
+          $archive = "$env:RUNNER_TEMP/sing-box.zip"
+          Invoke-WebRequest 'https://github.com/SagerNet/sing-box/releases/download/v1.14.4/sing-box-1.14.4-windows-amd64.zip' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '99185D75D314A07DBBA4A130C8AD986CBEB629A07927975636B341CA61F991DF') { throw 'Routing-plan validator checksum mismatch' }
+          Expand-Archive $archive "$env:RUNNER_TEMP/sing-box" -Force
+          $validator = Get-ChildItem "$env:RUNNER_TEMP/sing-box" -Filter sing-box.exe -Recurse | Select-Object -First 1
+          & $validator.FullName check -c "$output/tun-plan.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Wintun plan rejected by pinned upstream validator' }
+          Compress-Archive "$output/*.png" dist/PersonalVPN-ui-preview-0.3.0.zip
       - name: Package and publish Windows preview
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $version = '0.2.5'
+          $version = '0.3.0'
           $tag = "windows-v$version"
           $archive = "PersonalVPN-windows-x64-$version.zip"
           Compress-Archive -Path dist/windows/* -DestinationPath "dist/$archive" -CompressionLevel Optimal
           $hash = (Get-FileHash "dist/$archive" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $archive" | Set-Content dist/SHA256SUMS.txt -Encoding ascii
           $notes = @'
-          Windows x64 preview with automatic browser capture via Windows system proxy after tunnel verification. Disconnect and a separate crash watchdog restore previous settings. Real Hysteria 2 / REALITY connections, encrypted profiles, domain/IP routing, bounded backend session logs.
+          Mobile vertical Windows UI with Home and Settings. Home fits without page scrolling. VPN configuration, per-target Site Tunnel exceptions, App Tunnel drafts and bounded backend logs live under Settings. App exceptions are prepared for Wintun and do not affect Proxy routing. The Wintun routing-plan compiler is schema-checked; the adapter / elevated host is not enabled in this release.
 
           Extract the ZIP and run install.ps1 with PowerShell. No administrator rights or separate .NET install required. Import device exports locally; no credentials are bundled.
 
@@ -71,10 +87,10 @@ jobs:
           $notes | Set-Content "$env:RUNNER_TEMP/windows-release.md" -Encoding utf8
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag "dist/$archive" dist/SHA256SUMS.txt --clobber
+            gh release upload $tag "dist/$archive" dist/SHA256SUMS.txt dist/PersonalVPN-ui-preview-0.3.0.zip --clobber
             if ($LASTEXITCODE -ne 0) { throw 'Release asset upload failed' }
             gh release edit $tag --target $env:GITHUB_SHA --notes-file "$env:RUNNER_TEMP/windows-release.md"
           } else {
-            gh release create $tag "dist/$archive" dist/SHA256SUMS.txt --target $env:GITHUB_SHA --title "Windows client $version preview" --notes-file "$env:RUNNER_TEMP/windows-release.md" --prerelease
+            gh release create $tag "dist/$archive" dist/SHA256SUMS.txt dist/PersonalVPN-ui-preview-0.3.0.zip --target $env:GITHUB_SHA --title "Windows client $version preview" --notes-file "$env:RUNNER_TEMP/windows-release.md" --prerelease
           }
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }

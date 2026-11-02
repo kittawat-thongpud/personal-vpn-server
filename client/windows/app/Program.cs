@@ -29,6 +29,7 @@ public static class Program
         }
         if (arguments.Contains("--proxy-lease-child")) return Tests.LeaseChild(arguments);
         if (arguments.Contains("--self-test")) return Tests.SelfTest(arguments);
+        if (arguments.Contains("--layout-test")) return MobileValidation.Run(arguments);
         if (arguments.Contains("--smoke-test")) return Tests.Smoke(arguments).GetAwaiter().GetResult();
         if (arguments.Contains("--system-proxy-test")) return Tests.ProxyTest(arguments).GetAwaiter().GetResult();
         if (arguments.Contains("--local-proxy-integration")) return Tests.LocalProxyIntegration(arguments).GetAwaiter().GetResult();

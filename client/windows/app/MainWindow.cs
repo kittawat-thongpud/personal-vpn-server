@@ -17,12 +17,14 @@ using Microsoft.Win32;
 
 namespace PersonalVpn;
 
-public sealed class MainWindow : Window
+public sealed partial class MainWindow : Window
 {
     private readonly Backend backend = new();
     private Settings settings;
     private readonly ContentControl content;
     private readonly TextBlock subtitle;
+    private Button backButton = null!, homeNav = null!, settingsNav = null!;
+    private Grid layoutRoot = null!;
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private string page = "Home";
     private bool dirty, exiting;
@@ -40,32 +42,38 @@ public sealed class MainWindow : Window
     public MainWindow(Settings initial, bool autoConnect = false)
     {
         settings = initial;
+        Policy.Upgrade(settings);
         settings.SystemProxy = true;
-        Title = "Personal VPN · Windows preview 0.2.5";
-        Width = 560; Height = 850; MinWidth = 510; MinHeight = 710;
+        Title = "Personal VPN · Windows preview 0.3.0";
+        Width = 438; Height = 800; MinWidth = 380; MinHeight = 640;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = Color("#0D1627"); Foreground = Color("#EBEFF8"); FontFamily = new FontFamily("Segoe UI"); FontSize = 14;
         UseLayoutRounding = true; SnapsToDevicePixels = true;
         SourceInitialized += (_, _) => { int dark = 1; DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 20, ref dark, sizeof(int)); };
-        Application.Current.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/PersonalVPN;component/Theme.xaml", UriKind.Relative) });
-        var shell = new Grid { Margin = new Thickness(23, 16, 23, 16) };
+        if (!Application.Current.Resources.MergedDictionaries.Any(x => x.Source?.OriginalString.Contains("Theme.xaml") == true))
+            Application.Current.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/PersonalVPN;component/Theme.xaml", UriKind.Relative) });
+        var shell = new Grid { Margin = new Thickness(16, 10, 16, 12), MaxWidth = 460 };
         shell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         shell.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         shell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        var heading = new StackPanel { Margin = new Thickness(0, 0, 0, 16) };
-        heading.Children.Add(Text("PERSONAL VPN", 13, "#91A5C5"));
-        subtitle = Text("Home", 25); subtitle.FontWeight = FontWeights.SemiBold;
-        heading.Children.Add(subtitle); shell.Children.Add(heading);
+        var heading = new Grid { Height = 46, Margin = new Thickness(0, 0, 0, 8) };
+        heading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(38) }); heading.ColumnDefinitions.Add(new ColumnDefinition()); heading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(38) });
+        backButton = Action("‹", () => Navigate(page == "Profiles" ? "Home" : "Settings")); backButton.FontSize = 28; backButton.Padding = new Thickness(0); backButton.Background = Brushes.Transparent; heading.Children.Add(backButton);
+        subtitle = Text("Home", 21); subtitle.FontWeight = FontWeights.SemiBold; subtitle.VerticalAlignment = VerticalAlignment.Center; subtitle.HorizontalAlignment = HorizontalAlignment.Center;
+        Grid.SetColumn(subtitle, 1); heading.Children.Add(subtitle); shell.Children.Add(heading);
         content = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
         Grid.SetRow(content, 1); shell.Children.Add(content);
-        var navigation = new Grid { Margin = new Thickness(0, 14, 0, 0) };
-        foreach (string name in new[] { "Home", "Rules", "VPN", "Logs" })
+        var navigation = new Grid { Margin = new Thickness(0, 8, 0, 0) };
+        foreach (string name in new[] { "Home", "Settings" })
         {
             int column = navigation.ColumnDefinitions.Count; navigation.ColumnDefinitions.Add(new ColumnDefinition());
             var button = Action(name, () => Navigate(name)); button.Tag = name;
+            button.Height = 43;
+            if (name == "Home") homeNav = button; else settingsNav = button;
             Grid.SetColumn(button, column); navigation.Children.Add(button);
         }
-        Grid.SetRow(navigation, 2); shell.Children.Add(navigation); Content = shell;
+        Grid.SetRow(navigation, 2); shell.Children.Add(navigation);
+        layoutRoot = new Grid { Background = Background }; layoutRoot.Children.Add(shell); Content = layoutRoot;
         timer.Tick += (_, _) => Refresh(); timer.Start();
         Closing += async (_, args) =>
         {
@@ -95,8 +103,8 @@ public sealed class MainWindow : Window
     };
     private static Border Card(UIElement child) => new()
     {
-        Background = Color("#182438"), BorderBrush = Color("#2D3A50"), BorderThickness = new Thickness(1),
-        CornerRadius = new CornerRadius(19), Padding = new Thickness(18, 14, 18, 14), Margin = new Thickness(0, 0, 0, 13), Child = child
+        Background = new LinearGradientBrush((System.Windows.Media.Color)ColorConverter.ConvertFromString("#19263A"), (System.Windows.Media.Color)ColorConverter.ConvertFromString("#142034"), 90), BorderBrush = Color("#2D3A50"), BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(18), Padding = new Thickness(14, 10, 14, 10), Margin = new Thickness(0, 0, 0, 10), Child = child
     };
     private Button Action(string name, Action action)
     {
@@ -118,83 +126,36 @@ public sealed class MainWindow : Window
     private void ShowError(Exception error) => MessageBox.Show(this,
         error is InvalidOperationException or InvalidDataException ? error.Message : "Operation failed (" + error.GetType().Name + "). Check profile format and permissions.",
         "Personal VPN", MessageBoxButton.OK, MessageBoxImage.Warning);
-    private void Changed()
+    private void Changed(bool affectsConnection = true)
     {
-        Store.Save(settings); dirty = backend.Running; Refresh();
+        Store.Save(settings); dirty = backend.Running && (dirty || affectsConnection); Refresh();
     }
     private StackPanel Stack() => new() { Orientation = Orientation.Vertical };
     private void Navigate(string target)
     {
-        page = target; subtitle.Text = target; status = detail = exit = draftNotice = logCount = captureDetail = null; connect = null; logText = null;
+        page = target; subtitle.Text = target switch { "Profiles" => "Server profiles", "VpnConfig" => "VPN configure", "AppTunnel" => "App Tunnel", "SiteTunnel" => "Site Tunnel", "Diagnostics" => "Backend logs", _ => target }; status = detail = exit = draftNotice = logCount = captureDetail = null; connect = null; logText = null;
+        backButton.Visibility = target is "Home" or "Settings" ? Visibility.Hidden : Visibility.Visible;
+        homeNav.Background = Color(target is "Home" or "Profiles" ? "#244C68" : "#18263A"); settingsNav.Background = Color(target is not ("Home" or "Profiles") ? "#244C68" : "#18263A");
         uploadRate = downloadRate = uploadTotal = downloadTotal = trafficStatus = null; trafficChart = null;
-        if (target == "Logs") { BuildLogs(); return; }
-        var body = target switch { "Home" => Home(), "Profiles" => Profiles(), "Rules" => Rules(), _ => Vpn() };
-        content.Content = new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        if (target == "Diagnostics") { BuildLogs(); Refresh(); return; }
+        content.Content = target switch { "Home" => MobileHome(), "Profiles" => WidgetScroll(Profiles()), "Settings" => SettingsPage(), "AppTunnel" => TunnelEditor(true), "SiteTunnel" => TunnelEditor(false), _ => ProtocolPage() };
         Refresh();
-    }
-    private UIElement Home()
-    {
-        var body = Stack();
-        var current = settings.Profiles.FirstOrDefault(x => x.Id == settings.SelectedId);
-        var server = Action(current == null ? "+  Import server profile" : Country(current.Country) + "    " + current.Name + "     ›", () => Navigate("Profiles"));
-        server.MinHeight = 77; server.FontSize = 17; server.Margin = new Thickness(0, 0, 0, 14); body.Children.Add(server);
-        body.Children.Add(Combo(new[] { "Hysteria 2", "REALITY" }, settings.Protocol, value => { settings.Protocol = value; Changed(); }));
-        var modes = new Grid(); modes.ColumnDefinitions.Add(new ColumnDefinition()); modes.ColumnDefinitions.Add(new ColumnDefinition());
-        var capture = Stack(); capture.Children.Add(Text("CAPTURE", 12, "#9BAECD")); capture.Children.Add(Text(settings.SystemProxy ? "System proxy" : "App proxy", 18));
-        capture.Children.Add(Text(settings.SystemProxy ? "Browser HTTP / HTTPS" : "Only configured apps", 12, "#9BAECD")); var left = Card(capture); left.Margin = new Thickness(0, 0, 7, 13); modes.Children.Add(left);
-        var traffic = Stack(); traffic.Children.Add(Text("TRAFFIC", 12, "#9BAECD"));
-        var trafficChoice = Combo(new[] { "Global", "Rules" }, settings.Traffic, value => { settings.Traffic = value; Changed(); });
-        traffic.Children.Add(trafficChoice); traffic.Children.Add(Text("Default: " + (settings.Traffic == "Global" ? "Tunnel" : "Direct"), 12, "#9BAECD"));
-        var right = Card(traffic); right.Margin = new Thickness(7, 0, 0, 13); Grid.SetColumn(right, 1); modes.Children.Add(right); body.Children.Add(modes);
-        var center = Stack(); center.HorizontalAlignment = HorizontalAlignment.Center;
-        status = Text(backend.State, 22); status.HorizontalAlignment = HorizontalAlignment.Center; center.Children.Add(status);
-        connect = AsyncAction("Connect", async () =>
-        {
-            if (backend.Running && !dirty && backend.State == "Proxy conflict") await backend.ReclaimProxyAsync();
-            else if (backend.Running && !dirty) await backend.StopAsync();
-            else await ConnectSelectedProxy();
-            Refresh();
-        });
-        connect.Width = connect.Height = 184; connect.FontSize = 21;
-        connect.Background = Color("#13C49A"); connect.Foreground = Color("#06241F");
-        connect.Template = (ControlTemplate)XamlReader.Parse("""
-          <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="Button">
-            <Grid><Ellipse Fill="{TemplateBinding Background}" Stroke="#194F54" StrokeThickness="10"/>
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Grid>
-          </ControlTemplate>
-          """);
-        center.Children.Add(connect);
-        detail = Text(backend.Detail, 13, "#9BAECD"); detail.TextAlignment = TextAlignment.Center; detail.MaxWidth = 405;
-        center.Children.Add(detail); exit = Text("Exit IP: —", 14, "#59DCB8"); exit.TextAlignment = TextAlignment.Center; center.Children.Add(exit);
-        captureDetail = Text(backend.CaptureStatus, 12, "#9BAECD"); captureDetail.TextAlignment = TextAlignment.Center; center.Children.Add(captureDetail);
-        draftNotice = Text("", 13, "#F1C77A"); draftNotice.TextAlignment = TextAlignment.Center; center.Children.Add(draftNotice); body.Children.Add(center);
-        body.Children.Add(TrafficPanel());
-        var listeners = Stack(); listeners.Children.Add(Text("Local app proxy", 16));
-        listeners.Children.Add(Text("HTTP  127.0.0.1:" + settings.HttpPort + "     SOCKS5  127.0.0.1:" + settings.SocksPort, 14, "#B6CAE6"));
-        listeners.Children.Add(Text(settings.SystemProxy ? "Connect applies the Windows browser proxy after tunnel verification. Disconnect restores the previous setting." : "Manual mode: set the app's own HTTP / SOCKS proxy. Regular browser traffic is not captured automatically.", 12, "#9BAECD"));
-        var tools = new WrapPanel(); tools.Children.Add(Action("Copy HTTP proxy", () => Clipboard.SetText("http://127.0.0.1:" + (backend.Active?.HttpPort ?? settings.HttpPort))));
-        tools.Children.Add(Action("Test browser ↗", OpenTestBrowser));
-        tools.Children.Add(AsyncAction("Disconnect", backend.StopAsync)); listeners.Children.Add(tools); body.Children.Add(Card(listeners));
-        var protocol = Action(settings.Protocol + (settings.Protocol == "REALITY" && settings.ChainReality ? " · via existing proxy" : "") + "   •   Configure ›", () => Navigate("VPN"));
-        body.Children.Add(protocol); body.Children.Add(Text("Preview 0.2.5 · Closing disconnects and restores the previous proxy.", 11, "#8395B2"));
-        return body;
     }
     private UIElement TrafficPanel()
     {
-        var panel = Stack(); panel.Children.Add(Text("Tunnel traffic", 16));
+        var panel = Stack(); panel.Children.Add(Text("TUNNEL TRAFFIC", 10, "#9BAECD"));
         var values = new Grid(); values.ColumnDefinitions.Add(new ColumnDefinition()); values.ColumnDefinitions.Add(new ColumnDefinition());
-        var tx = Stack(); tx.Children.Add(Text("↑ UPLOAD", 11, "#16C8A0")); uploadRate = Text("0 B/s", 20, "#16C8A0"); tx.Children.Add(uploadRate); uploadTotal = Text("Total 0 B", 12, "#9BAECD"); tx.Children.Add(uploadTotal); values.Children.Add(tx);
-        var rx = Stack(); rx.Children.Add(Text("↓ DOWNLOAD", 11, "#64A8FF")); downloadRate = Text("0 B/s", 20, "#64A8FF"); rx.Children.Add(downloadRate); downloadTotal = Text("Total 0 B", 12, "#9BAECD"); rx.Children.Add(downloadTotal); Grid.SetColumn(rx, 1); values.Children.Add(rx); panel.Children.Add(values);
-        trafficChart = new TrafficChart { Height = 65, HorizontalAlignment = HorizontalAlignment.Stretch, ToolTip = "Last 60 samples. Tunnel payload bytes, including health traffic; Direct / Bypass traffic excluded. Not a billing meter." };
+        var tx = Stack(); uploadRate = Text("↑ 0 B/s", 19, "#16C8A0"); tx.Children.Add(uploadRate); uploadTotal = Text("0 B sent", 10, "#9BAECD"); tx.Children.Add(uploadTotal); values.Children.Add(tx);
+        var rx = Stack(); downloadRate = Text("↓ 0 B/s", 19, "#64A8FF"); rx.Children.Add(downloadRate); downloadTotal = Text("0 B received", 10, "#9BAECD"); rx.Children.Add(downloadTotal); Grid.SetColumn(rx, 1); values.Children.Add(rx); panel.Children.Add(values);
+        trafficChart = new TrafficChart { Height = 36, HorizontalAlignment = HorizontalAlignment.Stretch, ToolTip = "60 samples · tunnel payload only · includes health traffic" };
         foreach (var sample in backend.Traffic.History) trafficChart.Sample(sample);
-        panel.Children.Add(trafficChart); trafficStatus = Text("Waiting for tunnel data", 11, "#8395B2"); panel.Children.Add(trafficStatus); return Card(panel);
+        panel.Children.Add(trafficChart); trafficStatus = Text("Session totals", 10, "#8395B2"); panel.Children.Add(trafficStatus); var card = Card(panel); card.Margin = new Thickness(0); card.Padding = new Thickness(14, 9, 14, 9); return card;
     }
     private static string Country(string code) => code switch { "JP" => "◉ JP", "SG" => "◒ SG", "US" => "★ US", "KR" => "◉ KR", "TH" => "▰ TH", _ => "◎ " + code };
     private UIElement Profiles()
     {
         var body = Stack();
-        var controls = new DockPanel(); var back = Action("←  Back", () => Navigate("Home")); DockPanel.SetDock(back, Dock.Left); controls.Children.Add(back);
+        var controls = new DockPanel();
         var add = Action("+  Import profile", Import); DockPanel.SetDock(add, Dock.Right); controls.Children.Add(add); body.Children.Add(controls);
         body.Children.Add(Text("Import the folder exported by vpnctl. Credentials are encrypted for your Windows account. An IP alone is not a connection profile.", 13, "#9BAECD"));
         foreach (var profile in settings.Profiles.ToArray())
@@ -224,7 +185,7 @@ public sealed class MainWindow : Window
     }
     private void EditProfile(ServerProfile profile)
     {
-        var dialog = new Window { Owner = this, Title = "Edit server", Width = 410, Height = 320, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterOwner, Background = Background, Foreground = Foreground };
+        var dialog = new Window { Owner = this, Title = "Edit server", Width = 360, Height = 305, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterOwner, Background = Background, Foreground = Foreground };
         var panel = new StackPanel { Margin = new Thickness(22) }; panel.Children.Add(Text("Server name"));
         var name = new TextBox { Text = profile.Name, MaxLength = 80 }; panel.Children.Add(name); panel.Children.Add(Text("Country icon"));
         var country = Combo(new[] { "JP", "SG", "KR", "US", "HK", "TW", "TH", "GB", "DE", "FR", "NL", "AU", "Other" }, profile.Country, _ => { }); panel.Children.Add(country);
@@ -239,59 +200,6 @@ public sealed class MainWindow : Window
         var box = new ComboBox { ItemsSource = values, SelectedItem = selected, MinWidth = 125 };
         box.SelectionChanged += (_, _) => { if (box.SelectedItem is string value) { try { change(value); } catch (Exception error) { ShowError(error); } } };
         return box;
-    }
-    private UIElement Rules()
-    {
-        var body = Stack();
-        body.Children.Add(Text("Block → Websites → IP / Networks → default", 14, "#B5C9E5"));
-        body.Children.Add(Text("Global defaults to Tunnel. Rules defaults to Direct. Explicit exceptions apply in both modes. Changes need Apply & reconnect.", 12, "#9BAECD"));
-        var apps = Stack(); apps.Children.Add(Text("Apps", 19));
-        apps.Children.Add(Text("Use an app's HTTP / SOCKS proxy setting to opt in. Whole-machine rules by executable need TUN and are not enabled in this preview.", 13, "#9BAECD")); body.Children.Add(Card(apps));
-        body.Children.Add(RuleEditor("Websites", settings.Websites, true));
-        body.Children.Add(RuleEditor("IP / Networks", settings.Networks, false));
-        body.Children.Add(Text("Domains include subdomains. IP rules match literal IP destinations; no local DNS lookup is added to match website hostnames. No path / URL matching.", 12, "#9BAECD"));
-        body.Children.Add(AsyncAction("Apply & reconnect", async () => { await ConnectSelectedProxy(); Navigate("Home"); }));
-        return body;
-    }
-    private UIElement RuleEditor(string title, CategoryRule category, bool domains)
-    {
-        var panel = Stack(); panel.Children.Add(Text(title, 19));
-        var mode = Combo(Policy.Modes, category.Mode, _ => { }); panel.Children.Add(mode);
-        var entries = new TextBox { Text = string.Join(Environment.NewLine, category.Entries), AcceptsReturn = true, Height = 100, MaxLength = 64000, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, TextWrapping = TextWrapping.NoWrap };
-        panel.Children.Add(entries); panel.Children.Add(Text(domains ? "One domain per line · example.com" : "One IP / CIDR per line · 203.0.113.0/24", 12, "#9BAECD"));
-        panel.Children.Add(Action("Save " + title, () =>
-        {
-            var next = new CategoryRule { Mode = (string)mode.SelectedItem, Entries = entries.Text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.OrdinalIgnoreCase).ToList() };
-            Policy.Validate(next, domains); category.Mode = next.Mode; category.Entries = next.Entries; Changed();
-            MessageBox.Show(this, backend.Running ? "Saved as draft. Use Apply & reconnect to activate it." : "Saved.", "Rules");
-        })); return Card(panel);
-    }
-    private UIElement Vpn()
-    {
-        var body = Stack(); var protocol = Stack(); protocol.Children.Add(Text("VPN protocol", 19));
-        protocol.Children.Add(Combo(new[] { "Hysteria 2", "REALITY" }, settings.Protocol, value => { settings.Protocol = value; Changed(); Navigate("VPN"); }));
-        protocol.Children.Add(Text(settings.Protocol == "Hysteria 2"
-            ? "UDP 443 · Verified full-certificate SHA-256 pin. UDP availability depends on the network. Failed authentication never falls back to Direct."
-            : "TCP 443 · VLESS + REALITY + Vision. TCP loss can reduce throughput. Direct reachability must be tested on the current network.", 13, "#9BAECD"));
-        if (settings.Protocol == "REALITY")
-        {
-            var chained = new CheckBox { Content = "Connect REALITY through an existing local HTTP proxy", IsChecked = settings.ChainReality };
-            chained.Click += (_, _) => { settings.ChainReality = chained.IsChecked == true; Changed(); }; protocol.Children.Add(chained);
-            protocol.Children.Add(Text("Upstream: 127.0.0.1:" + settings.UpstreamPort + " · requires that other proxy to remain running.", 12, "#9BAECD"));
-        }
-        body.Children.Add(Card(protocol));
-        var browser = Stack(); browser.Children.Add(Text("Browser capture", 19));
-        browser.Children.Add(Text("Connect selects Personal VPN as the Windows system proxy after tunnel verification. No second proxy button is needed.", 13, "#9BAECD"));
-        browser.Children.Add(Text("Captures HTTP / HTTPS from browsers that follow Windows proxy settings. Previous manual / PAC / auto-detect settings are saved and restored. An independent watchdog restores them after an app crash. Changes need Apply & reconnect.", 13, "#9BAECD"));
-        browser.Children.Add(Text("Apps with their own proxy settings, extensions, UDP / WebRTC or a separate VPN path may bypass system proxy. This is not a full-device TUN.", 13, "#9BAECD")); body.Children.Add(Card(browser));
-        var recovery = Stack(); recovery.Children.Add(Text("Recovery", 19));
-        recovery.Children.Add(Text("Network changes are debounced. The supervisor cancels old checks, restarts owned cores and re-verifies HTTPS. Backoff: up to 30s + jitter. Existing TCP sessions may need a new request.", 13, "#9BAECD"));
-        recovery.Children.Add(Text("Connected means a recent end-to-end check passed; a failed check shows Degraded, then Reconnecting. A public health endpoint outage can affect this result.", 13, "#9BAECD")); body.Children.Add(Card(recovery));
-        var capture = Stack(); capture.Children.Add(Text("Capture & mesh", 19));
-        capture.Children.Add(Text("System proxy or manual app proxy in this release. TUN, Windows service, system kill switch and executable interception remain unavailable.", 13, "#9BAECD"));
-        capture.Children.Add(Text("No adapter, route, DNS or firewall changes. Tailscale / ZeroTier keep existing OS routes; tunneling their outer transport is not implemented or verified.", 13, "#9BAECD")); body.Children.Add(Card(capture));
-        body.Children.Add(AsyncAction("Apply & reconnect", async () => { await ConnectSelectedProxy(); Navigate("Home"); }));
-        return body;
     }
     private void BuildLogs()
     {
@@ -316,15 +224,15 @@ public sealed class MainWindow : Window
         if (uploadRate != null)
         {
             var sample = backend.Traffic.Snapshot;
-            uploadRate.Text = sample.Available ? TrafficMeter.Format(sample.UploadRate) + "/s" : "—";
-            downloadRate!.Text = sample.Available ? TrafficMeter.Format(sample.DownloadRate) + "/s" : "—";
-            uploadTotal!.Text = "Total " + TrafficMeter.Format(sample.Upload); downloadTotal!.Text = "Total " + TrafficMeter.Format(sample.Download);
-            trafficStatus!.Text = sample.Available ? "Live · 1s updates · this connection session" : backend.Running ? "Live counters temporarily unavailable" : "Session totals · connect to see live traffic";
+            uploadRate.Text = sample.Available ? "↑ " + TrafficMeter.Format(sample.UploadRate) + "/s" : "↑ —";
+            downloadRate!.Text = sample.Available ? "↓ " + TrafficMeter.Format(sample.DownloadRate) + "/s" : "↓ —";
+            uploadTotal!.Text = TrafficMeter.Format(sample.Upload) + " sent"; downloadTotal!.Text = TrafficMeter.Format(sample.Download) + " received";
+            trafficStatus!.Text = sample.Available ? "Live · 1s · this connection" : backend.Running ? "Counters unavailable" : "Session totals · connect to see traffic";
             trafficChart?.Sample(sample);
         }
         if (connect != null) { connect.Content = connectBusy ? "Connecting…" : backend.Running ? dirty ? "Apply &\nreconnect" : backend.State == "Proxy conflict" ? "Use proxy" : "Disconnect" : "Connect"; connect.IsEnabled = !connectBusy && settings.Profiles.Count > 0; }
-        if (draftNotice != null) draftNotice.Text = dirty ? "Settings changed · active tunnel still uses the previous snapshot." : "";
-        if (page == "Logs" && logText != null)
+        if (draftNotice != null) { draftNotice.Text = dirty ? "Settings changed · reconnect to apply" : ""; draftNotice.Visibility = dirty ? Visibility.Visible : Visibility.Collapsed; }
+        if (page == "Diagnostics" && logText != null)
         {
             var records = backend.Log.Snapshot(); string next = string.Join(Environment.NewLine, records.Select(x => $"{x.Time:HH:mm:ss}  {x.Level}  {x.Event}\n{x.Message}"));
             if (next != lastLogText)
@@ -335,19 +243,5 @@ public sealed class MainWindow : Window
             if (logCount != null) logCount.Text = records.Length + " / 1,000  •  " + (backend.Log.Bytes / 1024) + " KiB";
         }
         if (backend.State != lastState) { lastState = backend.State; Title = "Personal VPN · " + lastState; }
-    }
-    private void OpenTestBrowser()
-    {
-        if (backend.State != "Connected") throw new InvalidOperationException("Connect and wait for a verified connection first.");
-        string binary = new[]
-        {
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft", "Edge", "Application", "msedge.exe"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Google", "Chrome", "Application", "chrome.exe")
-        }.FirstOrDefault(File.Exists) ?? throw new InvalidOperationException("Edge or Chrome is required for the test browser.");
-        string profile = Path.Combine(Store.Root, "test-browser"); Store.SecureDirectory(profile);
-        var start = new ProcessStartInfo(binary) { UseShellExecute = false };
-        foreach (string arg in new[] { "--user-data-dir=" + profile, "--proxy-server=http://127.0.0.1:" + backend.Active!.HttpPort, "--proxy-bypass-list=<-loopback>", "--disable-quic", "--disable-background-networking", "--no-first-run", "--new-window", "https://api.ipify.org/?format=json" }) start.ArgumentList.Add(arg);
-        Process.Start(start);
-        MessageBox.Show(this, "A separate browser profile uses this app's HTTP proxy. This does not configure your regular browser.\n\nThe address page should show your VPS exit. Use this window to try other websites. Close it before switching proxy ports or reconnecting. This is an app proxy test, not a system kill switch.", "Test browser");
     }
 }

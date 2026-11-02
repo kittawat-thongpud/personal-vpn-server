@@ -7,13 +7,13 @@
   <SolidColorBrush x:Key="Accent" Color="#16C8A0"/>
   <Style TargetType="Button">
     <Setter Property="Background" Value="#243553"/><Setter Property="Foreground" Value="{StaticResource Ink}"/>
-    <Setter Property="Padding" Value="15,10"/><Setter Property="Margin" Value="3"/>
+    <Setter Property="Padding" Value="12,8"/><Setter Property="Margin" Value="3"/>
     <Setter Property="Cursor" Value="Hand"/><Setter Property="BorderBrush" Value="Transparent"/><Setter Property="BorderThickness" Value="1"/>
     <Setter Property="HorizontalContentAlignment" Value="Center"/><Setter Property="VerticalContentAlignment" Value="Center"/>
     <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
       <Border x:Name="frame" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="12" Padding="{TemplateBinding Padding}">
-        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
       </Border><ControlTemplate.Triggers>
         <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="frame" Property="Opacity" Value="0.86"/></Trigger>
         <Trigger Property="IsPressed" Value="True"><Setter TargetName="frame" Property="Opacity" Value="0.68"/></Trigger>
@@ -28,12 +28,12 @@
   <Style x:Key="ScrollThumb" TargetType="Thumb">
     <Setter Property="MinHeight" Value="24"/><Setter Property="MinWidth" Value="6"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Thumb">
-      <Border x:Name="thumb" Background="#3B4D69" CornerRadius="4" Margin="2"/>
+      <Border x:Name="thumb" Background="#3B4D69" CornerRadius="3" Margin="1"/>
       <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="thumb" Property="Background" Value="#6683AA"/></Trigger><Trigger Property="IsDragging" Value="True"><Setter TargetName="thumb" Property="Background" Value="#75A3DE"/></Trigger></ControlTemplate.Triggers>
     </ControlTemplate></Setter.Value></Setter>
   </Style>
   <Style TargetType="ScrollBar">
-    <Setter Property="Background" Value="#101B2D"/><Setter Property="Width" Value="12"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+    <Setter Property="Background" Value="Transparent"/><Setter Property="Width" Value="6"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
       <Border Background="{TemplateBinding Background}" CornerRadius="6"><Track x:Name="PART_Track" Orientation="Vertical" IsDirectionReversed="True" Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}" Value="{TemplateBinding Value}" ViewportSize="{TemplateBinding ViewportSize}">
         <Track.DecreaseRepeatButton><RepeatButton Style="{StaticResource ScrollPage}" Command="ScrollBar.PageUpCommand"/></Track.DecreaseRepeatButton>
@@ -42,7 +42,7 @@
       </Track></Border>
     </ControlTemplate></Setter.Value></Setter>
     <Style.Triggers><Trigger Property="Orientation" Value="Horizontal">
-      <Setter Property="Width" Value="Auto"/><Setter Property="Height" Value="12"/>
+      <Setter Property="Width" Value="Auto"/><Setter Property="Height" Value="6"/>
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar"><Border Background="{TemplateBinding Background}" CornerRadius="6"><Track x:Name="PART_Track" Orientation="Horizontal" Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}" Value="{TemplateBinding Value}" ViewportSize="{TemplateBinding ViewportSize}">
         <Track.DecreaseRepeatButton><RepeatButton Style="{StaticResource ScrollPage}" Command="ScrollBar.PageLeftCommand"/></Track.DecreaseRepeatButton>
         <Track.Thumb><Thumb MinWidth="24"><Thumb.Template><ControlTemplate TargetType="Thumb"><Border Background="#3B4D69" CornerRadius="4" Margin="2"/></ControlTemplate></Thumb.Template></Thumb></Track.Thumb>
@@ -61,14 +61,14 @@
   </Style>
   <Style TargetType="ComboBox">
     <Setter Property="Foreground" Value="{StaticResource Ink}"/><Setter Property="Background" Value="{StaticResource Input}"/><Setter Property="BorderBrush" Value="{StaticResource Outline}"/>
-    <Setter Property="Margin" Value="0,5,0,10"/><Setter Property="Padding" Value="12,10"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+    <Setter Property="Margin" Value="0,4,0,8"/><Setter Property="Padding" Value="10,8"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/>
     <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/><Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBox">
       <Grid>
         <ToggleButton Focusable="False" ClickMode="Press" IsChecked="{Binding IsDropDownOpen,Mode=TwoWay,RelativeSource={RelativeSource TemplatedParent}}">
           <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><Border x:Name="input" Background="{StaticResource Input}" BorderBrush="{StaticResource Outline}" BorderThickness="1" CornerRadius="10"/><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="input" Property="BorderBrush" Value="#64A8FF"/></Trigger></ControlTemplate.Triggers></ControlTemplate></ToggleButton.Template>
         </ToggleButton>
-        <ContentPresenter Margin="12,10,32,10" VerticalAlignment="Center" Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}" IsHitTestVisible="False"/>
+        <ContentPresenter Margin="10,8,30,8" VerticalAlignment="Center" Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}" IsHitTestVisible="False"/>
         <Path Data="M 0 0 L 4 4 L 8 0" Stroke="#9BAECD" StrokeThickness="1.6" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,13,0" IsHitTestVisible="False"/>
         <Popup x:Name="PART_Popup" IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
           <Border Background="#152338" BorderBrush="{StaticResource Outline}" BorderThickness="1" CornerRadius="10" Margin="0,4,0,0" MinWidth="{Binding ActualWidth,RelativeSource={RelativeSource TemplatedParent}}" MaxHeight="300" Padding="3">
@@ -80,7 +80,7 @@
   </Style>
   <Style TargetType="TextBox">
     <Setter Property="Foreground" Value="{StaticResource Ink}"/><Setter Property="Background" Value="{StaticResource Input}"/><Setter Property="BorderBrush" Value="{StaticResource Outline}"/>
-    <Setter Property="Padding" Value="10"/><Setter Property="Margin" Value="0,5,0,10"/><Setter Property="CaretBrush" Value="{StaticResource Ink}"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+    <Setter Property="Padding" Value="9"/><Setter Property="Margin" Value="0,4,0,8"/><Setter Property="CaretBrush" Value="{StaticResource Ink}"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TextBox"><Border x:Name="input" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="{TemplateBinding Padding}"><ScrollViewer x:Name="PART_ContentHost"/></Border><ControlTemplate.Triggers><Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="input" Property="BorderBrush" Value="#64A8FF"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
   </Style>
   <Style TargetType="CheckBox">
