@@ -1,6 +1,42 @@
 # Installed Windows preview validation
 
-## 0.2.3 browser capture update — 2026-11-02
+## 0.4.1 tray client and capture selector — 2026-11-02
+
+- Runtime source: `e1fc9db`. Build and all CI checks passed:
+  <https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/41470005168>.
+- Release: <https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/windows-v0.4.1>.
+- Downloaded ZIP SHA-256: `c388ac117f1db8c6076cecad2564d66c0080791b23823a5561eb899f794c27e1`.
+- Source and icon assets were pushed; compilation, native-core packaging and
+  release publication ran only in GitHub Actions.
+- Downloaded-package self-tests and synthetic UI / tray checks passed on the
+  development machine. All pages rendered at 380x590, 438x750 and 1280x760.
+  Home has no page scroll, and the Connect button is checked for a minimum
+  visible height of 96 DIP. Compact / default Home, Settings and the TUN
+  confirmation renders were visually inspected.
+- Tray checks cover menu dispatch, selected profile / protocol, available
+  actions, busy guards, idempotent disposal, closing the window without
+  clearing session logs, and remaining outside the taskbar. The synthetic
+  test does not register a visible shell tray icon. Manual interaction with
+  the real tray shell is left for the user after reopening the installed app.
+- App Tunnel is visible but disabled in Proxy. The capture selector is locked
+  during backend operations. Unsupported TUN cannot be confirmed or started
+  through the backend. Selecting it preserves Proxy and existing app drafts.
+- CI also passed native proxy ownership / conflict / restoration / crash
+  recovery tests with an ephemeral local Hysteria server, active Site policies,
+  and the Wintun plan schema check using the pinned upstream validator.
+- Genuine-device protocol probes from this package verified HTTPS exit
+  `45.77.179.227` with REALITY and Hysteria 2 (about 1.6 s each). These probes
+  used isolated loopback listeners and did not change Windows proxy / routes /
+  DNS / firewall or saved device credentials.
+- Installed per-user with `-NoLaunch`. Desktop / Start shortcuts now target
+  0.4.1 and its embedded icon; the installed executable matches the package.
+  Protected settings were byte-for-byte unchanged across validation and
+  installation. An encrypted DPAPI backup was kept before the upgrade.
+- The existing connected 0.3.2 GUI and owned cores were left running. The
+  installed 0.4.1 GUI was not launched over that live session. No Wintun
+  adapter or elevated helper was installed or activated.
+
+## Historical 0.2.3 browser capture update — 2026-11-02
 
 The initial IP mismatch was a capture gap: Windows still used the other VPN's
 proxy at `127.0.0.1:7688`. Version 0.2.0 verified tunnel health but did not apply

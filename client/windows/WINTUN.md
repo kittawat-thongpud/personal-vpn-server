@@ -6,9 +6,13 @@ validates its output with the official, checksum-pinned sing-box 1.14.4 `check`
 command. It does not run an adapter or install a driver. No TUN core or driver
 is shipped or activated by this release.
 
-The UI can already store full `.exe` paths and per-target Tunnel / Bypass / Block
-actions. App drafts never alter Proxy routing or reconnect an active Proxy tunnel.
-Site policies are active for captured Proxy traffic now.
+Versions before 0.4 stored full `.exe` paths and per-target Tunnel / Bypass / Block
+actions as drafts. Version 0.4.1 preserves these drafts but disables the App Tunnel
+settings row in Proxy mode. Home has a confirmed Proxy / TUN selector. TUN
+confirmation is disabled until the runtime is available; selecting it never stops
+a Proxy session or silently starts a Proxy session as TUN. A backend capability
+guard enforces this independently of the UI. Site policies remain active for
+captured Proxy traffic.
 
 ## Routing contract
 
