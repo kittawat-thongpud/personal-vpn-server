@@ -137,6 +137,7 @@ public sealed class Backend : IAsyncDisposable
     private string captureStatus = "Not captured";
     private string lastTunnelExit = "—";
     public SessionLog Log { get; } = new();
+    public TrafficMeter Traffic { get; } = new();
     public string State { get { lock (gate) return state; } }
     public string Detail { get { lock (gate) return detail; } }
     public string ExitIp { get { lock (gate) return exit; } }
@@ -178,6 +179,7 @@ public sealed class Backend : IAsyncDisposable
         try
         {
             await StopInternal();
+            Traffic.Reset();
             lock (gate)
             {
                 active = settings.Snapshot(); session = new CancellationTokenSource(); generation++;
@@ -252,16 +254,14 @@ public sealed class Backend : IAsyncDisposable
             proxyLease.Reclaim();
             lock (gate) captureStatus = "Windows HTTP / HTTPS → Personal VPN";
             SetState("Verifying", "Windows proxy selected. Rechecking HTTPS without restarting the tunnel.");
-#pragma warning disable SYSLIB0014
-            var selectedProxy = WebRequest.GetSystemWebProxy();
-#pragma warning restore SYSLIB0014
-            Uri destination = new("https://api.ipify.org/");
-            if (selectedProxy.IsBypassed(destination) || selectedProxy.GetProxy(destination)?.Port != active.HttpPort)
-                throw new InvalidOperationException("Windows still selects a different proxy. Check other VPN software, PAC or browser overrides.");
-            using var client = new HttpClient(new SocketsHttpHandler { Proxy = selectedProxy, UseProxy = true, ConnectTimeout = TimeSpan.FromSeconds(8) }) { Timeout = TimeSpan.FromSeconds(12) };
+            // WinINet's fresh snapshot is authoritative. .NET's global system-proxy
+            // object may retain an older selection after a settings notification.
+            if (!proxyLease.IsCurrent) throw new InvalidOperationException("Another app selected a different proxy again.");
+            using var client = new HttpClient(new SocketsHttpHandler { Proxy = new WebProxy("http://127.0.0.1:" + active.HttpPort), UseProxy = true, ConnectTimeout = TimeSpan.FromSeconds(8) }) { Timeout = TimeSpan.FromSeconds(12) };
             string observed = await Health(client, CancellationToken.None);
+            if (!proxyLease.IsCurrent) throw new InvalidOperationException("Another app changed the Windows proxy during verification.");
             lock (gate) { if (generation != expectedGeneration) throw new OperationCanceledException("Network changed during browser proxy verification."); }
-            Log.Add("INFO", "backend.system_proxy_verified", "Windows proxy-aware HTTPS client succeeded. Policy-routed exit: " + observed + ". Existing app sockets may need a new connection.");
+            Log.Add("INFO", "backend.system_proxy_verified", "Windows selects Personal VPN and the selected HTTP listener passed HTTPS. Policy-routed exit: " + observed + ". Existing app sockets may need a new connection.");
             SetState("Connected", "System proxy reselected and HTTPS verified. Existing connections may need reconnecting.", expectedGeneration);
             lock (gate) { if (generation == expectedGeneration) exit = lastTunnelExit; }
         }
@@ -280,6 +280,7 @@ public sealed class Backend : IAsyncDisposable
         proxyLease?.Dispose(); proxyLease = null;
         lock (gate) { session?.Dispose(); session = null; worker = null; active = null; }
         lock (gate) { captureStatus = "Not captured"; lastTunnelExit = "—"; }
+        Traffic.Unavailable();
         SetState("Disconnected", "Local proxy stopped. Any owned Windows proxy setting was restored.");
     }
     private async Task Run(Settings settings, CancellationToken token)
@@ -336,6 +337,8 @@ public sealed class Backend : IAsyncDisposable
         string folder = Path.Combine(runtimeRoot, Guid.NewGuid().ToString("N"));
         Store.SecureDirectory(folder);
         using var job = new ProcessJob();
+        using var trafficCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
+        Task? trafficTask = null;
         var owned = new List<OwnedCore>();
         try
         {
@@ -349,6 +352,7 @@ public sealed class Backend : IAsyncDisposable
             }
             int health = FreePort(settings.HttpPort, settings.SocksPort);
             int inner = FreePort(settings.HttpPort, settings.SocksPort, health);
+            int stats = FreePort(settings.HttpPort, settings.SocksPort, health, inner);
             var outbounds = new JsonArray();
             if (settings.Protocol == "Hysteria 2")
             {
@@ -373,6 +377,9 @@ public sealed class Backend : IAsyncDisposable
             var router = new JsonObject
             {
                 ["log"] = new JsonObject { ["loglevel"] = "warning" },
+                ["stats"] = new JsonObject(),
+                ["api"] = new JsonObject { ["tag"] = "traffic-api", ["listen"] = "127.0.0.1:" + stats, ["services"] = new JsonArray("StatsService") },
+                ["policy"] = new JsonObject { ["system"] = new JsonObject { ["statsOutboundUplink"] = true, ["statsOutboundDownlink"] = true } },
                 ["inbounds"] = System.Text.Json.JsonSerializer.SerializeToNode(new[] { Listener("http", "http", settings.HttpPort), Listener("socks", "socks", settings.SocksPort), Listener("health", "socks", health) }),
                 ["outbounds"] = outbounds,
                 // AsIs: proxy hostnames reach the remote resolver; local IP rules match literal IP destinations only.
@@ -383,6 +390,7 @@ public sealed class Backend : IAsyncDisposable
             owned.Add(new OwnedCore(job, VerifyCore("xray.exe"), new[] { "run", "-config", routerPath }, Log));
             lock (gate) { cores.Clear(); cores.AddRange(owned); }
             await WaitForListeners(owned, new[] { settings.HttpPort, settings.SocksPort, health }, token);
+            Traffic.BeginCore(); trafficTask = CollectTraffic(stats, trafficCancellation.Token);
             SetState("Verifying", "Checking authenticated HTTPS through the selected server.", expected);
             using var healthHandler = new SocketsHttpHandler { Proxy = new WebProxy("socks5://127.0.0.1:" + health), UseProxy = true, ConnectTimeout = TimeSpan.FromSeconds(8), PooledConnectionLifetime = TimeSpan.Zero };
             using var client = new HttpClient(healthHandler) { Timeout = TimeSpan.FromSeconds(10) };
@@ -427,11 +435,36 @@ public sealed class Backend : IAsyncDisposable
         }
         finally
         {
+            trafficCancellation.Cancel();
+            if (trafficTask != null) await trafficTask;
+            Traffic.Unavailable();
             lock (gate) cores.Clear();
             for (int i = owned.Count - 1; i >= 0; i--) owned[i].Dispose();
             // Only a freshly generated child of our protected runtime directory is removed.
             if (Path.GetDirectoryName(Path.GetFullPath(folder)) != Path.GetFullPath(runtimeRoot)) throw new InvalidOperationException("Invalid runtime cleanup path.");
             if (Directory.Exists(folder)) Directory.Delete(folder, true);
+        }
+    }
+    private async Task CollectTraffic(int port, CancellationToken token)
+    {
+        using var client = new HttpClient(new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(1) }) { Timeout = TimeSpan.FromSeconds(2) };
+        bool failed = false;
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                var counters = await CoreTraffic.Read(client, port, token); Traffic.Update(counters.Up, counters.Down);
+                if (failed) Log.Add("INFO", "backend.traffic_stats_recovered", "Live tunnel counters are available again.");
+                failed = false;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
+            catch (Exception error) when (error is HttpRequestException || error is IOException || error is TaskCanceledException || error is OverflowException)
+            {
+                Traffic.Unavailable();
+                if (!failed) Log.Add("WARN", "backend.traffic_stats_failed", "Live traffic counters unavailable (" + error.GetType().Name + "); tunnel health is checked separately.");
+                failed = true;
+            }
+            try { await Task.Delay(1000, token); } catch (OperationCanceledException) { break; }
         }
     }
     public static string VerifyCore(string name)

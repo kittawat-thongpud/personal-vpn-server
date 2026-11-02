@@ -109,6 +109,14 @@ internal static class Tests
             Assert(log.Snapshot().Length == 1000 && log.Bytes <= 1048576, "Log bounds failed.");
             Assert(log.Snapshot().All(x => x.Message.Length <= 512 && x.Event == "backend.retry"), "Backend-only log filter / truncation failed.");
             log.Clear(); Assert(log.Snapshot().Length == 0 && log.Bytes == 0, "Clear failed."); passed.Add("backend log bounds, filtering, clear");
+            var meter = new TrafficMeter(); meter.Reset(); meter.Update(100, 200); meter.Update(150, 260);
+            meter.BeginCore(); meter.Update(10, 20);
+            Assert(meter.Snapshot.Upload == 160 && meter.Snapshot.Download == 280 && meter.Snapshot.UploadRate >= 0, "Traffic counter reconnect accumulation failed.");
+            for (int i = 10; i < 110; i++) meter.Update(i, i * 2);
+            Assert(meter.History.Length == 60, "Traffic history is not bounded."); meter.Unavailable();
+            Assert(!meter.Snapshot.Available && meter.Snapshot.UploadRate == 0 && meter.Snapshot.Upload > 0, "Unavailable traffic must not show a fake live rate.");
+            bool malformedRejected = false; try { _ = CoreTraffic.Decode(new byte[] { 10, 100, 1 }); } catch (InvalidDataException) { malformedRejected = true; }
+            Assert(malformedRejected, "Malformed traffic frame accepted."); passed.Add("traffic totals survive core restart; bounded history; unavailable state; malformed frame rejection");
             var settings = new Settings { Websites = new CategoryRule { Mode = "Bypass", Entries = new() { "example.com" } }, Networks = new CategoryRule { Mode = "Block", Entries = new() { "203.0.113.0/24", "2001:db8::/32" } } };
             Policy.Validate(settings.Websites, true); Policy.Validate(settings.Networks, false);
             var rules = Policy.Compile(settings);
@@ -260,6 +268,10 @@ internal static class Tests
                 }
             }
             passed.Add("Windows system proxy → Hysteria VPS exit; Google and Wikipedia HTTPS");
+            for (int i = 0; i < 30 && (!backend.Traffic.Snapshot.Available || backend.Traffic.Snapshot.Download == 0); i++) await Task.Delay(200);
+            Assert(backend.Traffic.Snapshot.Available && backend.Traffic.Snapshot.Upload > 0 && backend.Traffic.Snapshot.Download > 0, "Native tunnel byte counters did not advance after HTTPS traffic.");
+            long uploadBeforeRestart = backend.Traffic.Snapshot.Upload, downloadBeforeRestart = backend.Traffic.Snapshot.Download;
+            passed.Add("live native tunnel upload / download counters advance after real HTTPS");
             int routerBeforeReclaim = backend.RouterPidForTest;
             WindowsProxy.Write(before); // Simulate another app selecting its own proxy.
             await Task.Delay(1800);
@@ -269,6 +281,7 @@ internal static class Tests
             passed.Add("proxy conflict detected in one second; explicit reclaim verified without core restart");
             backend.KillOwnedCoreForTest(); await Task.Delay(2000); await WaitConnected(backend);
             Assert(WindowsProxy.Matches(WindowsProxy.Read(), WindowsProxy.ForPort(settings.HttpPort)), "Capture lost during core restart.");
+            Assert(backend.Traffic.Snapshot.Upload >= uploadBeforeRestart && backend.Traffic.Snapshot.Download >= downloadBeforeRestart, "Traffic session totals reset after core restart.");
             passed.Add("system proxy retained across core crash / reconnect");
             await backend.StopAsync(); Assert(WindowsProxy.Matches(WindowsProxy.Read(), before), "Disconnect did not restore previous proxy.");
             passed.Add("disconnect restores exact previous manual / PAC / auto-detect snapshot");

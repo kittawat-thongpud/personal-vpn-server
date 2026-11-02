@@ -26,13 +26,15 @@ public sealed class MainWindow : Window
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private string page = "Home";
     private bool dirty, exiting;
-    private bool connectBusy, testBusy;
+    private bool connectBusy;
     private TextBlock? status, detail, exit, logCount, captureDetail;
     private Button? connect;
     private TextBox? logText;
     private string lastLogText = "";
     private string lastState = "";
     private TextBlock? draftNotice;
+    private TextBlock? uploadRate, downloadRate, uploadTotal, downloadTotal, trafficStatus;
+    private TrafficChart? trafficChart;
     private static Brush Color(string hex) => new SolidColorBrush((System.Windows.Media.Color)ColorConverter.ConvertFromString(hex));
 
     public MainWindow(Settings initial, bool autoConnect = false)
@@ -45,8 +47,8 @@ public sealed class MainWindow : Window
         Background = Color("#0D1627"); Foreground = Color("#EBEFF8"); FontFamily = new FontFamily("Segoe UI"); FontSize = 14;
         UseLayoutRounding = true; SnapsToDevicePixels = true;
         SourceInitialized += (_, _) => { int dark = 1; DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 20, ref dark, sizeof(int)); };
-                Application.Current.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/PersonalVPN;component/Theme.xaml", UriKind.Relative) });
-var shell = new Grid { Margin = new Thickness(23, 16, 23, 16) };
+        Application.Current.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/PersonalVPN;component/Theme.xaml", UriKind.Relative) });
+        var shell = new Grid { Margin = new Thickness(23, 16, 23, 16) };
         shell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         shell.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         shell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -86,18 +88,6 @@ var shell = new Grid { Margin = new Thickness(23, 16, 23, 16) };
         }
         finally { connectBusy = false; Refresh(); }
     }
-    private async Task TestProtocol(string protocol)
-    {
-        if (testBusy) return;
-        testBusy = true;
-        try
-        {
-            var result = await backend.TestProtocolAsync(settings, protocol);
-            MessageBox.Show(this, result.Success ? protocol + " passed. Exit: " + result.ExitIp + "\n" + result.Reason
-                : protocol + " did not verify.\n" + result.Reason + "\n\nYour existing connection was kept. See Logs for backend results.", "Protocol test", MessageBoxButton.OK, result.Success ? MessageBoxImage.Information : MessageBoxImage.Warning);
-        }
-        finally { testBusy = false; }
-    }
     private static TextBlock Text(string value, double size = 14, string color = "#EBEFF8") => new()
     {
         Text = value, FontSize = size, Foreground = Color(color), TextWrapping = TextWrapping.Wrap,
@@ -136,6 +126,7 @@ var shell = new Grid { Margin = new Thickness(23, 16, 23, 16) };
     private void Navigate(string target)
     {
         page = target; subtitle.Text = target; status = detail = exit = draftNotice = logCount = captureDetail = null; connect = null; logText = null;
+        uploadRate = downloadRate = uploadTotal = downloadTotal = trafficStatus = null; trafficChart = null;
         if (target == "Logs") { BuildLogs(); return; }
         var body = target switch { "Home" => Home(), "Profiles" => Profiles(), "Rules" => Rules(), _ => Vpn() };
         content.Content = new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
@@ -147,10 +138,7 @@ var shell = new Grid { Margin = new Thickness(23, 16, 23, 16) };
         var current = settings.Profiles.FirstOrDefault(x => x.Id == settings.SelectedId);
         var server = Action(current == null ? "+  Import server profile" : Country(current.Country) + "    " + current.Name + "     ›", () => Navigate("Profiles"));
         server.MinHeight = 77; server.FontSize = 17; server.Margin = new Thickness(0, 0, 0, 14); body.Children.Add(server);
-        var protocolRow = new Grid { Margin = new Thickness(0, 0, 0, 10) };
-        protocolRow.ColumnDefinitions.Add(new ColumnDefinition()); protocolRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        protocolRow.Children.Add(Combo(new[] { "Hysteria 2", "REALITY" }, settings.Protocol, value => { settings.Protocol = value; Changed(); }));
-        var protocolTest = AsyncAction("Test selected", () => TestProtocol(settings.Protocol)); Grid.SetColumn(protocolTest, 1); protocolRow.Children.Add(protocolTest); body.Children.Add(protocolRow);
+        body.Children.Add(Combo(new[] { "Hysteria 2", "REALITY" }, settings.Protocol, value => { settings.Protocol = value; Changed(); }));
         var modes = new Grid(); modes.ColumnDefinitions.Add(new ColumnDefinition()); modes.ColumnDefinitions.Add(new ColumnDefinition());
         var capture = Stack(); capture.Children.Add(Text("CAPTURE", 12, "#9BAECD")); capture.Children.Add(Text(settings.SystemProxy ? "System proxy" : "App proxy", 18));
         capture.Children.Add(Text(settings.SystemProxy ? "Browser HTTP / HTTPS" : "Only configured apps", 12, "#9BAECD")); var left = Card(capture); left.Margin = new Thickness(0, 0, 7, 13); modes.Children.Add(left);
@@ -181,16 +169,26 @@ var shell = new Grid { Margin = new Thickness(23, 16, 23, 16) };
         center.Children.Add(detail); exit = Text("Exit IP: —", 14, "#59DCB8"); exit.TextAlignment = TextAlignment.Center; center.Children.Add(exit);
         captureDetail = Text(backend.CaptureStatus, 12, "#9BAECD"); captureDetail.TextAlignment = TextAlignment.Center; center.Children.Add(captureDetail);
         draftNotice = Text("", 13, "#F1C77A"); draftNotice.TextAlignment = TextAlignment.Center; center.Children.Add(draftNotice); body.Children.Add(center);
+        body.Children.Add(TrafficPanel());
         var listeners = Stack(); listeners.Children.Add(Text("Local app proxy", 16));
         listeners.Children.Add(Text("HTTP  127.0.0.1:" + settings.HttpPort + "     SOCKS5  127.0.0.1:" + settings.SocksPort, 14, "#B6CAE6"));
         listeners.Children.Add(Text(settings.SystemProxy ? "Connect applies the Windows browser proxy after tunnel verification. Disconnect restores the previous setting." : "Manual mode: set the app's own HTTP / SOCKS proxy. Regular browser traffic is not captured automatically.", 12, "#9BAECD"));
         var tools = new WrapPanel(); tools.Children.Add(Action("Copy HTTP proxy", () => Clipboard.SetText("http://127.0.0.1:" + (backend.Active?.HttpPort ?? settings.HttpPort))));
         tools.Children.Add(Action("Test browser ↗", OpenTestBrowser));
         tools.Children.Add(AsyncAction("Disconnect", backend.StopAsync)); listeners.Children.Add(tools); body.Children.Add(Card(listeners));
-        body.Children.Add(AsyncAction("Test REALITY · keep current connection", () => TestProtocol("REALITY")));
         var protocol = Action(settings.Protocol + (settings.Protocol == "REALITY" && settings.ChainReality ? " · via existing proxy" : "") + "   •   Configure ›", () => Navigate("VPN"));
         body.Children.Add(protocol); body.Children.Add(Text("Preview 0.2.5 · Closing disconnects and restores the previous proxy.", 11, "#8395B2"));
         return body;
+    }
+    private UIElement TrafficPanel()
+    {
+        var panel = Stack(); panel.Children.Add(Text("Tunnel traffic", 16));
+        var values = new Grid(); values.ColumnDefinitions.Add(new ColumnDefinition()); values.ColumnDefinitions.Add(new ColumnDefinition());
+        var tx = Stack(); tx.Children.Add(Text("↑ UPLOAD", 11, "#16C8A0")); uploadRate = Text("0 B/s", 20, "#16C8A0"); tx.Children.Add(uploadRate); uploadTotal = Text("Total 0 B", 12, "#9BAECD"); tx.Children.Add(uploadTotal); values.Children.Add(tx);
+        var rx = Stack(); rx.Children.Add(Text("↓ DOWNLOAD", 11, "#64A8FF")); downloadRate = Text("0 B/s", 20, "#64A8FF"); rx.Children.Add(downloadRate); downloadTotal = Text("Total 0 B", 12, "#9BAECD"); rx.Children.Add(downloadTotal); Grid.SetColumn(rx, 1); values.Children.Add(rx); panel.Children.Add(values);
+        trafficChart = new TrafficChart { Height = 65, HorizontalAlignment = HorizontalAlignment.Stretch, ToolTip = "Last 60 samples. Tunnel payload bytes, including health traffic; Direct / Bypass traffic excluded. Not a billing meter." };
+        foreach (var sample in backend.Traffic.History) trafficChart.Sample(sample);
+        panel.Children.Add(trafficChart); trafficStatus = Text("Waiting for tunnel data", 11, "#8395B2"); panel.Children.Add(trafficStatus); return Card(panel);
     }
     private static string Country(string code) => code switch { "JP" => "◉ JP", "SG" => "◒ SG", "US" => "★ US", "KR" => "◉ KR", "TH" => "▰ TH", _ => "◎ " + code };
     private UIElement Profiles()
@@ -315,6 +313,15 @@ var shell = new Grid { Margin = new Thickness(23, 16, 23, 16) };
         if (detail != null) detail.Text = backend.Detail;
         if (exit != null) exit.Text = "Exit IP: " + backend.ExitIp;
         if (captureDetail != null) captureDetail.Text = backend.CaptureStatus;
+        if (uploadRate != null)
+        {
+            var sample = backend.Traffic.Snapshot;
+            uploadRate.Text = sample.Available ? TrafficMeter.Format(sample.UploadRate) + "/s" : "—";
+            downloadRate!.Text = sample.Available ? TrafficMeter.Format(sample.DownloadRate) + "/s" : "—";
+            uploadTotal!.Text = "Total " + TrafficMeter.Format(sample.Upload); downloadTotal!.Text = "Total " + TrafficMeter.Format(sample.Download);
+            trafficStatus!.Text = sample.Available ? "Live · 1s updates · this connection session" : backend.Running ? "Live counters temporarily unavailable" : "Session totals · connect to see live traffic";
+            trafficChart?.Sample(sample);
+        }
         if (connect != null) { connect.Content = connectBusy ? "Connecting…" : backend.Running ? dirty ? "Apply &\nreconnect" : backend.State == "Proxy conflict" ? "Use proxy" : "Disconnect" : "Connect"; connect.IsEnabled = !connectBusy && settings.Profiles.Count > 0; }
         if (draftNotice != null) draftNotice.Text = dirty ? "Settings changed · active tunnel still uses the previous snapshot." : "";
         if (page == "Logs" && logText != null)

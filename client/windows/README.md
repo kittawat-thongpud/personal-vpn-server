@@ -38,11 +38,17 @@ protocol is **Hysteria 2**; **VPN** also offers **REALITY**. The REALITY option 
 explicitly use an existing local HTTP proxy at `127.0.0.1:7688`. That option depends
 on the other VPN remaining running. Protocols never automatically switch to Direct.
 
-Home also offers a protocol selector and **Test selected**. **Test REALITY** uses
-isolated loopback listeners and fresh authenticated HTTPS checks, keeping the
-existing connection and Windows proxy unchanged. Its result is recorded in Logs.
-It does not enable automatic protocol failover or make an unreachable TCP path
-usable. Direct versus chained tests are identified explicitly.
+Choose Hysteria 2 or REALITY on Home and use Connect normally. There is no
+separate REALITY test button or automatic protocol failover. A failed direct TCP
+path still requires diagnosis; the protocol selector does not make it reachable.
+
+Home shows live upload / download rates, session totals and a 60-sample chart.
+Counters come from the selected Xray tunnel outbound through a loopback-only
+StatsService, updated once per second. Direct / Bypass traffic is excluded.
+Health traffic is included; these are payload counters rather than transport
+overhead or billing totals. Session totals survive automatic core restarts, and
+history survives page navigation. Stats unavailability is shown explicitly.
+The polling endpoint does not expose a heap / debug service or handler controls.
 
 Dark widget templates cover dropdowns, scrollbars, sliders, text inputs, checkboxes,
 context menus and tooltips. The window caption follows the application's dark theme.
