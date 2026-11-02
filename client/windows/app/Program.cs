@@ -6,6 +6,8 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -29,6 +31,8 @@ public static class Program
         if (arguments.Contains("--self-test")) return Tests.SelfTest(arguments);
         if (arguments.Contains("--smoke-test")) return Tests.Smoke(arguments).GetAwaiter().GetResult();
         if (arguments.Contains("--system-proxy-test")) return Tests.ProxyTest(arguments).GetAwaiter().GetResult();
+        if (arguments.Contains("--local-proxy-integration")) return Tests.LocalProxyIntegration(arguments).GetAwaiter().GetResult();
+        if (arguments.Contains("--probe-protocol")) return Tests.ProtocolProbe(arguments).GetAwaiter().GetResult();
         using var mutex = new Mutex(true, @"Local\PersonalVPN-" + Environment.UserName, out bool created);
         if (!created) { MessageBox.Show("Personal VPN is already running. Restore its window from the taskbar.", "Personal VPN"); return 0; }
         try
@@ -136,6 +140,11 @@ internal static class Tests
             _ = Backend.VerifyCore("xray.exe"); _ = Backend.VerifyCore("hysteria.exe"); passed.Add("bundled native core hashes");
             Assert(!WindowsProxy.Matches(new ProxySnapshot(2, "other", "", ""), WindowsProxy.ForPort(17890)), "Foreign proxy must not be owned.");
             _ = WindowsProxy.Read(); passed.Add("WinINet native proxy query and ownership comparison");
+            _ = Application.Current ?? new Application();
+            Application.Current.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/PersonalVPN;component/Theme.xaml", UriKind.Relative) });
+            foreach (var widget in new System.Windows.Controls.Control[] { new System.Windows.Controls.ComboBox(), new System.Windows.Controls.Primitives.ScrollBar(), new System.Windows.Controls.Slider(), new System.Windows.Controls.TextBox(), new System.Windows.Controls.MenuItem(), new System.Windows.Controls.CheckBox() })
+                Assert(widget.ApplyTemplate(), "Dark widget template did not load: " + widget.GetType().Name);
+            passed.Add("dark ComboBox, ScrollBar, Slider, TextBox, MenuItem and CheckBox templates load");
             return Report(args, new { result = "PASS", checks = passed }, 0);
         }
         catch (Exception error) { return Report(args, new { result = "FAIL", checks = passed, error = error.GetType().Name, reason = error.Message }, 1); }
@@ -227,8 +236,9 @@ internal static class Tests
             var profile = Store.Import(Program.Option(args, "--profile-dir") ?? throw new InvalidOperationException("Profile directory required."));
             string expected = Program.Option(args, "--expected-exit")!;
             var settings = new Settings { Profiles = new() { profile }, SelectedId = profile.Id, HttpPort = Port(), SocksPort = Port(), SystemProxy = true };
-            await backend.StartAsync(settings); await WaitConnected(backend);
+            await backend.ConnectProxyAsync(settings);
             Assert(WindowsProxy.Matches(WindowsProxy.Read(), WindowsProxy.ForPort(settings.HttpPort)), "System proxy was not captured.");
+            passed.Add("one Connect waits for tunnel verification and Windows proxy capture");
 #pragma warning disable SYSLIB0014
             var systemProxy = WebRequest.GetSystemWebProxy();
 #pragma warning restore SYSLIB0014
@@ -282,6 +292,52 @@ internal static class Tests
         {
             if (child != null) { if (!child.HasExited) { child.Kill(); await child.WaitForExitAsync(); } child.Dispose(); }
             await backend.StopAsync(); SystemProxyLease.RecoverAbandoned();
+        }
+    }
+    public static async Task<int> ProtocolProbe(string[] args)
+    {
+        await using var backend = new Backend();
+        var profile = Store.Import(Program.Option(args, "--profile-dir") ?? throw new InvalidOperationException("Profile directory required."));
+        var settings = new Settings { Profiles = new() { profile }, SelectedId = profile.Id, SystemProxy = false, ChainReality = args.Contains("--chain") };
+        var result = await backend.TestProtocolAsync(settings, Program.Option(args, "--protocol") ?? "REALITY");
+        return Report(args, result, result.Success ? 0 : 2);
+    }
+    public static async Task<int> LocalProxyIntegration(string[] args)
+    {
+        // Dedicated CI runner only: temporary local server credentials; no real device profiles.
+        string root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "personal-vpn-integration-" + Guid.NewGuid().ToString("N")));
+        Store.SecureDirectory(root);
+        using var job = new ProcessJob();
+        OwnedCore? server = null;
+        try
+        {
+            using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var request = new CertificateRequest("CN=localhost", key, HashAlgorithmName.SHA256);
+            using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddHours(2));
+            string certPath = Path.Combine(root, "tls.crt"), keyPath = Path.Combine(root, "tls.key");
+            await File.WriteAllTextAsync(certPath, certificate.ExportCertificatePem());
+            await File.WriteAllTextAsync(keyPath, key.ExportPkcs8PrivateKeyPem());
+            int port = Port(); string password = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+            string serverConfig = Path.Combine(root, "server.json");
+            await File.WriteAllTextAsync(serverConfig, JsonSerializer.Serialize(new
+            {
+                listen = "127.0.0.1:" + port, tls = new { cert = certPath, key = keyPath }, auth = new { type = "password", password }
+            }));
+            server = new OwnedCore(job, Backend.VerifyCore("hysteria.exe"), new[] { "server", "-c", serverConfig }, new SessionLog());
+            await File.WriteAllTextAsync(Path.Combine(root, "hysteria.json"), JsonSerializer.Serialize(new
+            {
+                server = "127.0.0.1:" + port, auth = password, tls = new { sni = "localhost", insecure = true, pinSHA256 = certificate.GetCertHashString(HashAlgorithmName.SHA256) }
+            }));
+            using var direct = new HttpClient(new SocketsHttpHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(20) };
+            string expected = JsonNode.Parse(await direct.GetStringAsync("https://api.ipify.org/?format=json"))!["ip"]!.GetValue<string>();
+            return await ProxyTest(new[] { "--profile-dir", root, "--expected-exit", expected, "--report", Program.Option(args, "--report") ?? Path.Combine(root, "report.json") });
+        }
+        finally
+        {
+            server?.Dispose();
+            if (Path.GetDirectoryName(root) != Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar) || !Path.GetFileName(root).StartsWith("personal-vpn-integration-", StringComparison.Ordinal))
+                throw new InvalidOperationException("Invalid integration cleanup path.");
+            if (Directory.Exists(root)) Directory.Delete(root, true);
         }
     }
 }

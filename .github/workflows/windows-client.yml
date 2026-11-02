@@ -43,12 +43,19 @@ jobs:
           $process = Start-Process -FilePath (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--self-test', '--report', "$env:RUNNER_TEMP/self-test.json") -PassThru -Wait -WindowStyle Hidden
           Get-Content "$env:RUNNER_TEMP/self-test.json"
           if ($process.ExitCode -ne 0) { throw 'Windows client self-tests failed' }
+      - name: Test one-click proxy capture and recovery with an ephemeral local server
+        shell: pwsh
+        run: |
+          $report = "$env:RUNNER_TEMP/proxy-integration.json"
+          $process = Start-Process -FilePath (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--local-proxy-integration', '--report', $report) -PassThru -Wait -WindowStyle Hidden
+          Get-Content $report
+          if ($process.ExitCode -ne 0) { throw 'Local proxy integration failed' }
       - name: Package and publish Windows preview
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $version = '0.2.4'
+          $version = '0.2.5'
           $tag = "windows-v$version"
           $archive = "PersonalVPN-windows-x64-$version.zip"
           Compress-Archive -Path dist/windows/* -DestinationPath "dist/$archive" -CompressionLevel Optimal

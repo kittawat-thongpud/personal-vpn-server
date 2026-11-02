@@ -183,10 +183,59 @@ public sealed class Backend : IAsyncDisposable
                 active = settings.Snapshot(); session = new CancellationTokenSource(); generation++;
                 var token = session.Token;
                 var snapshot = active.Snapshot();
+                state = "Connecting"; detail = "Starting tunnel and selecting Personal VPN system proxy."; exit = "—";
                 worker = Task.Run(() => Run(snapshot, token));
             }
         }
         finally { lifecycle.Release(); }
+    }
+    public async Task ConnectProxyAsync(Settings settings)
+    {
+        settings.SystemProxy = true;
+        await StartAsync(settings);
+        CancellationTokenSource? requestedSession; lock (gate) requestedSession = session;
+        var deadline = Stopwatch.StartNew();
+        while (deadline.Elapsed < TimeSpan.FromSeconds(45))
+        {
+            lock (gate) { if (session != requestedSession || session == null) throw new OperationCanceledException("Connection was cancelled."); }
+            if (State == "Connected") return;
+            if (State == "Proxy conflict") { await ReclaimProxyAsync(); return; }
+            if (State == "Reconnecting") throw new InvalidOperationException(Detail + " Automatic retries remain active. You can test another protocol separately.");
+            await Task.Delay(200);
+        }
+        throw new InvalidOperationException("Connection has not verified within 45 seconds. Check backend logs; retries remain active.");
+    }
+    public async Task<ProtocolProbeResult> TestProtocolAsync(Settings settings, string protocol)
+    {
+        var selected = settings.Snapshot(); selected.Protocol = protocol; selected.SystemProxy = false;
+        selected.HttpPort = FreePort(settings.HttpPort, settings.SocksPort);
+        selected.SocksPort = FreePort(settings.HttpPort, settings.SocksPort, selected.HttpPort);
+        string path = protocol == "REALITY" && selected.ChainReality ? "via configured upstream proxy" : "on current OS route";
+        Log.Add("INFO", "backend.protocol_test_started", protocol + " " + path + "; isolated listeners, no system proxy change.");
+        var elapsed = Stopwatch.StartNew();
+        await using var probe = new Backend();
+        try
+        {
+            await probe.StartAsync(selected);
+            while (elapsed.Elapsed < TimeSpan.FromSeconds(30))
+            {
+                if (probe.State == "Connected")
+                {
+                    var result = new ProtocolProbeResult(protocol, true, probe.ExitIp, "HTTPS verified " + path, elapsed.ElapsedMilliseconds);
+                    Log.Add("INFO", "backend.protocol_test_result", protocol + " passed; exit " + result.ExitIp + "; " + path + "."); return result;
+                }
+                if (probe.State == "Reconnecting") break;
+                await Task.Delay(200);
+            }
+            string reason = probe.State == "Reconnecting" ? probe.Detail : "Timed out before authenticated HTTPS verification.";
+            Log.Add("WARN", "backend.protocol_test_result", protocol + " failed: " + reason + " Existing connection kept.");
+            return new ProtocolProbeResult(protocol, false, "—", reason, elapsed.ElapsedMilliseconds);
+        }
+        catch (Exception error) when (error is InvalidOperationException || error is IOException)
+        {
+            Log.Add("WARN", "backend.protocol_test_result", protocol + " test failed (" + error.GetType().Name + "). Existing connection kept.");
+            return new ProtocolProbeResult(protocol, false, "—", error is InvalidOperationException ? error.Message : "Profile / core files unavailable.", elapsed.ElapsedMilliseconds);
+        }
     }
     public async Task StopAsync()
     {
@@ -448,3 +497,4 @@ public sealed class Backend : IAsyncDisposable
         await StopAsync(); lifecycle.Dispose();
     }
 }
+public sealed record ProtocolProbeResult(string Protocol, bool Success, string ExitIp, string Reason, long ElapsedMs);

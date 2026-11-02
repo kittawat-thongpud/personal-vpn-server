@@ -1,4 +1,4 @@
-# Personal VPN for Windows — 0.2.4 preview
+# Personal VPN for Windows — 0.2.5 preview
 
 Real Windows x64 application, built in GitHub Actions. Unzip the Windows release
 and run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1`.
@@ -16,9 +16,13 @@ Never share the source profiles or the application data directory.
 Click **Connect** and wait for **Connected** and a verified exit IP. By default,
 the application then sets the per-user Windows HTTP / HTTPS proxy to its local
 listener. Browsers that follow Windows proxy settings use this path automatically.
-Home displays capture status separately from tunnel health. If another app
-overwrites Windows proxy settings, Home reports **Proxy conflict**; it does not
-silently keep claiming that browser capture is working.
+One Connect action waits for tunnel verification and selects Personal VPN's system
+proxy; there is no second proxy activation button. Home displays capture status
+separately from tunnel health. If another app overwrites Windows proxy settings,
+Home reports **Proxy conflict** within about one second. The primary button then
+offers **Use proxy** to select Personal VPN again without restarting the tunnel.
+Repeated competing proxy writes require disabling the other app's automatic proxy
+selection; this app does not silently fight another VPN's settings.
 
 The previous manual proxy, bypass list, PAC URL and auto-detect flags are saved
 in a DPAPI protected recovery record. Disconnect restores the snapshot only while
@@ -26,13 +30,30 @@ the current settings still belong to Personal VPN. A separate watchdog restores
 after a process crash; startup also recovers abandoned ownership. Reconnect keeps
 the selected local proxy in place while the core restarts. This is not a system
 kill switch: an app crash restores the previous path. Another app's newer proxy
-choice is retained instead of overwritten. Disable **VPN → Use Windows system
-proxy after Connect** for manual per-app proxy use.
+choice is retained instead of overwritten. Existing HTTP / SOCKS listeners also
+support applications with their own explicit proxy settings.
 
 The first
 protocol is **Hysteria 2**; **VPN** also offers **REALITY**. The REALITY option can
 explicitly use an existing local HTTP proxy at `127.0.0.1:7688`. That option depends
 on the other VPN remaining running. Protocols never automatically switch to Direct.
+
+Home also offers a protocol selector and **Test selected**. **Test REALITY** uses
+isolated loopback listeners and fresh authenticated HTTPS checks, keeping the
+existing connection and Windows proxy unchanged. Its result is recorded in Logs.
+It does not enable automatic protocol failover or make an unreachable TCP path
+usable. Direct versus chained tests are identified explicitly.
+
+Dark widget templates cover dropdowns, scrollbars, sliders, text inputs, checkboxes,
+context menus and tooltips. The window caption follows the application's dark theme.
+
+For ChatGPT / Codex desktop's native runtime, a supported client may need
+`features.respect_system_proxy = true` in the user-level `.codex/config.toml` and
+a client restart. This is an application-specific opt-in, independent of the proxy
+listener. See the [official native system-proxy documentation](https://learn.chatgpt.com/docs/enterprise/managed-configuration#use-the-system-proxy-for-native-client-requests).
+The VPN installer does not edit third-party application configuration. Browser
+proxy extensions, application-specific proxy settings and existing sockets can
+keep using another route; reconnect the affected app after selecting the proxy.
 
 For manual capture or an app with its own settings, use HTTP proxy
 `http://127.0.0.1:17890` or SOCKS5 proxy
