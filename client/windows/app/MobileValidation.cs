@@ -58,6 +58,7 @@ public static class MobileValidation
             for (int i = 0; i < 120; i++) settings.Sites!.Entries.Add(new TunnelException { Kind = "Domain", Value = "site" + i + ".example", Action = i % 2 == 0 ? "Tunnel" : "Block" });
             settings.Apps.Entries.Add(new TunnelException { Kind = "App", Value = @"C:\Apps\browser.exe", Action = "Bypass" });
             window = new MainWindow(settings);
+            window.FillPreviewLogs();
             foreach (var size in new[] { new Size(380, 590), new Size(438, 750), new Size(1280, 760) })
             foreach (string page in new[] { "Home", "Settings", "AppTunnel", "SiteTunnel", "Diagnostics", "VpnConfig", "Profiles" })
             {
@@ -72,7 +73,9 @@ public static class MobileValidation
                     }
                     var server = elements.Single(x => x.Name == "ServerCard"); Assert(server.ActualWidth <= 460, "Maximized window lost the centered mobile column.");
                 }
-                if (page == "Diagnostics") Assert(elements.OfType<TextBox>().Any(x => x.IsReadOnly && x.VerticalScrollBarVisibility == ScrollBarVisibility.Auto), "Backend log viewport must scroll internally.");
+                if (page == "Diagnostics") Assert(elements.OfType<TextBox>().Any(x => x.IsReadOnly && x.VerticalScrollBarVisibility == ScrollBarVisibility.Auto && x.ExtentHeight > x.ViewportHeight), "Long backend logs must scroll inside a bounded viewport.");
+                foreach (var scrollbar in elements.OfType<System.Windows.Controls.Primitives.ScrollBar>().Where(x => x.Orientation == Orientation.Vertical && x.IsVisible))
+                    Assert(scrollbar.ActualWidth <= 6.5, "Internal scrollbar exceeds the slim 6-DIP theme.");
                 var bitmap = new RenderTargetBitmap((int)size.Width, (int)size.Height, 96, 96, PixelFormats.Pbgra32); bitmap.Render(root);
                 var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap)); using var file = File.Create(Path.Combine(output, page + "-" + (int)size.Width + ".png")); encoder.Save(file);
             }

@@ -349,8 +349,14 @@ internal static class Tests
             }));
             using var direct = new HttpClient(new SocketsHttpHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(20) };
             string expected = JsonNode.Parse(await direct.GetStringAsync("https://api.ipify.org/?format=json"))!["ip"]!.GetValue<string>();
-            return await ProxyTest(new[] { "--profile-dir", root, "--expected-exit", expected, "--report", Program.Option(args, "--report") ?? Path.Combine(root, "report.json") });
+            string reportPath = Program.Option(args, "--report") ?? Path.Combine(root, "report.json");
+            int result = await ProxyTest(new[] { "--profile-dir", root, "--expected-exit", expected, "--report", reportPath });
+            if (result != 0) return result;
+            var report = JsonNode.Parse(await File.ReadAllTextAsync(reportPath))!;
+            foreach (string check in await SiteRoutingTest(root, expected)) report["checks"]!.AsArray().Add(check);
+            await File.WriteAllTextAsync(reportPath, report.ToJsonString(Store.JsonOptions)); return 0;
         }
+        catch (Exception error) { return Report(args, new { result = "FAIL", error = error.GetType().Name, reason = error is InvalidOperationException ? error.Message : "Local proxy integration failed." }, 1); }
         finally
         {
             server?.Dispose();
@@ -358,5 +364,27 @@ internal static class Tests
                 throw new InvalidOperationException("Invalid integration cleanup path.");
             if (Directory.Exists(root)) Directory.Delete(root, true);
         }
+    }
+    private static async Task<string[]> SiteRoutingTest(string folder, string expected)
+    {
+        await using var backend = new Backend(); var profile = Store.Import(folder);
+        var settings = new Settings { Profiles = new() { profile }, SelectedId = profile.Id, SystemProxy = false, HttpPort = Port(), SocksPort = Port(), Sites = new TunnelPolicy { Mode = "Block", Entries = new() { new() { Kind = "Domain", Value = "api.ipify.org", Action = "Tunnel" } } } };
+        async Task Reconnect() { await backend.StartAsync(settings); await WaitConnected(backend, 30); }
+        async Task Blocked(string url)
+        {
+            using var client = Through(settings.HttpPort);
+            try { using var response = await client.GetAsync(url); }
+            catch (HttpRequestException error) when (error.StatusCode == null) { return; }
+            throw new InvalidOperationException("Site Block allowed an HTTP result or did not reject promptly.");
+        }
+        await Reconnect();
+        using (var client = Through(settings.HttpPort)) Assert(await Egress(client) == expected, "Tunnel exception did not override Block default.");
+        await Blocked("https://example.com/");
+        settings.Sites.Mode = "Tunnel"; settings.Sites.Entries[0].Action = "Block"; await Reconnect(); await Blocked("https://api.ipify.org/?format=json");
+        settings.Sites.Mode = "Disabled"; await Reconnect();
+        using (var client = Through(settings.HttpPort)) Assert(await Egress(client) == expected, "Rules-off did not ignore a saved Block exception.");
+        settings.Sites.Mode = "Bypass"; settings.Sites.Entries[0].Action = "Tunnel"; settings.Apps.Mode = "Block"; await Reconnect();
+        using (var client = Through(settings.HttpPort)) Assert(await Egress(client) == expected, "App draft altered Proxy routing or Tunnel exception failed with Bypass default.");
+        return new[] { "native Site Tunnel: Block default with Tunnel exception, explicit Block, Rules off, Bypass default with Tunnel exception; Proxy ignores App draft" };
     }
 }

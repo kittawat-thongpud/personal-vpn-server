@@ -44,7 +44,7 @@ public sealed partial class MainWindow : Window
         settings = initial;
         Policy.Upgrade(settings);
         settings.SystemProxy = true;
-        Title = "Personal VPN · Windows preview 0.3.0";
+        Title = "Personal VPN · Windows preview 0.3.1";
         Width = 438; Height = 800; MinWidth = 380; MinHeight = 640;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = Color("#0D1627"); Foreground = Color("#EBEFF8"); FontFamily = new FontFamily("Segoe UI"); FontSize = 14;

@@ -71,7 +71,7 @@ public sealed partial class MainWindow
         rows.Children.Add(SettingsRow("App Tunnel", "Executable exceptions · Wintun required", "AppTunnel"));
         rows.Children.Add(SettingsRow("Site Tunnel", "Domain / IP exceptions · " + ModeName(settings.Sites!.Mode), "SiteTunnel"));
         rows.Children.Add(SettingsRow("Backend logs", "Session only · up to 1,000 records", "Diagnostics")); Put(body, rows, 1);
-        Put(body, Text("PERSONAL VPN  0.3.0\nProxy capture · Wintun module in development", 11, "#8395B2"), 2); return body;
+        Put(body, Text("PERSONAL VPN  0.3.1\nProxy capture · Wintun module in development", 11, "#8395B2"), 2); return body;
     }
     private Button SettingsRow(string title, string description, string target)
     {
@@ -172,7 +172,8 @@ public sealed partial class MainWindow
     }
     internal FrameworkElement LayoutForTest(string target, Size size)
     {
-        Navigate(target); layoutRoot.Measure(size); layoutRoot.Arrange(new Rect(size)); layoutRoot.UpdateLayout(); return layoutRoot;
+        Navigate(target); layoutRoot.InvalidateMeasure(); layoutRoot.Measure(size); layoutRoot.Arrange(new Rect(size)); layoutRoot.UpdateLayout(); return layoutRoot;
     }
+    internal void FillPreviewLogs() { for (int i = 0; i < 200; i++) backend.Log.Add("INFO", "backend.retry", "Synthetic layout preview · retry result " + i); }
     internal void StopPreview() { timer.Stop(); backend.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
 }

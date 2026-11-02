@@ -1,6 +1,6 @@
 # Windows Wintun module
 
-The first implementation in 0.3.0 is `app/TunPlan.cs`: a deterministic compiler
+The first implementation in 0.3.1 is `app/TunPlan.cs`: a deterministic compiler
 from the same persisted App / Site policies to a Windows TUN routing plan. CI
 validates its output with the official, checksum-pinned sing-box 1.14.4 `check`
 command. It does not run an adapter or install a driver. No TUN core or driver
