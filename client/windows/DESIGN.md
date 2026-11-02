@@ -10,11 +10,14 @@ sample rule decisions only; it has no core, service or network integration.
 
 **UI modes and protocol guidance**
 
-Use the compact layout in the user's VPN07/Astrill reference as the starting
-point. Home contains the server picker, capture/traffic choices and a centered
-Connect label/control. Navigation is Home / Rules / VPN / Logs. Protocol and mesh
-settings belong to VPN. A wider workspace can expose the category rules alongside
-Home. Back/add controls must remain visible without an optional icon runtime.
+Use the user's compact mobile references as the starting point. The native app
+has a centered vertical column even when maximized. Home contains only the server
+picker, protocol/policy summary, centered Connect control, verification status and
+live traffic. Home never scrolls as a page. Navigation is Home / Settings. Settings
+contains VPN configure, App Tunnel, Site Tunnel and Backend logs. Configuration
+forms and long lists scroll inside bounded widgets; scrollbars are 6 DIP. The
+window fits the Windows work area, including display scaling. Back/add controls
+remain visible without an optional icon runtime.
 
 Server selection opens a dedicated profile menu. Add, edit, select and delete
 profiles independently of application releases. Choose the country/flag explicitly;
@@ -34,7 +37,7 @@ Keep three separate choices:
 | Choice | Options | Meaning and limit |
 | --- | --- | --- |
 | Capture | Proxy / TUN | Proxy receives traffic from configured applications; TUN captures traffic using a virtual adapter. Neither label selects the VPN protocol. |
-| Traffic | Rules / Global | Rules applies ordered app/domain/IP policies with an explicit default. Global tunnels captured traffic, subject to mesh, Block and explicit Direct rules. Proxy + Global does not capture every application on the computer. |
+| Policy | Tunnel / Bypass / Block default; Rules off | Exceptions have their own action and precede defaults. Rules off retains but ignores that module's exceptions. Proxy policy affects captured traffic only. |
 | Protocol | VLESS + REALITY + Vision / Hysteria 2 / Auto | REALITY uses TCP443; Hysteria uses UDP443. Auto is a recovery policy across protocols, with fresh verification and cooldown, not a third protocol or a bandwidth promise. |
 
 Present the selected protocol's limitations beside the picker. REALITY requires
@@ -43,12 +46,14 @@ requires usable UDP and verified TLS identity. Protocol changes may terminate
 existing connections. Both can be blocked; using the same VPS IP limits fallback.
 Display planned versus verified capabilities separately from connection status.
 
-Rules uses separate Apps, Websites and IP/Networks cards and lists. Each category
-has Tunnel listed, Bypass listed, Block listed and Disabled modes. Disabled keeps
-its list while excluding the category from matching. Whole-machine app selection
-applies to TUN. All category rules are evaluated before the selected traffic
-mode's default. Website exceptions take priority over an app's category decision;
-Block takes priority over category routing. Make that order visible in the inspector.
+App Tunnel and Site Tunnel have separate exception lists. Each target has its
+own Tunnel / Bypass / Block action, with a configurable default for unmatched
+traffic. A Tunnel exception may override a Block default. Explicit App exceptions
+win over Site exceptions, as selected by the user on 2026-11-02. Explicit Block
+exceptions precede other Site exceptions. App rules are saved drafts while Proxy
+is the only capture implementation. Turning App rules off leaves Site policy in
+charge; with both modules off, all captured traffic tunnels. See [WINTUN.md](WINTUN.md)
+for the compiled routing contract and the boundary before adapter activation.
 
 Use website/domain rules as the first version's web granularity. Whole-machine
 executable selection belongs to the verified TUN integration in this version;
@@ -139,9 +144,9 @@ Actions are TunnelRequired, Direct, PreserveMesh and Block. TunnelRequired remai
 blocked while the tunnel is unavailable. Direct is an explicit decision visible
 in the policy editor; the core must not invent a Direct fallback.
 
-Default mode for initial development is selective tunnel: named protected apps
-and destinations use TunnelRequired; unmatched traffic is Direct. Full-tunnel
-mode is a separate explicit setting. Show the default in the UI.
+The default is explicit in each App / Site policy: Tunnel, Bypass or Block.
+Rules off ignores that module's exceptions. Initial empty profiles tunnel captured
+traffic. Preserve the user's previous effective default when migrating settings.
 
 Apply these layers in order:
 
@@ -151,11 +156,10 @@ Apply these layers in order:
 2. PreserveMesh for confirmed mesh interfaces, managed destination routes and
    their private DNS namespaces. Do not guess all mesh ranges from a service
    name, and do not blanket-exclude all private IP space.
-3. Matching entries in categories whose mode is Block.
-4. Enabled categories in the visible order Websites, Apps, IP/Networks. The first
-   matching category decides TunnelRequired or Direct. Separate category lists
-   are the initial UI contract; advanced combined-constraint rules are not implied.
-5. The selected mode's explicit default action.
+3. Explicit full-path App exceptions (TUN only).
+4. Site exceptions for domains and IP/CIDR, with explicit Block exceptions first.
+5. App default when enabled in TUN; otherwise Site default. With both modules
+   off, Tunnel. Defaults follow every explicit exception.
 
 Protected mesh rules must be shown before user rules and conflict checks must
 explain why a later rule cannot override them. Changing mesh protection requires
