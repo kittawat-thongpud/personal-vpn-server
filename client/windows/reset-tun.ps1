@@ -1,6 +1,6 @@
 param([Parameter(Mandatory=$true)][Guid]$AdapterId)
 $ErrorActionPreference='Stop'
-$adapter = @(Get-NetAdapter -IncludeHidden | Where-Object { $_.InterfaceGuid -eq $AdapterId })
+$adapter = @(Get-NetAdapter -IncludeHidden | Where-Object { [Guid]$_.InterfaceGuid -eq $AdapterId })
 if ($adapter.Count -eq 0) { exit 0 }
 if ($adapter.Count -ne 1 -or $adapter[0].Name -ne 'PersonalVPN') { throw 'TUN reset ownership mismatch' }
 $index = $adapter[0].ifIndex

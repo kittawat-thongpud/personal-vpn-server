@@ -32,6 +32,13 @@ internal static partial class Tests
                 using var client = new HttpClient(new SocketsHttpHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(15) };
                 Assert(await Egress(client) == expected, "Independent HTTPS request did not exit through the VPS.");
                 using var google = await client.GetAsync("https://www.google.com/generate_204"); google.EnsureSuccessStatusCode();
+                string system = !Environment.Is64BitProcess && Environment.Is64BitOperatingSystem ? "Sysnative" : "System32";
+                var curlInfo = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), system, "curl.exe")) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+                foreach (string argument in new[] { "--noproxy", "*", "--max-time", "12", "-fsS", "https://api.ipify.org/?format=json" }) curlInfo.ArgumentList.Add(argument);
+                using var curl = Process.Start(curlInfo)!;
+                var output = curl.StandardOutput.ReadToEndAsync(); var error = curl.StandardError.ReadToEndAsync();
+                await curl.WaitForExitAsync(); await Task.WhenAll(output, error);
+                Assert(curl.ExitCode == 0 && JsonNode.Parse(await output)?["ip"]?.GetValue<string>() == expected, "External curl did not use the VPS exit.");
                 Assert(WindowsProxy.Matches(WindowsProxy.Read(), WindowsProxy.Direct()), "Windows proxy was not suspended for TUN.");
                 Assert(AdapterService.CurrentId() == adapter, "Adapter GUID changed.");
                 checks.Add(protocol + ": captured HTTPS exit " + expected + "; Google reachable; same adapter GUID");
