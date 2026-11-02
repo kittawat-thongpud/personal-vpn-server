@@ -17,6 +17,7 @@ internal static partial class Tests
     {
         string folder = Program.Option(args, "--folder")!; Store.SecureDirectory(folder);
         using var lease = await TunLease.Start(folder, CancellationToken.None);
+        using var adapter = new WintunAdapter(lease.InterfaceName, lease.AdapterId); lease.ObserveAdapter(adapter.AdapterId);
         await File.WriteAllTextAsync(Program.Option(args, "--report")!, JsonSerializer.Serialize(new { adapter = lease.AdapterId }));
         await Task.Delay(Timeout.Infinite); return 0;
     }

@@ -26,6 +26,7 @@ public sealed class TunLease : IDisposable
     private bool disposed;
     public string InterfaceName => record.Name;
     public Guid AdapterId => record.AdapterId;
+    internal void ObserveAdapter(Guid id) { record.AdapterId = id; }
     public bool Exited => guard.HasExited;
     public static string Name => "PersonalVPN-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(WindowsIdentity.GetCurrent().User!.Value)))[..8];
     private TunLease(string folder, Record record, Process guard) { this.folder = folder; this.record = record; this.guard = guard; }
@@ -72,12 +73,25 @@ public sealed class TunLease : IDisposable
             if (parent.StartTime.ToUniversalTime().Ticks != record.ParentStarted || !string.Equals(parent.MainModule?.FileName, Environment.ProcessPath, StringComparison.OrdinalIgnoreCase)) return 1;
             using var mutex = new Mutex(true, @"Global\PersonalVPN-TUN-" + WindowsIdentity.GetCurrent().User!.Value, out bool created);
             if (!created) throw new InvalidOperationException("Another Personal VPN TUN session is still active.");
-            using var adapter = new WintunAdapter(record.Name, record.AdapterId);
-            record.AdapterId = adapter.AdapterId; File.WriteAllText(Path.Combine(folder, "tun-lease.json"), JsonSerializer.Serialize(record));
             File.WriteAllText(Path.Combine(folder, "tun-ready"), "ready");
-            while (!parent.WaitForExit(250))
-                if (File.Exists(Path.Combine(folder, "tun-stop"))) break;
-            return 0; // finally / Dispose removes only this owned adapter.
+            // The TUN core is the sole creator. A second CreateAdapter call can
+            // fail with HRESULT_ALREADY_EXISTS instead of Win32 ERROR_ALREADY_EXISTS.
+            try
+            {
+                while (!parent.WaitForExit(250))
+                {
+                    var nic = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(x => x.Name == record.Name);
+                    if (nic != null && Guid.TryParse(nic.Id, out var actual) && actual != record.AdapterId)
+                    { record.AdapterId = actual; File.WriteAllText(Path.Combine(folder, "tun-lease.json"), JsonSerializer.Serialize(record)); }
+                    if (File.Exists(Path.Combine(folder, "tun-stop"))) break;
+                }
+            }
+            finally
+            {
+                for (int i = 0; i < 20 && WintunAdapter.Exists(record.AdapterId); i++) Thread.Sleep(100);
+                if (WintunAdapter.Exists(record.AdapterId)) WintunAdapter.RemoveOrphan(record.AdapterId, record.Name);
+            }
+            return 0;
         }
         catch (Exception exception)
         {

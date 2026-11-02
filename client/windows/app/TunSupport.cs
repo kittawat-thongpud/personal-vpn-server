@@ -41,7 +41,8 @@ public static class TunSupport
             token.ThrowIfCancellationRequested();
             if (lease.Exited) throw new InvalidOperationException("Adapter recovery guard stopped.");
             string? failure = startupFailure?.Invoke(); if (failure != null) throw new InvalidOperationException(failure);
-            var nic = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(x => Guid.TryParse(x.Id, out var id) && id == lease.AdapterId);
+            var nic = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(x => x.Name == lease.InterfaceName);
+            if (nic != null && Guid.TryParse(nic.Id, out var actual)) lease.ObserveAdapter(actual);
             if (nic?.OperationalStatus == OperationalStatus.Up && nic.GetIPProperties().UnicastAddresses.Any(x => x.Address.ToString() == "172.28.255.1")) return;
             await Task.Delay(100, token);
         }

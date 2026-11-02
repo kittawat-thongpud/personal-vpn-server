@@ -58,20 +58,30 @@ public sealed class WintunAdapter : IDisposable
         var nic = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(x => Guid.TryParse(x.Id, out var current) && current == id);
         if (nic == null) return;
         if (nic.Name != name) throw new InvalidOperationException("Adapter ownership mismatch; no device was removed.");
-        using var key = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Network\{4D36E972-E325-11CE-BFC1-08002BE10318}\" + id.ToString("B") + @"\Connection");
-        string instance = key?.GetValue("PnpInstanceID") as string ?? throw new InvalidOperationException("Adapter device identity unavailable.");
-        if (!instance.StartsWith(@"SWD\WINTUN\", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Unexpected adapter device identity.");
-        IntPtr set = SetupDiCreateDeviceInfoList(IntPtr.Zero, IntPtr.Zero);
+        var networkClass = new Guid("4d36e972-e325-11ce-bfc1-08002be10318");
+        IntPtr set = SetupDiGetClassDevs(ref networkClass, null, IntPtr.Zero, 2);
         if (set == new IntPtr(-1)) throw new Win32Exception();
         try
         {
-            var device = new DeviceInfo { Size = (uint)Marshal.SizeOf<DeviceInfo>() };
-            if (!SetupDiOpenDeviceInfo(set, instance, IntPtr.Zero, 0, ref device)) throw new Win32Exception();
-            var remove = new RemoveParameters { HeaderSize = 8, Function = 5, Scope = 1 };
-            if (!SetupDiSetClassInstallParams(set, ref device, ref remove, Marshal.SizeOf<RemoveParameters>()) || !SetupDiCallClassInstaller(5, set, ref device)) throw new Win32Exception();
+            for (uint index = 0; ; index++)
+            {
+                var device = new DeviceInfo { Size = (uint)Marshal.SizeOf<DeviceInfo>() };
+                if (!SetupDiEnumDeviceInfo(set, index, ref device)) break;
+                IntPtr handle = SetupDiOpenDevRegKey(set, ref device, 1, 0, 1, 0x20019);
+                if (handle == new IntPtr(-1)) continue;
+                using var safe = new Microsoft.Win32.SafeHandles.SafeRegistryHandle(handle, true);
+                using var key = RegistryKey.FromHandle(safe);
+                if (!Guid.TryParse(key.GetValue("NetCfgInstanceId") as string, out var current) || current != id) continue;
+                var remove = new RemoveParameters { HeaderSize = 8, Function = 5, Scope = 1 };
+                if (!SetupDiSetClassInstallParams(set, ref device, ref remove, Marshal.SizeOf<RemoveParameters>()) || !SetupDiCallClassInstaller(5, set, ref device)) throw new Win32Exception();
+                return;
+            }
         }
         finally { SetupDiDestroyDeviceInfoList(set); }
     }
+    [DllImport("setupapi.dll", EntryPoint = "SetupDiGetClassDevsW", CharSet = CharSet.Unicode, SetLastError = true)] private static extern IntPtr SetupDiGetClassDevs(ref Guid guid, string? enumerator, IntPtr window, uint flags);
+    [DllImport("setupapi.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetupDiEnumDeviceInfo(IntPtr set, uint index, ref DeviceInfo info);
+    [DllImport("setupapi.dll", SetLastError = true)] private static extern IntPtr SetupDiOpenDevRegKey(IntPtr set, ref DeviceInfo info, uint scope, uint profile, uint keyType, uint access);
     [StructLayout(LayoutKind.Sequential)] private struct DeviceInfo { public uint Size; public Guid Class; public uint DevInst; public UIntPtr Reserved; }
     [StructLayout(LayoutKind.Sequential)] private struct RemoveParameters { public uint HeaderSize, Function, Scope, HardwareProfile; }
     [DllImport("setupapi.dll", SetLastError = true)] private static extern IntPtr SetupDiCreateDeviceInfoList(IntPtr guid, IntPtr window);
