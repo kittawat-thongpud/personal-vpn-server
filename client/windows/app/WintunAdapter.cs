@@ -59,7 +59,7 @@ public sealed class WintunAdapter : IDisposable
         if (nic == null) return;
         if (nic.Name != name) throw new InvalidOperationException("Adapter ownership mismatch; no device was removed.");
         var networkClass = new Guid("4d36e972-e325-11ce-bfc1-08002be10318");
-        IntPtr set = SetupDiGetClassDevs(ref networkClass, null, IntPtr.Zero, 2);
+        IntPtr set = SetupDiGetClassDevs(ref networkClass, null, IntPtr.Zero, 0);
         if (set == new IntPtr(-1)) throw new Win32Exception();
         try
         {

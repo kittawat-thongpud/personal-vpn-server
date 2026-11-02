@@ -80,6 +80,7 @@ public sealed class OwnedCore : IDisposable
     {
         this.log = log; Name = Path.GetFileNameWithoutExtension(binary);
         var info = new ProcessStartInfo(binary) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = AppContext.BaseDirectory };
+        if (Name == "sing-box") { info.CreateNoWindow = false; info.WindowStyle = ProcessWindowStyle.Hidden; }
         foreach (string arg in arguments) info.ArgumentList.Add(arg);
         foreach (string variable in info.Environment.Keys.Where(x => x.StartsWith("HYSTERIA_", StringComparison.OrdinalIgnoreCase) || x.StartsWith("XRAY_", StringComparison.OrdinalIgnoreCase)).ToArray())
             info.Environment.Remove(variable);
@@ -116,7 +117,8 @@ public sealed class OwnedCore : IDisposable
     public bool Exited => Process.HasExited;
     public void Dispose()
     {
-        try { if (!Process.HasExited) { Process.Kill(true); Process.WaitForExit(3000); } }
+        try { if (!Process.HasExited && Name == "sing-box") ConsoleStop.Try(Process);
+            if (!Process.HasExited) { Process.Kill(true); Process.WaitForExit(3000); } }
         catch (InvalidOperationException) { }
         try { Task.WaitAll(new[] { reader, errorReader }, 1000); } catch (AggregateException) { }
         Process.Dispose();
@@ -329,7 +331,7 @@ public sealed class Backend : IAsyncDisposable
             catch (OperationCanceledException) when (attempt.IsCancellationRequested) { }
             catch (Exception error)
             {
-                if (token.IsCancellationRequested) break;
+                if (token.IsCancellationRequested) { Log.Add("ERROR", "backend.cleanup_failed", "Capture teardown failed (" + error.GetType().Name + "). Reopen as Administrator for recovery."); throw; }
                 failures++;
                 string reason = error is InvalidOperationException ? error.Message : "VPN attempt failed (" + error.GetType().Name + ").";
                 SetState("Reconnecting", reason, attemptGeneration);
