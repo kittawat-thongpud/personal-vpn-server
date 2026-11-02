@@ -106,7 +106,7 @@ jobs:
           $report | ConvertTo-Json -Depth 6
           if ($report.result -ne 'PASS') {
             Get-CimInstance Win32_Service -Filter "Name='PersonalVPNAdapter'" | Select-Object Name,State,StartMode,PathName,ProcessId | ConvertTo-Json
-            Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Service Control Manager'; StartTime=(Get-Date).AddMinutes(-5)} -ErrorAction SilentlyContinue | Select-Object -First 6 Id,Message | Format-List
+            Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Service Control Manager'; StartTime=(Get-Date).AddMinutes(-5)} -ErrorAction SilentlyContinue | Where-Object Message -Like '*Personal VPN*' | Select-Object -First 10 Id,Message | Format-List
             throw 'Installed driver check failed'
           }
           if ((Get-FileHash (Join-Path $installed 'PersonalVPN.exe')).Hash -ne (Get-FileHash dist/windows/PersonalVPN.exe).Hash) { throw 'Installed executable differs from package' }

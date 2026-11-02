@@ -35,17 +35,25 @@ Name: "{autodesktop}\Personal VPN"; Filename: "{app}\PersonalVPN.exe"; WorkingDi
 [Run]
 Filename: "{app}\PersonalVPN.exe"; Description: "Open Personal VPN"; Flags: nowait postinstall skipifsilent runascurrentuser
 [UninstallRun]
-Filename: "{app}\PersonalVPN.exe"; Parameters: "--uninstall-adapter"; Flags: runhidden waituntilterminated
+Filename: "{app}\PersonalVPN.exe"; Parameters: "--uninstall-adapter"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveOwnedAdapterService"
 [Code]
+var AdapterPreparationFailed: Boolean;
+
+function GetCustomSetupExitCode: Integer;
+begin
+  if AdapterPreparationFailed then Result := 1 else Result := 0;
+end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var ResultCode: Integer;
 begin
   if CurStep = ssPostInstall then
   begin
+    AdapterPreparationFailed := True;
     if not Exec(ExpandConstant('{app}\PersonalVPN.exe'),
       '--install-adapter --report "' + ExpandConstant('{app}\driver-install.json') + '"',
       ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
       RaiseException('Could not prepare the signed Wintun driver.');
     if ResultCode <> 0 then RaiseException('Wintun installation failed. Run the setup as Administrator.');
+    AdapterPreparationFailed := False;
   end;
 end;

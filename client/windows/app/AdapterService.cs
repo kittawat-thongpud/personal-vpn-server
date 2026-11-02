@@ -99,11 +99,29 @@ public static class AdapterService
     }
     private static void StopService(IntPtr service)
     {
-        if (!ControlService(service, 1, out _) && Marshal.GetLastWin32Error() != 1062) throw new Win32Exception();
-        for (int i = 0; i < 300; i++)
+        uint previousPid = 0;
+        if (QueryServiceStatusEx(service, 0, out var processStatus, Marshal.SizeOf<ProcessStatus>(), out _)) previousPid = processStatus.Pid;
+        bool requested = false;
+        for (int i = 0; i < 600; i++)
         {
             if (!QueryServiceStatus(service, out var status)) throw new Win32Exception();
-            if (status.State == 1) return;
+            if (status.State == 1)
+            {
+                // A stopped status can precede process teardown. Release the old
+                // native device owner completely before starting its replacement.
+                if (previousPid != 0)
+                    try { using var process = Process.GetProcessById((int)previousPid); if (!process.WaitForExit(10000)) throw new InvalidOperationException("Previous adapter service process did not exit."); } catch (ArgumentException) { }
+                return;
+            }
+            if (!requested && status.State is 4 or 7)
+            {
+                if (!ControlService(service, 1, out _))
+                {
+                    int code = Marshal.GetLastWin32Error();
+                    if (code != 1061 && code != 1062) throw new Win32Exception(code);
+                }
+                requested = true;
+            }
             Thread.Sleep(100);
         }
         throw new InvalidOperationException("Adapter service stop timed out.");
