@@ -30,7 +30,7 @@ public sealed partial class MainWindow : Window
     private bool dirty, exiting, lastCompactHome;
     private bool connectBusy;
     private readonly bool previewOnly;
-    private TextBlock? status, detail, exit, logCount, captureDetail;
+    private TextBlock? status, detail, exit, captureDetail;
     private Button? connect;
     private TextBox? logText;
     private string lastLogText = "";
@@ -45,8 +45,8 @@ public sealed partial class MainWindow : Window
         previewOnly = preview;
         settings = initial;
         Policy.Upgrade(settings);
-        settings.SystemProxy = true;
-        Title = "Personal VPN · Windows preview 0.4.1";
+        settings.SystemProxy = settings.CaptureMode == "Proxy";
+        Title = "Personal VPN · Windows preview 0.5.0";
         Width = Math.Min(438, SystemParameters.WorkArea.Width - 24); Height = Math.Min(800, SystemParameters.WorkArea.Height - 24);
         MinWidth = Math.Min(380, Width); MinHeight = Math.Min(640, Height);
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -86,18 +86,18 @@ public sealed partial class MainWindow : Window
         InitializeTray();
         SizeChanged += (_, _) => { if (page == "Home" && lastCompactHome != (Height < 680)) Navigate("Home"); };
         Navigate("Home");
-        if (autoConnect) ContentRendered += async (_, _) => { try { await ConnectSelectedProxy(); } catch (Exception error) { ShowError(error); } };
+        if (autoConnect) ContentRendered += async (_, _) => { try { await ConnectSelected(); } catch (Exception error) { ShowError(error); } };
     }
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
-    private async Task ConnectSelectedProxy()
+    private async Task ConnectSelected()
     {
         if (previewOnly) throw new InvalidOperationException("Layout preview cannot connect or change system proxy settings.");
         CaptureCapabilities.EnsureAvailable(settings.CaptureMode);
         connectBusy = true;
         try
         {
-            settings.SystemProxy = true; Store.Save(settings); Refresh();
-            await backend.ConnectProxyAsync(settings.Snapshot()); dirty = false;
+            settings.SystemProxy = settings.CaptureMode == "Proxy"; Store.Save(settings); Refresh();
+            await backend.ConnectAsync(settings.Snapshot()); dirty = false;
         }
         finally { connectBusy = false; Refresh(); }
     }
@@ -144,7 +144,7 @@ public sealed partial class MainWindow : Window
     {
         if (target == "AppTunnel" && settings.CaptureMode != "TUN" && !previewOnly) return;
         proxyChoice = tunChoice = null;
-        page = target; subtitle.Text = target switch { "Profiles" => "Server profiles", "VpnConfig" => "VPN configure", "AppTunnel" => "App Tunnel", "SiteTunnel" => "Site Tunnel", "Diagnostics" => "Backend logs", _ => target }; status = detail = exit = draftNotice = logCount = captureDetail = null; connect = null; logText = null; lastLogText = "";
+        page = target; subtitle.Text = target switch { "Profiles" => "Server profiles", "VpnConfig" => "VPN configure", "AppTunnel" => "App Tunnel", "SiteTunnel" => "Site Tunnel", "Diagnostics" => "Backend logs", _ => target }; status = detail = exit = draftNotice = captureDetail = null; connect = null; logText = null; lastLogText = "";
         backButton.Visibility = target is "Home" or "Settings" ? Visibility.Hidden : Visibility.Visible;
         homeNav.Background = Color(target is "Home" or "Profiles" ? "#244C68" : "#18263A"); settingsNav.Background = Color(target is not ("Home" or "Profiles") ? "#244C68" : "#18263A");
         uploadRate = downloadRate = uploadTotal = downloadTotal = trafficStatus = null; trafficChart = null;
@@ -216,13 +216,12 @@ public sealed partial class MainWindow : Window
     }
     private void BuildLogs()
     {
-        var grid = new Grid(); grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); grid.RowDefinitions.Add(new RowDefinition());
-        grid.Children.Add(Text("VPN backend only · session memory · max 1,000 records / 1 MiB\nExit and reopen starts a fresh session; hiding to tray retains logs.", 13, "#9BAECD"));
+        var grid = new Grid(); grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); grid.RowDefinitions.Add(new RowDefinition());
         var tools = new DockPanel { Margin = new Thickness(0, 10, 0, 10) };
         var clear = Action("Clear", ClearSessionLogs); tools.Children.Add(clear);
-        tools.Children.Add(Action("Export", ExportSessionLogs)); logCount = Text("0 / 1,000", 12, "#9BAECD"); tools.Children.Add(logCount); Grid.SetRow(tools, 1); grid.Children.Add(tools);
+        tools.Children.Add(Action("Export", ExportSessionLogs)); Grid.SetRow(tools, 0); grid.Children.Add(tools);
         logText = new TextBox { IsReadOnly = true, FontFamily = new FontFamily("Cascadia Mono,Consolas"), FontSize = 12, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, AcceptsReturn = true, MinHeight = 0 };
-        Grid.SetRow(logText, 2); grid.Children.Add(logText); content.Content = grid; Refresh();
+        Grid.SetRow(logText, 1); grid.Children.Add(logText); content.Content = grid; Refresh();
     }
     private void Refresh()
     {
@@ -253,7 +252,6 @@ public sealed partial class MainWindow : Window
                 bool bottom = logText.VerticalOffset >= logText.ExtentHeight - logText.ViewportHeight - 20;
                 logText.Text = next; lastLogText = next; if (bottom) logText.ScrollToEnd();
             }
-            if (logCount != null) logCount.Text = records.Length + " / 1,000  •  " + (backend.Log.Bytes / 1024) + " KiB";
         }
         if (backend.State != lastState) { lastState = backend.State; Title = "Personal VPN · " + lastState; }
     }

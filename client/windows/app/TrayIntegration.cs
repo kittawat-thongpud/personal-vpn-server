@@ -59,7 +59,7 @@ public sealed partial class MainWindow
             try { if (backend.State == "Proxy conflict") await backend.ReclaimProxyAsync(); else await backend.StopAsync(); }
             finally { connectBusy = false; Refresh(); }
         }
-        else await ConnectSelectedProxy();
+        else await ConnectSelected();
     }
     private async Task TrayAction(string command)
     {
@@ -70,7 +70,7 @@ public sealed partial class MainWindow
         if (command == "clear-logs") { ClearSessionLogs(); return; }
         if (command == "copy-exit") { if (backend.ExitIp != "—") Clipboard.SetText(backend.ExitIp); return; }
         if (command == "connect") { await ToggleConnection(); return; }
-        if (command == "reconnect") { if (backend.Running && !connectBusy) await ConnectSelectedProxy(); return; }
+        if (command == "reconnect") { if (backend.Running && !connectBusy) await ConnectSelected(); return; }
         RestoreFromTray();
         if (command == "settings") Navigate("Settings");
         else if (command == "logs") Navigate("Diagnostics");
@@ -86,7 +86,7 @@ public sealed partial class MainWindow
         {
             if (connectBusy) return; string protocol = command[9..]; if (protocol == settings.Protocol) return;
             if (MessageBox.Show(this, "Use " + protocol + "?" + (backend.Running ? " The current Personal VPN session will reconnect." : " This will be used on your next connection."), "Confirm protocol", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
-            settings.Protocol = protocol; settings.ChainReality = false; Changed(); Navigate("Home"); if (backend.Running) await ConnectSelectedProxy();
+            settings.Protocol = protocol; settings.ChainReality = false; Changed(); Navigate("Home"); if (backend.Running) await ConnectSelected();
         }
     }
     private void ClearSessionLogs()

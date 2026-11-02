@@ -6,11 +6,10 @@ using System.Text.Json.Nodes;
 
 namespace PersonalVpn;
 
-// A configuration compiler, deliberately NOT an adapter/route launcher. The
-// elevated Windows host and teardown qualification are the next implementation.
+// Shared policy compiler used by the supervised Administrator TUN runtime.
 public static class TunPlan
 {
-    public static JsonObject Compile(Settings source, IEnumerable<string> transportAddresses, IEnumerable<string> ownedCorePaths)
+    public static JsonObject Compile(Settings source, IEnumerable<string> transportAddresses, IEnumerable<string> ownedCorePaths, string interfaceName = "PersonalVPN", IEnumerable<string>? meshPrefixes = null, string? healthProcessPath = null)
     {
         var settings = source.Snapshot(); Policy.Upgrade(settings);
         Policy.ValidateTunnel(settings.Apps, true); Policy.ValidateTunnel(settings.Sites!, false);
@@ -20,6 +19,8 @@ public static class TunPlan
             return ip + (ip.GetAddressBytes().Length == 4 ? "/32" : "/128");
         }).ToArray();
         if (exclusions.Length == 0) throw new InvalidOperationException("A TUN plan requires explicit transport IP exclusions to prevent recursion.");
+        var excluded = exclusions.Concat(meshPrefixes ?? Array.Empty<string>()).Distinct().ToArray();
+        Policy.Validate(new CategoryRule { Entries = excluded.ToList() }, false);
         var paths = ownedCorePaths.ToArray();
         Policy.ValidateTunnel(new TunnelPolicy { Entries = paths.Select(x => new TunnelException { Kind = "App", Value = x, Action = "Bypass" }).ToList() }, true);
         if (paths.Length == 0) throw new InvalidOperationException("Owned VPN core paths must be excluded from capture.");
@@ -29,6 +30,7 @@ public static class TunPlan
             new JsonObject { ["action"] = "sniff" },
             new JsonObject { ["protocol"] = "dns", ["action"] = "hijack-dns" }
         };
+        if (healthProcessPath != null) rules.Add(new JsonObject { ["process_path"] = new JsonArray(healthProcessPath), ["action"] = "route", ["outbound"] = "tunnel" });
         // Explicit app rules win even when a site has an explicit Block rule.
         // DNS/control routing precedes user data rules; defaults come last.
         if (settings.Apps.Mode != "Disabled") foreach (var entry in settings.Apps.Entries) rules.Add(Rule(entry, "process_path"));
@@ -46,10 +48,10 @@ public static class TunPlan
             },
             ["inbounds"] = new JsonArray(new JsonObject
             {
-                ["type"] = "tun", ["tag"] = "wintun", ["interface_name"] = "PersonalVPN",
+                ["type"] = "tun", ["tag"] = "wintun", ["interface_name"] = interfaceName,
                 ["address"] = new JsonArray("172.28.255.1/30", "fd26:706e:1::1/126"),
                 ["mtu"] = 1400, ["auto_route"] = true, ["strict_route"] = true,
-                ["route_exclude_address"] = Strings(exclusions), ["stack"] = "mixed"
+                ["route_exclude_address"] = Strings(excluded), ["stack"] = "mixed"
             }),
             ["outbounds"] = new JsonArray(
                 new JsonObject { ["type"] = "socks", ["tag"] = "tunnel", ["server"] = "127.0.0.1", ["server_port"] = settings.SocksPort, ["version"] = "5" },

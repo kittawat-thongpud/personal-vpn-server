@@ -68,6 +68,7 @@ public sealed class Settings
     {
         _ = Selected;
         CaptureCapabilities.EnsureAvailable(CaptureMode);
+        if (CaptureMode == "TUN" && ChainReality) throw new InvalidOperationException("Disable the existing upstream proxy before connecting TUN to avoid recursive capture.");
         if (HttpPort is < 1024 or > 65535 || SocksPort is < 1024 or > 65535 || HttpPort == SocksPort)
             throw new InvalidOperationException("Choose two different local ports between 1024 and 65535.");
         if (Protocol != "Hysteria 2" && Protocol != "REALITY") throw new InvalidOperationException("Select a supported protocol.");

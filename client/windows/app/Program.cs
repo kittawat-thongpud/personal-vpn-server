@@ -22,11 +22,19 @@ public static class Program
     [STAThread]
     public static int Main(string[] arguments)
     {
+        if (arguments.Contains("--tun-guard")) return TunLease.Watch(Option(arguments, "--tun-guard")!);
+        if (arguments.Contains("--install-adapter"))
+        {
+            try { uint version = WintunAdapter.InstallDriver(); return Tests.Report(arguments, new { result = "PASS", driverVersion = version, routeChanges = false }, 0); }
+            catch (Exception exception) { return Tests.Report(arguments, new { result = "FAIL", error = exception.GetType().Name }, 1); }
+        }
         if (arguments.Contains("--proxy-guard"))
         {
             try { return SystemProxyLease.Watch(Option(arguments, "--proxy-guard")!).GetAwaiter().GetResult(); }
             catch { return 1; } // Recovery record remains for the next application startup.
         }
+        if (arguments.Contains("--tun-lease-child")) return Tests.TunLeaseChild(arguments).GetAwaiter().GetResult();
+        if (arguments.Contains("--local-tun-integration")) return Tests.LocalProxyIntegration(arguments).GetAwaiter().GetResult();
         if (arguments.Contains("--proxy-lease-child")) return Tests.LeaseChild(arguments);
         if (arguments.Contains("--self-test")) return Tests.SelfTest(arguments);
         if (arguments.Contains("--layout-test")) return MobileValidation.Run(arguments);
@@ -42,6 +50,7 @@ public static class Program
         }
         try
         {
+            TunLease.RecoverAbandoned();
             SystemProxyLease.RecoverAbandoned();
             var settings = Store.Load();
             if (arguments.Contains("--connect-hysteria"))
@@ -84,7 +93,7 @@ public static class Program
     }
 }
 
-internal static class Tests
+internal static partial class Tests
 {
     public static int LeaseChild(string[] args)
     {
@@ -97,7 +106,7 @@ internal static class Tests
     }
     private static void Assert(bool condition, string reason) { if (!condition) throw new InvalidOperationException(reason); }
     private static int Port() { var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); int port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop(); return port; }
-    private static int Report(string[] args, object report, int result)
+    internal static int Report(string[] args, object report, int result)
     {
         string json = JsonSerializer.Serialize(report, Store.JsonOptions);
         string? path = Program.Option(args, "--report");
@@ -354,6 +363,7 @@ internal static class Tests
             using var direct = new HttpClient(new SocketsHttpHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(20) };
             string expected = JsonNode.Parse(await direct.GetStringAsync("https://api.ipify.org/?format=json"))!["ip"]!.GetValue<string>();
             string reportPath = Program.Option(args, "--report") ?? Path.Combine(root, "report.json");
+            if (args.Contains("--local-tun-integration")) return Report(args, new { result = "PASS", checks = await TunIntegration(root, expected) }, 0);
             int result = await ProxyTest(new[] { "--profile-dir", root, "--expected-exit", expected, "--report", reportPath });
             if (result != 0) return result;
             var report = JsonNode.Parse(await File.ReadAllTextAsync(reportPath))!;

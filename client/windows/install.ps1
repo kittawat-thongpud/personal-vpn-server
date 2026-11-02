@@ -1,38 +1,37 @@
 param([string]$ProfileFolder, [switch]$NoLaunch)
 $ErrorActionPreference = 'Stop'
-$version = '0.4.1'
+$version = '0.5.0'
 $source = [IO.Path]::GetFullPath($PSScriptRoot)
-if (-not (Test-Path -LiteralPath (Join-Path $source 'PersonalVPN.exe'))) { throw 'Extract the Windows release ZIP before running install.ps1.' }
-$programRoot = Join-Path $env:LOCALAPPDATA 'Programs/PersonalVPN'
-$destination = Join-Path $programRoot $version
-$appData = Join-Path $env:LOCALAPPDATA 'PersonalVPN'
-# Installation is per-user. Keep profile data separate from versioned executables.
-New-Item -ItemType Directory -Force -Path $destination,$appData | Out-Null
-$sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
-$acl = [IO.Directory]::GetAccessControl($appData, [Security.AccessControl.AccessControlSections]::Access)
-$acl.SetAccessRuleProtection($true, $false)
-foreach ($identity in @($sid, (New-Object Security.Principal.SecurityIdentifier('S-1-5-18')))) {
-    $rule = New-Object Security.AccessControl.FileSystemAccessRule($identity, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
-    $acl.AddAccessRule($rule)
+if (-not (Test-Path -LiteralPath (Join-Path $source 'PersonalVPN.exe'))) { throw 'Extract the Windows release ZIP first.' }
+$isAdministrator = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdministrator) {
+    $argsList = @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $PSCommandPath + '"'))
+    if ($NoLaunch) { $argsList += '-NoLaunch' }
+    if ($ProfileFolder) { $argsList += @('-ProfileFolder',('"' + $ProfileFolder + '"')) }
+    $installProcess = Start-Process powershell.exe -Verb RunAs -ArgumentList $argsList -PassThru -Wait -WindowStyle Hidden
+    if ($installProcess.ExitCode -ne 0) { throw 'Administrator installation did not finish.' }
+    exit 0
 }
-[IO.Directory]::SetAccessControl($appData, $acl)
+$architecture = if (Test-Path -LiteralPath (Join-Path $source 'architecture-x86.txt')) { 'x86' } else { 'x64' }
+$destination = Join-Path $env:ProgramFiles ("PersonalVPN/$version-$architecture")
+New-Item -ItemType Directory -Force -Path $destination | Out-Null
 Get-ChildItem -LiteralPath $source | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $destination -Recurse -Force }
 $executable = Join-Path $destination 'PersonalVPN.exe'
+$report = Join-Path $destination 'driver-install.json'
+$driverInstall = Start-Process -FilePath $executable -ArgumentList @('--install-adapter','--report',('"' + $report + '"')) -WindowStyle Hidden -PassThru -Wait
+if ($driverInstall.ExitCode -ne 0) { throw 'Signed Wintun driver preparation failed.' }
 $shell = New-Object -ComObject WScript.Shell
 foreach ($shortcutPath in @((Join-Path ([Environment]::GetFolderPath('Desktop')) 'Personal VPN.lnk'), (Join-Path ([Environment]::GetFolderPath('Programs')) 'Personal VPN.lnk'))) {
     $shortcut = $shell.CreateShortcut($shortcutPath)
     $shortcut.TargetPath = $executable
     $shortcut.WorkingDirectory = $destination
-    $shortcut.Description = 'Personal VPN - tray client'
     $shortcut.IconLocation = $executable + ',0'
+    $shortcut.Description = 'Personal VPN - Administrator'
     $shortcut.Save()
 }
 Write-Output "Installed: $executable"
-Write-Output 'Installation makes no network changes. Connect can apply the per-user system proxy and restore it on disconnect.'
+Write-Output 'The app requires Administrator. TUN routing starts only after confirmed mode selection and Connect.'
 if (-not $NoLaunch) {
-    if ($ProfileFolder) {
-        $resolvedProfile = (Resolve-Path -LiteralPath $ProfileFolder).Path
-        if ($resolvedProfile.Contains('"')) { throw 'Invalid profile folder path.' }
-        Start-Process -FilePath $executable -ArgumentList @('--import-folder', ('"' + $resolvedProfile + '"'))
-    } else { Start-Process -FilePath $executable }
+    if ($ProfileFolder) { Start-Process -FilePath $executable -ArgumentList @('--import-folder',('"' + (Resolve-Path -LiteralPath $ProfileFolder).Path + '"')) }
+    else { Start-Process -FilePath $executable }
 }

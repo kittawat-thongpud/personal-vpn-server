@@ -1,16 +1,19 @@
 using System;
+using System.IO;
 
 namespace PersonalVpn;
-
 public static class CaptureCapabilities
 {
-    // Availability is a runtime capability, never a user-editable boolean.
-    // Enable only after the elevated adapter host and recovery are qualified.
-    public static bool TunAvailable => false;
-    public const string TunNotice = "TUN runtime is not installed in this build. No adapter, route or DNS changes will be made. Proxy remains active.";
+    public static bool TunAvailable => File.Exists(Path.Combine(AppContext.BaseDirectory, "cores", "sing-box.exe")) && File.Exists(Path.Combine(AppContext.BaseDirectory, "cores", "wintun.dll"));
+    public const string TunNotice = "The TUN components are missing. Reinstall the Windows setup package.";
     public static void EnsureAvailable(string mode)
     {
         if (mode != "Proxy" && mode != "TUN") throw new InvalidOperationException("Unknown capture mode.");
-        if (mode == "TUN" && !TunAvailable) throw new InvalidOperationException(TunNotice);
+        if (mode == "TUN")
+        {
+            if (!TunAvailable) throw new InvalidOperationException(TunNotice);
+            _ = CoreIntegrity.Verify("sing-box.exe"); _ = CoreIntegrity.Verify("wintun.dll");
+            if (!WintunAdapter.IsAdministrator) throw new InvalidOperationException("Open Personal VPN as Administrator to use TUN.");
+        }
     }
 }

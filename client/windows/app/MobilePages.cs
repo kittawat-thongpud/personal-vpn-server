@@ -44,7 +44,7 @@ public sealed partial class MainWindow
         var arrow = Text("›", 24, "#86B8FF"); arrow.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(arrow, 2); card.Children.Add(arrow);
         var server = Action("", () => Navigate("Profiles")); server.Content = card; server.HorizontalContentAlignment = HorizontalAlignment.Stretch; server.Name = "ServerCard"; server.Height = compact ? 64 : 75; server.Margin = new Thickness(0, 0, 0, 8); Put(body, server, 0);
         var capture = Stack(); capture.Children.Add(CaptureSelector());
-        var badge = Text(settings.Protocol + "  ·  " + ModeName(settings.Sites!.Mode), 11, "#9BAECD"); badge.TextAlignment = TextAlignment.Center; badge.Margin = new Thickness(0, 1, 0, 3); capture.Children.Add(badge); Put(body, capture, 1);
+        var protocol = Combo(new[] { "Hysteria 2", "REALITY" }, settings.Protocol, value => { settings.Protocol = value; Changed(); Navigate("Home"); }); protocol.Name = "HomeProtocol"; protocol.Margin = new Thickness(0, 1, 0, 3); capture.Children.Add(protocol); Put(body, capture, 1);
         var center = PageRows(Auto, Star, Auto, Auto, Auto); center.Margin = new Thickness(0, 3, 0, 8);
         status = Text(backend.State, 22); status.TextAlignment = TextAlignment.Center; Put(center, status, 0);
         connect = AsyncAction("Connect", ToggleConnection);
@@ -69,8 +69,8 @@ public sealed partial class MainWindow
         var appTunnel = SettingsRow("App Tunnel", settings.CaptureMode == "Proxy" ? "Unavailable in Proxy · requires TUN mode" : "Executable exceptions · App rules win", "AppTunnel");
         appTunnel.Name = "AppTunnelSettings"; appTunnel.IsEnabled = settings.CaptureMode == "TUN" && CaptureCapabilities.TunAvailable; rows.Children.Add(appTunnel);
         rows.Children.Add(SettingsRow("Site Tunnel", "Domain / IP exceptions · " + ModeName(settings.Sites!.Mode), "SiteTunnel"));
-        rows.Children.Add(SettingsRow("Backend logs", "Session only · up to 1,000 records", "Diagnostics")); Put(body, rows, 1);
-        Put(body, Text("PERSONAL VPN  0.4.1\nProxy capture · Wintun module in development", 11, "#8395B2"), 2); return body;
+        rows.Children.Add(SettingsRow("Backend logs", "Connection events", "Diagnostics")); Put(body, rows, 1);
+        Put(body, Text("PERSONAL VPN  0.5.0\nProxy / TUN · Administrator", 11, "#8395B2"), 2); return body;
     }
     private Button SettingsRow(string title, string description, string target)
     {
@@ -81,7 +81,7 @@ public sealed partial class MainWindow
     }
     private async Task ApplyPolicy()
     {
-        settings.Validate(); Changed(); if (backend.Running) await ConnectSelectedProxy(); Navigate("Home");
+        settings.Validate(); Changed(); if (backend.Running) await ConnectSelected(); Navigate("Home");
     }
     private static void ValidateHost(string value)
     {
@@ -90,7 +90,7 @@ public sealed partial class MainWindow
     private UIElement ProtocolPage()
     {
         var body = PageRows(Auto, Star, Auto);
-        Put(body, Combo(new[] { "Hysteria 2", "REALITY" }, settings.Protocol, value => { settings.Protocol = value; Changed(); Navigate("VpnConfig"); }), 0);
+        Put(body, Text(settings.Protocol + " settings", 15), 0);
         var profile = settings.Profiles.FirstOrDefault(x => x.Id == settings.SelectedId); bool reality = settings.Protocol == "REALITY";
         if (profile == null || (reality ? profile.Xray == null : profile.Hysteria == null))
         {
@@ -111,7 +111,7 @@ public sealed partial class MainWindow
             form.Children.Add(Text("VLESS + REALITY + Vision · TCP\nDevice credentials remain in the imported profile.", 11, "#9BAECD"));
         }
         else form.Children.Add(Text("Hysteria 2 · QUIC / UDP\nFull-certificate pin enforced · BBR congestion control. Credentials and pin remain in the imported profile.", 11, "#9BAECD"));
-        form.Children.Add(Text("Capture: Proxy\nApp executable rules require the Wintun module being developed next.", 11, "#9BAECD"));
+        form.Children.Add(Text("Capture: " + settings.CaptureMode, 11, "#9BAECD"));
         Put(body, Card(WidgetScroll(form)), 1);
         Put(body, AsyncAction("Save & apply", async () =>
         {
@@ -132,9 +132,9 @@ public sealed partial class MainWindow
         var policy = apps ? settings.Apps : settings.Sites!; string target = apps ? "AppTunnel" : "SiteTunnel";
         var body = PageRows(Auto, Star, Auto); var header = Stack();
         if (apps && (settings.CaptureMode != "TUN" || !CaptureCapabilities.TunAvailable)) body.IsEnabled = false;
-        header.Children.Add(Text(apps ? "TUN REQUIRED · SAVED DRAFT ONLY" : "DEFAULT ACTION + EXCEPTIONS", 10, apps ? "#E9BB72" : "#9BAECD"));
-        header.Children.Add(Combo(ModeLabels, ModeName(policy.Mode), label => { policy.Mode = ModeValues[Array.IndexOf(ModeLabels, label)]; Changed(!apps); Navigate(target); }));
-        header.Children.Add(Text(apps ? "Inactive in Proxy mode. In Wintun, app exceptions win over site exceptions." : "Exceptions override the default. Rules off ignores this list and tunnels captured traffic.", 11, "#9BAECD"));
+        header.Children.Add(Text(apps && settings.CaptureMode != "TUN" ? "TUN REQUIRED" : "DEFAULT ACTION + EXCEPTIONS", 10, apps ? "#E9BB72" : "#9BAECD"));
+        header.Children.Add(Combo(ModeLabels, ModeName(policy.Mode), label => { policy.Mode = ModeValues[Array.IndexOf(ModeLabels, label)]; Changed(!apps || settings.CaptureMode == "TUN"); Navigate(target); }));
+        header.Children.Add(Text(apps ? "App exceptions win over site exceptions. Executable rules apply in TUN mode." : "Exceptions override the default. Rules off ignores this list and tunnels captured traffic.", 11, "#9BAECD"));
         header.Children.Add(Action(apps ? "+ Choose app.exe" : "+ Add domain / IP", () => EditException(policy, apps, null))); Put(body, header, 0);
         var list = Stack();
         foreach (var entry in policy.Entries.ToArray())
@@ -144,13 +144,13 @@ public sealed partial class MainWindow
             labels.Children.Add(Text(entry.Kind + "  →  " + entry.Action, 11, entry.Action == "Block" ? "#F29C9F" : entry.Action == "Tunnel" ? "#58DCB5" : "#8DB8F2")); row.Children.Add(labels);
             var buttons = new Grid(); buttons.ColumnDefinitions.Add(new ColumnDefinition()); buttons.ColumnDefinitions.Add(new ColumnDefinition());
             var edit = Action("✎", () => EditException(policy, apps, entry)); edit.Padding = new Thickness(2); edit.ToolTip = "Edit exception";
-            var remove = Action("×", () => { policy.Entries.Remove(entry); Changed(!apps); Navigate(target); }); remove.Padding = new Thickness(2); remove.ToolTip = "Remove exception"; Grid.SetColumn(remove, 1); buttons.Children.Add(edit); buttons.Children.Add(remove); Grid.SetColumn(buttons, 1); row.Children.Add(buttons);
+            var remove = Action("×", () => { policy.Entries.Remove(entry); Changed(!apps || settings.CaptureMode == "TUN"); Navigate(target); }); remove.Padding = new Thickness(2); remove.ToolTip = "Remove exception"; Grid.SetColumn(remove, 1); buttons.Children.Add(edit); buttons.Children.Add(remove); Grid.SetColumn(buttons, 1); row.Children.Add(buttons);
             var card = Card(row); card.Padding = new Thickness(10, 7, 10, 7); list.Children.Add(card);
         }
         if (policy.Entries.Count == 0) list.Children.Add(Text("No exceptions yet. Add a target and choose Tunnel, Bypass or Block.", 12, "#9BAECD"));
         if (policy.Mode == "Disabled") { list.Opacity = .5; list.ToolTip = "Saved exceptions are ignored while rules are off."; }
         Put(body, Card(WidgetScroll(list)), 1); var footer = Stack(); footer.Children.Add(Text(policy.Entries.Count + " / 500 exceptions" + (apps ? " · not applied to Proxy" : " · explicit Block exceptions first"), 10, "#9BAECD"));
-        footer.Children.Add(apps ? Action("Save draft", () => { Policy.ValidateTunnel(policy, true); Changed(false); Navigate("Settings"); }) : AsyncAction("Save & apply", ApplyPolicy)); Put(body, footer, 2); return body;
+        footer.Children.Add(apps && settings.CaptureMode != "TUN" ? Action("Save draft", () => { Policy.ValidateTunnel(policy, true); Changed(false); Navigate("Settings"); }) : AsyncAction("Save & apply", ApplyPolicy)); Put(body, footer, 2); return body;
     }
     private void EditException(TunnelPolicy policy, bool apps, TunnelException? previous)
     {
@@ -167,7 +167,7 @@ public sealed partial class MainWindow
             var next = new TunnelException { Kind = (string)kind.SelectedItem, Value = value.Text.Trim(), Action = (string)action.SelectedItem };
             var candidate = new TunnelPolicy { Mode = policy.Mode, Entries = policy.Entries.Where(x => !ReferenceEquals(x, previous)).Append(next).ToList() }; Policy.ValidateTunnel(candidate, apps);
             if (previous == null) policy.Entries.Add(next); else policy.Entries[policy.Entries.IndexOf(previous)] = next;
-            Changed(!apps); dialog.Close(); Navigate(apps ? "AppTunnel" : "SiteTunnel");
+            Changed(!apps || settings.CaptureMode == "TUN"); dialog.Close(); Navigate(apps ? "AppTunnel" : "SiteTunnel");
         })); dialog.Content = panel; dialog.ShowDialog();
     }
     internal FrameworkElement LayoutForTest(string target, Size size)

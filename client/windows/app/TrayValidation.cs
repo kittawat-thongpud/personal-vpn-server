@@ -16,6 +16,7 @@ public static class TrayValidation
     }
     public static List<string> Checks()
     {
+        Assert(TrayHost.KeepOpen(Forms.ToolStripDropDownCloseReason.AppFocusChange) && !TrayHost.KeepOpen(Forms.ToolStripDropDownCloseReason.AppClicked) && !TrayHost.KeepOpen(Forms.ToolStripDropDownCloseReason.Keyboard) && !TrayHost.KeepOpen(Forms.ToolStripDropDownCloseReason.ItemClicked), "Tray menu focus loss must not hide it; outside click, Esc and action selection must close it.");
         var result = new List<string>(); var commands = new List<string>();
         var state = new TrayState("Disconnected", "REALITY", "Proxy", false, false, false, true, "—", true, true,
             new[] { new TrayProfile("test", "Japan & preview", true) });
@@ -34,9 +35,7 @@ public static class TrayValidation
         Assert(!menu["protocol:REALITY"].Enabled && menu["connect"].Text == "Apply & reconnect", "Unsupported protocol or dirty state incorrect.");
         tray.Dispose(); tray.Dispose(); tray.Update();
         result.Add("tray menu state, dispatch, profile / protocol checks, busy guards and idempotent disposal");
-        CaptureCapabilities.EnsureAvailable("Proxy"); bool rejected = false;
-        try { CaptureCapabilities.EnsureAvailable("TUN"); } catch (InvalidOperationException) { rejected = true; }
-        Assert(rejected && !CaptureCapabilities.TunAvailable, "Unimplemented TUN must not silently start Proxy or change networking.");
-        result.Add("unavailable TUN guard preserves effective Proxy capture"); return result;
+        CaptureCapabilities.EnsureAvailable("Proxy"); CaptureCapabilities.EnsureAvailable("TUN");
+        result.Add("verified native TUN components and Administrator capability; tray focus loss keeps menu open"); return result;
     }
 }

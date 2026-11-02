@@ -1,5 +1,4 @@
 name: Windows client
-
 on:
   push:
     branches: [main]
@@ -7,90 +6,128 @@ on:
       - 'client/windows/app/**'
       - 'client/windows/package.ps1'
       - 'client/windows/install.ps1'
+      - 'client/windows/setup.iss'
       - 'client/windows/README.md'
       - '.github/workflows/windows-client.yml'
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
   group: windows-client-${{ github.ref }}
   cancel-in-progress: false
-
+env:
+  CLIENT_VERSION: '0.5.0'
 jobs:
   build:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, x86]
     runs-on: windows-2025
-    timeout-minutes: 20
-    permissions:
-      contents: write
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
         with:
           dotnet-version: '10.0.x'
-      - name: Publish self-contained Windows application
+      - name: Publish architecture-matched Administrator application
         shell: pwsh
-        run: dotnet publish client/windows/app/PersonalVpn.csproj -c Release -r win-x64 --self-contained true -o dist/windows -p:DebugType=None -p:DebugSymbols=false
-      - name: Download and verify pinned native cores
+        run: dotnet publish client/windows/app/PersonalVpn.csproj -c Release -r win-${{ matrix.arch }} --self-contained true -o dist/windows -p:DebugType=None -p:DebugSymbols=false
+      - name: Package pinned cores and signed Wintun
         shell: pwsh
-        run: ./client/windows/package.ps1
-      - name: Test backend policy, logs, safe imports and core integrity
+        run: ./client/windows/package.ps1 -Architecture ${{ matrix.arch }}
+      - name: Check policy, logs and architecture-matched binary integrity
         shell: pwsh
         run: |
-          $process = Start-Process -FilePath (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--self-test', '--report', "$env:RUNNER_TEMP/self-test.json") -PassThru -Wait -WindowStyle Hidden
-          Get-Content "$env:RUNNER_TEMP/self-test.json"
-          if ($process.ExitCode -ne 0) { throw 'Windows client self-tests failed' }
-      - name: Test one-click proxy capture and recovery with an ephemeral local server
+          $report = "$env:RUNNER_TEMP/self-test.json"
+          $p = Start-Process (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--self-test','--report',$report) -PassThru -Wait -WindowStyle Hidden
+          Get-Content $report
+          if ($p.ExitCode -ne 0) { throw 'Self-tests failed' }
+      - name: Install and verify signed adapter driver without routes
+        shell: pwsh
+        run: |
+          $report = "$env:RUNNER_TEMP/driver-install.json"
+          $p = Start-Process (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--install-adapter','--report',$report) -PassThru -Wait -WindowStyle Hidden
+          Get-Content $report
+          if ($p.ExitCode -ne 0) { throw 'Adapter driver installation failed' }
+      - name: Verify native Proxy capture and restoration
         shell: pwsh
         run: |
           $report = "$env:RUNNER_TEMP/proxy-integration.json"
-          $process = Start-Process -FilePath (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--local-proxy-integration', '--report', $report) -PassThru -Wait -WindowStyle Hidden
+          $p = Start-Process (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--local-proxy-integration','--report',$report) -PassThru -Wait -WindowStyle Hidden
           Get-Content $report
-          if ($process.ExitCode -ne 0) { throw 'Local proxy integration failed' }
-      - name: Validate mobile layouts and Wintun routing plan without activating an adapter
+          if ($p.ExitCode -ne 0) { throw 'Proxy integration failed' }
+      - name: Verify Home, logs, tray menu and TUN plan
         shell: pwsh
         run: |
           $output = "$env:RUNNER_TEMP/mobile-layout"
-          $report = "$env:RUNNER_TEMP/mobile-layout-result.json"
-          $process = Start-Process -FilePath (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--layout-test', '--output', $output, '--report', $report) -PassThru -Wait -WindowStyle Hidden
+          $report = "$env:RUNNER_TEMP/layout.json"
+          $p = Start-Process (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--layout-test','--output',$output,'--report',$report) -PassThru -Wait -WindowStyle Hidden
           Get-Content $report
-          if ($process.ExitCode -ne 0) { throw 'Mobile layout / routing tests failed' }
-          $archive = "$env:RUNNER_TEMP/sing-box.zip"
-          Invoke-WebRequest 'https://github.com/SagerNet/sing-box/releases/download/v1.14.4/sing-box-1.14.4-windows-amd64.zip' -OutFile $archive
-          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '99185D75D314A07DBBA4A130C8AD986CBEB629A07927975636B341CA61F991DF') { throw 'Routing-plan validator checksum mismatch' }
-          Expand-Archive $archive "$env:RUNNER_TEMP/sing-box" -Force
-          $validator = Get-ChildItem "$env:RUNNER_TEMP/sing-box" -Filter sing-box.exe -Recurse | Select-Object -First 1
-          & $validator.FullName check -c "$output/tun-plan.json"
-          if ($LASTEXITCODE -ne 0) { throw 'Wintun plan rejected by pinned upstream validator' }
-          Compress-Archive "$output/*.png" dist/PersonalVPN-ui-preview-0.4.1.zip
-      - name: Package and publish Windows preview
+          if ($p.ExitCode -ne 0) { throw 'Layout / tray tests failed' }
+          & ./dist/windows/cores/sing-box.exe check -c "$output/tun-plan.json"
+          if ($LASTEXITCODE -ne 0) { throw 'TUN config check failed' }
+          Compress-Archive "$output/*.png" "dist/PersonalVPN-ui-preview-$env:CLIENT_VERSION-${{ matrix.arch }}.zip"
+      - name: Verify real TUN capture, app policy, UDP and crash cleanup on isolated runner
         shell: pwsh
+        run: |
+          $report = "$env:RUNNER_TEMP/tun-integration.json"
+          $p = Start-Process (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--local-tun-integration','--report',$report) -PassThru -Wait -WindowStyle Hidden
+          Get-Content $report
+          if ($p.ExitCode -ne 0) { throw 'TUN integration failed' }
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $compiler = Get-ChildItem 'C:/Program Files (x86)/Inno Setup*/ISCC.exe' | Select-Object -First 1
+          if (-not $compiler) { throw 'Inno Setup compiler missing' }
+          & $compiler.FullName "/DArchitecture=${{ matrix.arch }}" "/DPackageDir=$((Resolve-Path dist/windows).Path)" client/windows/setup.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
+      - name: Test installer without launching GUI
+        shell: pwsh
+        run: |
+          $setup = (Resolve-Path "dist/PersonalVPN-Setup-$env:CLIENT_VERSION-${{ matrix.arch }}.exe").Path
+          $p = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-') -PassThru -Wait -WindowStyle Hidden
+          if ($p.ExitCode -ne 0) { throw 'Installer failed' }
+          $base = if ('${{ matrix.arch }}' -eq 'x86') { $env:ProgramFiles + ' (x86)' } else { $env:ProgramFiles }
+          $installed = Join-Path $base "PersonalVPN/$env:CLIENT_VERSION-${{ matrix.arch }}"
+          $report = Get-Content (Join-Path $installed 'driver-install.json') -Raw | ConvertFrom-Json
+          if ($report.result -ne 'PASS') { throw 'Installed driver check failed' }
+          if ((Get-FileHash (Join-Path $installed 'PersonalVPN.exe')).Hash -ne (Get-FileHash dist/windows/PersonalVPN.exe).Hash) { throw 'Installed executable differs from package' }
+      - name: Package architecture-matched ZIP and checksums
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/windows/* -DestinationPath "dist/PersonalVPN-windows-${{ matrix.arch }}-$env:CLIENT_VERSION.zip" -CompressionLevel Optimal
+          $assets = Get-ChildItem dist -File | Where-Object { $_.Name -like 'PersonalVPN-*' }
+          $lines = foreach ($asset in $assets) { ((Get-FileHash $asset.FullName).Hash.ToLowerInvariant() + '  ' + $asset.Name) }
+          $lines | Set-Content "dist/SHA256SUMS-${{ matrix.arch }}.txt" -Encoding ascii
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: windows-${{ matrix.arch }}
+          path: |
+            dist/PersonalVPN-*.exe
+            dist/PersonalVPN-*.zip
+            dist/SHA256SUMS-*.txt
+          retention-days: 7
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: windows-*
+          path: dist
+          merge-multiple: true
+      - name: Publish tested x86 and x64 installers
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
-          $version = '0.4.1'
-          $tag = "windows-v$version"
-          $archive = "PersonalVPN-windows-x64-$version.zip"
-          Compress-Archive -Path dist/windows/* -DestinationPath "dist/$archive" -CompressionLevel Optimal
-          $hash = (Get-FileHash "dist/$archive" -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  $archive" | Set-Content dist/SHA256SUMS.txt -Encoding ascii
-          $notes = @'
-          Tray-first Windows client with a generated application icon. X / Minimize hide the window while VPN stays running; use Disconnect & exit from the tray to quit and restore the previous proxy. The dark tray menu includes connect, reconnect, profiles, protocols, settings, logs and export. Home has a confirmed Proxy / TUN selector below the profile. Proxy is functional; TUN activation is guarded until its runtime is implemented. App Tunnel is visible but disabled in Proxy. Existing credentials and app drafts are preserved.
-
-          Extract the ZIP and run install.ps1 with PowerShell. No administrator rights or separate .NET install required. Import device exports locally; no credentials are bundled.
-
-          System proxy captures browsers that follow Windows proxy settings. TUN, executable interception, service and whole-machine kill switch remain unavailable. No adapter, route, DNS or firewall changes. Built and self-tested by GitHub Actions from source.
-          '@
-          $notes | Set-Content "$env:RUNNER_TEMP/windows-release.md" -Encoding utf8
-          gh release view $tag *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag "dist/$archive" dist/SHA256SUMS.txt dist/PersonalVPN-ui-preview-0.4.1.zip --clobber
-            if ($LASTEXITCODE -ne 0) { throw 'Release asset upload failed' }
-            gh release edit $tag --target $env:GITHUB_SHA --notes-file "$env:RUNNER_TEMP/windows-release.md"
-          } else {
-            gh release create $tag "dist/$archive" dist/SHA256SUMS.txt dist/PersonalVPN-ui-preview-0.4.1.zip --target $env:GITHUB_SHA --title "Windows client $version preview" --notes-file "$env:RUNNER_TEMP/windows-release.md" --prerelease
-          }
-          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
+          cat dist/SHA256SUMS-*.txt > dist/SHA256SUMS.txt
+          gh release create "windows-v$CLIENT_VERSION" dist/PersonalVPN-*.exe dist/PersonalVPN-*.zip dist/SHA256SUMS.txt --target "$GITHUB_SHA" --title "Windows client $CLIENT_VERSION preview" --notes-file client/windows/RELEASE-NOTES.md --prerelease

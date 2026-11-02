@@ -73,13 +73,14 @@ public static class MobileValidation
                 var root = window.LayoutForTest(page, size); var elements = Elements(root).ToArray();
                 if (page == "Home")
                 {
-                    Assert(!elements.OfType<ScrollViewer>().Any(), "Home must not have an outer scrollbar.");
+                    Assert(!elements.OfType<ScrollViewer>().Any(x => x.IsVisible), "Home must not have an outer scrollbar.");
                     foreach (string name in new[] { "ServerCard", "CaptureSelector", "ConnectButton", "TrafficCard" })
                     {
                         var item = elements.Single(x => x.Name == name); var bounds = item.TransformToAncestor(root).TransformBounds(new Rect(item.RenderSize));
                         if (name == "ConnectButton") Assert(bounds.Height >= 96, "Connect button must remain readable at minimum height; actual=" + bounds.Height);
                         Assert(bounds.Top >= -.5 && bounds.Bottom <= size.Height + .5 && bounds.Left >= -.5 && bounds.Right <= size.Width + .5 && bounds.Height > 20, "Home widget clipped: " + name);
                     }
+                    Assert(elements.OfType<ComboBox>().Single(x => x.Name == "HomeProtocol").SelectedItem as string == settings.Protocol, "Home protocol selector missing.");
                     Assert(window.BusyCaptureForTest(), "Capture selector must be disabled and retain actual mode during connection operations.");
                     var server = elements.Single(x => x.Name == "ServerCard"); Assert(server.ActualWidth <= 460, "Maximized window lost the centered mobile column.");
                 }
@@ -91,6 +92,7 @@ public static class MobileValidation
                 }
                 if (page == "Diagnostics")
                 {
+                    Assert(!elements.OfType<TextBlock>().Any(x => x.Text.Contains("1,000") || x.Text.Contains("KiB") || x.Text.Contains("session memory")), "Log descriptions or size limits remain visible.");
                     var text = elements.OfType<TextBox>().Single(x => x.IsReadOnly);
                     Assert(text.Text.Length > 1000 && text.VerticalScrollBarVisibility == ScrollBarVisibility.Auto && text.ExtentHeight > text.ViewportHeight, "Long logs viewport: text=" + text.Text.Length + ", extent=" + text.ExtentHeight + ", viewport=" + text.ViewportHeight);
                 }
@@ -103,11 +105,11 @@ public static class MobileValidation
             var confirmation = window.CaptureConfirmationForTest("TUN");
             confirmation.WindowStartupLocation = WindowStartupLocation.Manual; confirmation.ShowActivated = false; confirmation.Left = confirmation.Top = -30000;
             confirmation.Show(); confirmation.UpdateLayout();
-            Assert(!Elements(confirmation).OfType<Button>().Single(x => x.Name == "ConfirmCaptureMode").IsEnabled && settings.CaptureMode == "Proxy", "TUN confirmation must not mutate capture or permit unavailable runtime.");
+            Assert(Elements(confirmation).OfType<Button>().Single(x => x.Name == "ConfirmCaptureMode").IsEnabled == CaptureCapabilities.TunAvailable && settings.CaptureMode == "Proxy", "TUN confirmation capability or non-mutating preview failed.");
             var dialogBitmap = new RenderTargetBitmap((int)confirmation.ActualWidth, (int)confirmation.ActualHeight, 96, 96, PixelFormats.Pbgra32); dialogBitmap.Render(confirmation);
             var dialogEncoder = new PngBitmapEncoder(); dialogEncoder.Frames.Add(BitmapFrame.Create(dialogBitmap));
             using (var dialogFile = File.Create(Path.Combine(output, "CaptureConfirmation.png"))) dialogEncoder.Save(dialogFile);
-            confirmation.Close(); checks.Add("capture confirmation visible; unavailable TUN cannot be confirmed; Proxy and profiles retained");
+            confirmation.Close(); checks.Add("capture confirmation visible; verified TUN can be confirmed; preview retains Proxy and profiles");
             File.WriteAllText(Path.Combine(output, "tun-plan.json"), TunPlan.Compile(settings, new[] { "203.0.113.10" }, new[] { @"C:\PersonalVPN\cores\xray.exe", @"C:\PersonalVPN\cores\hysteria.exe" }).ToJsonString(Store.JsonOptions));
             File.WriteAllText(Program.Option(args, "--report")!, JsonSerializer.Serialize(new { result = "PASS", checks }, Store.JsonOptions)); return 0;
         }

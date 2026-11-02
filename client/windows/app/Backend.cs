@@ -129,6 +129,7 @@ public sealed class Backend : IAsyncDisposable
     private CancellationTokenSource? cycle;
     private Task? worker;
     private long generation;
+    private DateTime ownNetworkTransitionUntil;
     private readonly Timer networkDebounce;
     private string state = "Disconnected", detail = "Ready", exit = "—";
     private Settings? active;
@@ -156,7 +157,7 @@ public sealed class Backend : IAsyncDisposable
     {
         lock (gate)
         {
-            if (session == null) return;
+            if (session == null || DateTime.UtcNow < ownNetworkTransitionUntil) return;
             generation++;
             cycle?.Cancel();
         }
@@ -185,11 +186,29 @@ public sealed class Backend : IAsyncDisposable
                 active = settings.Snapshot(); session = new CancellationTokenSource(); generation++;
                 var token = session.Token;
                 var snapshot = active.Snapshot();
-                state = "Connecting"; detail = "Starting tunnel and selecting Personal VPN system proxy."; exit = "—";
+                state = "Connecting"; detail = settings.CaptureMode == "TUN" ? "Starting TUN; authentication, adapter and capture checks required." : "Starting tunnel and selecting Personal VPN system proxy."; exit = "—";
                 worker = Task.Run(() => Run(snapshot, token));
             }
         }
         finally { lifecycle.Release(); }
+    }
+    public async Task ConnectAsync(Settings settings)
+    {
+        if (settings.CaptureMode == "Proxy") { await ConnectProxyAsync(settings); return; }
+        CaptureCapabilities.EnsureAvailable(settings.CaptureMode); settings.SystemProxy = false;
+        await StartAsync(settings); await WaitForConnection(90);
+    }
+    private async Task WaitForConnection(int seconds)
+    {
+        CancellationTokenSource? requested; lock (gate) requested = session; var elapsed = Stopwatch.StartNew();
+        while (elapsed.Elapsed < TimeSpan.FromSeconds(seconds))
+        {
+            lock (gate) { if (session == null || session != requested) throw new OperationCanceledException("Connection cancelled."); }
+            if (State == "Connected") return;
+            if (State == "Reconnecting") throw new InvalidOperationException(Detail + " Retrying; inspect backend logs.");
+            await Task.Delay(200);
+        }
+        throw new InvalidOperationException("Connection verification timed out; inspect backend logs.");
     }
     public async Task ConnectProxyAsync(Settings settings)
     {
@@ -211,7 +230,7 @@ public sealed class Backend : IAsyncDisposable
     }
     public async Task<ProtocolProbeResult> TestProtocolAsync(Settings settings, string protocol)
     {
-        var selected = settings.Snapshot(); selected.Protocol = protocol; selected.SystemProxy = false;
+        var selected = settings.Snapshot(); selected.CaptureMode = "Proxy"; selected.Protocol = protocol; selected.SystemProxy = false;
         selected.HttpPort = FreePort(settings.HttpPort, settings.SocksPort);
         selected.SocksPort = FreePort(settings.HttpPort, settings.SocksPort, selected.HttpPort);
         string path = protocol == "REALITY" && selected.ChainReality ? "via configured upstream proxy" : "on current OS route";
@@ -327,10 +346,10 @@ public sealed class Backend : IAsyncDisposable
         }
         throw new InvalidOperationException("Could not allocate an internal loopback port.");
     }
-    private static object Listener(string tag, string protocol, int port) => new
+    private static object Listener(string tag, string protocol, int port, bool udp = false) => new
     {
         tag, protocol, listen = "127.0.0.1", port,
-        settings = protocol == "socks" ? (object)new { auth = "noauth", udp = false } : new { },
+        settings = protocol == "socks" ? (object)new { auth = "noauth", udp } : new { },
     };
     private async Task RunCycle(Settings settings, long expected, CancellationToken token)
     {
@@ -342,6 +361,8 @@ public sealed class Backend : IAsyncDisposable
         using var trafficCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
         Task? trafficTask = null;
         var owned = new List<OwnedCore>();
+        TunLease? adapterLease = null; bool tun = settings.CaptureMode == "TUN";
+        var transports = tun ? await TunSupport.Resolve(settings, token) : Array.Empty<IPAddress>();
         try
         {
             // Fail before launch if another program owns one of our public proxy ports.
@@ -359,7 +380,8 @@ public sealed class Backend : IAsyncDisposable
             if (settings.Protocol == "Hysteria 2")
             {
                 var hy = JsonNode.Parse(settings.Selected.Hysteria!)!.AsObject();
-                hy["socks5"] = new JsonObject { ["listen"] = "127.0.0.1:" + inner, ["disableUDP"] = true };
+                hy["socks5"] = new JsonObject { ["listen"] = "127.0.0.1:" + inner, ["disableUDP"] = !tun };
+                if (tun) { var endpoint = new Uri("tcp://" + hy["server"]!.GetValue<string>()); hy["server"] = (transports[0].AddressFamily == AddressFamily.InterNetworkV6 ? "[" + transports[0] + "]" : transports[0].ToString()) + ":" + endpoint.Port; }
                 hy["quic"] = new JsonObject { ["maxIdleTimeout"] = "30s", ["keepAlivePeriod"] = "10s" };
                 string path = Path.Combine(folder, "hysteria.json");
                 await File.WriteAllTextAsync(path, hy.ToJsonString(), token);
@@ -370,6 +392,12 @@ public sealed class Backend : IAsyncDisposable
             {
                 var reality = JsonNode.Parse(settings.Selected.Xray!)!["outbounds"]![0]!.DeepClone();
                 reality["tag"] = "tunnel";
+                if (tun)
+                {
+                    reality["settings"]!["vnext"]![0]!["address"] = transports[0].ToString();
+                    var user = reality["settings"]!["vnext"]![0]!["users"]![0]!;
+                    if ((string?)user["flow"] == "xtls-rprx-vision") user["flow"] = "xtls-rprx-vision-udp443";
+                }
                 reality["streamSettings"]!["sockopt"] = settings.ChainReality ? new JsonObject { ["dialerProxy"] = "existing-proxy" } : new JsonObject();
                 outbounds.Add(reality);
                 if (settings.ChainReality) outbounds.Add(new JsonObject { ["tag"] = "existing-proxy", ["protocol"] = "http", ["settings"] = new JsonObject { ["servers"] = new JsonArray(new JsonObject { ["address"] = "127.0.0.1", ["port"] = settings.UpstreamPort }) } });
@@ -382,10 +410,10 @@ public sealed class Backend : IAsyncDisposable
                 ["stats"] = new JsonObject(),
                 ["api"] = new JsonObject { ["tag"] = "traffic-api", ["listen"] = "127.0.0.1:" + stats, ["services"] = new JsonArray("StatsService") },
                 ["policy"] = new JsonObject { ["system"] = new JsonObject { ["statsOutboundUplink"] = true, ["statsOutboundDownlink"] = true } },
-                ["inbounds"] = System.Text.Json.JsonSerializer.SerializeToNode(new[] { Listener("http", "http", settings.HttpPort), Listener("socks", "socks", settings.SocksPort), Listener("health", "socks", health) }),
+                ["inbounds"] = System.Text.Json.JsonSerializer.SerializeToNode(new[] { Listener("http", "http", settings.HttpPort), Listener("socks", "socks", settings.SocksPort, tun), Listener("health", "socks", health) }),
                 ["outbounds"] = outbounds,
                 // AsIs: proxy hostnames reach the remote resolver; local IP rules match literal IP destinations only.
-                ["routing"] = new JsonObject { ["domainStrategy"] = "AsIs", ["rules"] = Policy.Compile(settings) }
+                ["routing"] = new JsonObject { ["domainStrategy"] = "AsIs", ["rules"] = tun ? new JsonArray(new JsonObject { ["type"] = "field", ["network"] = "tcp,udp", ["outboundTag"] = "tunnel" }) : Policy.Compile(settings) }
             };
             string routerPath = Path.Combine(folder, "xray.json");
             await File.WriteAllTextAsync(routerPath, router.ToJsonString(), token);
@@ -396,6 +424,7 @@ public sealed class Backend : IAsyncDisposable
             SetState("Verifying", "Checking authenticated HTTPS through the selected server.", expected);
             using var healthHandler = new SocketsHttpHandler { Proxy = new WebProxy("socks5://127.0.0.1:" + health), UseProxy = true, ConnectTimeout = TimeSpan.FromSeconds(8), PooledConnectionLifetime = TimeSpan.Zero };
             using var client = new HttpClient(healthHandler) { Timeout = TimeSpan.FromSeconds(10) };
+            using var tunHealth = new HttpClient(new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(8), PooledConnectionLifetime = TimeSpan.Zero }) { Timeout = TimeSpan.FromSeconds(12) };
             int misses = 0, checks = 0;
             while (true)
             {
@@ -405,12 +434,30 @@ public sealed class Backend : IAsyncDisposable
                 {
                     string observed = await Health(client, token);
                     token.ThrowIfCancellationRequested();
+                    if (tun && adapterLease == null)
+                    {
+                        lock (gate) ownNetworkTransitionUntil = DateTime.UtcNow.AddSeconds(50);
+                        SetState("Verifying", "Authenticated server verified; preparing TUN adapter and checking the captured path.", expected);
+                        adapterLease = await TunLease.Start(folder, token);
+                        var plan = TunPlan.Compile(settings, transports.Select(x => x.ToString()), new[] { VerifyCore("xray.exe"), VerifyCore("hysteria.exe") }, adapterLease.InterfaceName, TunSupport.MeshPrefixes(), Environment.ProcessPath);
+                        string path = Path.Combine(folder, "tun.json"); await File.WriteAllTextAsync(path, plan.ToJsonString(), token);
+                        owned.Add(new OwnedCore(job, VerifyCore("sing-box.exe"), new[] { "run", "-c", path }, Log));
+                        lock (gate) { cores.Clear(); cores.AddRange(owned); }
+                        await TunSupport.WaitForAdapter(adapterLease, token);
+                        lock (gate) ownNetworkTransitionUntil = DateTime.UtcNow.AddSeconds(3);
+                        Log.Add("INFO", "backend.tun_started", "Owned TUN adapter ready; verifying DNS and HTTPS through system capture.");
+                    }
+                    if (tun)
+                    {
+                        if (adapterLease!.Exited) throw new InvalidOperationException("Adapter recovery guard stopped.");
+                        observed = await Health(tunHealth, token);
+                    }
                     if (settings.SystemProxy && proxyLease == null) proxyLease = new SystemProxyLease(settings.HttpPort, Log);
                     bool captured = !settings.SystemProxy || proxyLease!.IsCurrent;
-                    lock (gate) captureStatus = settings.SystemProxy ? captured ? "Windows HTTP / HTTPS → Personal VPN" : "Proxy changed by another app" : "Manual app proxy only";
+                    lock (gate) captureStatus = tun ? "TUN · apps / services captured" : settings.SystemProxy ? captured ? "Windows HTTP / HTTPS → Personal VPN" : "Proxy changed by another app" : "Manual app proxy only";
                     lock (gate) { if (generation != expected) throw new OperationCanceledException(token); exit = observed; lastTunnelExit = observed; }
                     SetState(captured ? "Connected" : "Proxy conflict", captured
-                        ? "Verified HTTPS exit " + observed + " · " + settings.Protocol
+                        ? "Verified " + (tun ? "TUN " : "HTTPS ") + "exit " + observed + " · " + settings.Protocol
                         : "Tunnel works, but another app selected a different Windows proxy. Use proxy to select Personal VPN again.", expected);
                     lock (gate) { if (generation == expected) exit = observed; }
                     misses = 0; checks++;
@@ -427,6 +474,7 @@ public sealed class Backend : IAsyncDisposable
                 for (int second = 0; second < (misses > 0 ? 3 : 25); second++)
                 {
                     await Task.Delay(1000, token); EnsureAlive(owned);
+                    if (adapterLease?.Exited == true) throw new InvalidOperationException("Adapter recovery guard stopped.");
                     if (settings.SystemProxy && proxyLease != null && !proxyLease.IsCurrent)
                     {
                         lock (gate) captureStatus = WindowsProxy.Describe(WindowsProxy.Read());
@@ -442,6 +490,11 @@ public sealed class Backend : IAsyncDisposable
             Traffic.Unavailable();
             lock (gate) cores.Clear();
             for (int i = owned.Count - 1; i >= 0; i--) owned[i].Dispose();
+            if (adapterLease != null)
+            {
+                lock (gate) ownNetworkTransitionUntil = DateTime.UtcNow.AddSeconds(5);
+                adapterLease.Dispose(); Log.Add("INFO", "backend.tun_stopped", "Owned adapter removed; its routes and DNS settings released.");
+            }
             // Only a freshly generated child of our protected runtime directory is removed.
             if (Path.GetDirectoryName(Path.GetFullPath(folder)) != Path.GetFullPath(runtimeRoot)) throw new InvalidOperationException("Invalid runtime cleanup path.");
             if (Directory.Exists(folder)) Directory.Delete(folder, true);
@@ -469,14 +522,7 @@ public sealed class Backend : IAsyncDisposable
             try { await Task.Delay(1000, token); } catch (OperationCanceledException) { break; }
         }
     }
-    public static string VerifyCore(string name)
-    {
-        string path = Path.Combine(AppContext.BaseDirectory, "cores", name);
-        string expected = name == "xray.exe" ? "D5B558191CCCB1E92A5772B68B8CAB67717B26F634B0F15153215F65AE982A7E" : "162EF8FE55DC7EC810DDA662908F8E65EC36BD6DA39CB87C3BD66184AB68F067";
-        using var file = File.OpenRead(path);
-        if (Convert.ToHexString(SHA256.HashData(file)) != expected) throw new InvalidOperationException("VPN core checksum mismatch; reinstall the verified package.");
-        return path;
-    }
+    public static string VerifyCore(string name) => CoreIntegrity.Verify(name);
     private static void EnsureAlive(List<OwnedCore> owned)
     {
         if (owned.Any(x => x.Exited)) throw new InvalidOperationException("VPN core exited unexpectedly. Restarting and verifying a new connection.");
