@@ -70,6 +70,8 @@ public sealed class OwnedCore : IDisposable
 {
     public Process Process { get; }
     public string Name { get; }
+    private string startupDiagnostic = "";
+    public string StartupDiagnostic => startupDiagnostic;
     private readonly Task reader;
     private readonly Task errorReader;
     private readonly SessionLog log;
@@ -98,6 +100,7 @@ public sealed class OwnedCore : IDisposable
             while ((count = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
             {
                 var line = new string(buffer, 0, count).ToLowerInvariant();
+                if (Name == "sing-box" && Environment.GetEnvironmentVariable("CI") == "true") startupDiagnostic = (startupDiagnostic + line)[^Math.Min(4096, startupDiagnostic.Length + line.Length)..];
                 if (!(line.Contains("error") || line.Contains("fatal") || line.Contains("failed"))) continue;
                 if (Interlocked.Increment(ref errorCount) > 20) continue;
                 string category = line.Contains("certificate") || line.Contains("pinsha") ? "TLS / certificate verification failed."
@@ -441,9 +444,9 @@ public sealed class Backend : IAsyncDisposable
                         adapterLease = await TunLease.Start(folder, token);
                         var plan = TunPlan.Compile(settings, transports.Select(x => x.ToString()), new[] { VerifyCore("xray.exe"), VerifyCore("hysteria.exe") }, adapterLease.InterfaceName, TunSupport.MeshPrefixes(), Environment.ProcessPath);
                         string path = Path.Combine(folder, "tun.json"); await File.WriteAllTextAsync(path, plan.ToJsonString(), token);
-                        owned.Add(new OwnedCore(job, VerifyCore("sing-box.exe"), new[] { "run", "-c", path }, Log));
+                        var tunCore = new OwnedCore(job, VerifyCore("sing-box.exe"), new[] { "run", "-c", path }, Log); owned.Add(tunCore);
                         lock (gate) { cores.Clear(); cores.AddRange(owned); }
-                        await TunSupport.WaitForAdapter(adapterLease, token);
+                        await TunSupport.WaitForAdapter(adapterLease, token, () => tunCore.Exited ? "TUN core stopped before adapter readiness. " + tunCore.StartupDiagnostic : null);
                         lock (gate) ownNetworkTransitionUntil = DateTime.UtcNow.AddSeconds(3);
                         Log.Add("INFO", "backend.tun_started", "Owned TUN adapter ready; verifying DNS and HTTPS through system capture.");
                     }

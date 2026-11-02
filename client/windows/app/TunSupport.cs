@@ -34,12 +34,13 @@ public static class TunSupport
         if (addresses.Length == 0) throw new InvalidOperationException("No VPN server addresses resolved.");
         return addresses.OrderBy(x => x.GetAddressBytes().Length).ToArray();
     }
-    public static async Task WaitForAdapter(TunLease lease, CancellationToken token)
+    public static async Task WaitForAdapter(TunLease lease, CancellationToken token, Func<string?>? startupFailure = null)
     {
         for (int i = 0; i < 200; i++)
         {
             token.ThrowIfCancellationRequested();
             if (lease.Exited) throw new InvalidOperationException("Adapter recovery guard stopped.");
+            string? failure = startupFailure?.Invoke(); if (failure != null) throw new InvalidOperationException(failure);
             var nic = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(x => Guid.TryParse(x.Id, out var id) && id == lease.AdapterId);
             if (nic?.OperationalStatus == OperationalStatus.Up && nic.GetIPProperties().UnicastAddresses.Any(x => x.Address.ToString() == "172.28.255.1")) return;
             await Task.Delay(100, token);

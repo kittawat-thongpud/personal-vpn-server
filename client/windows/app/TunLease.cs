@@ -91,6 +91,7 @@ public sealed class TunLease : IDisposable
         File.WriteAllText(Path.Combine(folder, "tun-stop"), "stop");
         if (!guard.WaitForExit(8000)) { guard.Kill(); guard.WaitForExit(3000); }
         guard.Dispose();
+        for (int i = 0; i < 30 && WintunAdapter.Exists(record.AdapterId); i++) Thread.Sleep(100);
         // Fallback for a killed guard / native teardown failure. Validate both the
         // exact recorded GUID and our adapter name before any device removal.
         if (WintunAdapter.Exists(record.AdapterId)) WintunAdapter.RemoveOrphan(record.AdapterId, record.Name);
