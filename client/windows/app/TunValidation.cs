@@ -58,7 +58,8 @@ internal static partial class Tests
             await SocksUdpEcho(settings.SocksPort); checks.Add("native SOCKS UDP relay traverses Xray and Hysteria");
             settings.Apps = new TunnelPolicy { Mode = "Tunnel", Entries = new() { new() { Kind = "App", Value = curlPath, Action = "Block" } } };
             await backend.ConnectAsync(settings);
-            Assert(await Curl() != 0 && backend.State == "Connected", "App Block must block external process while private health remains connected.");
+            int blockedCurl = await Curl();
+            Assert(blockedCurl != 0 && backend.State == "Connected", "App Block result: curl=" + blockedCurl + "; state=" + backend.State + "; " + lastCurlError + "; " + backend.NativeTunDiagnostic);
             checks.Add("real executable Block rule enforced without blocking private health");
             settings.Apps.Entries[0].Action = "Tunnel";
             settings.Sites = new TunnelPolicy { Mode = "Block", Entries = new() { new() { Kind = "Domain", Value = "api.ipify.org", Action = "Block" } } };

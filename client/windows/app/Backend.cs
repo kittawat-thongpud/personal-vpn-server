@@ -134,7 +134,7 @@ public sealed class Backend : IAsyncDisposable
     private CancellationTokenSource? cycle;
     private Task? worker;
     private long generation;
-    private DateTime ownNetworkTransitionUntil;
+    private string networkSignature = NetworkSignature();
     private readonly Timer networkDebounce;
     private string state = "Disconnected", detail = "Ready", exit = "—";
     private Settings? active;
@@ -159,11 +159,20 @@ public sealed class Backend : IAsyncDisposable
     }
     private void OnNetworkChange(object? sender, EventArgs args) => networkDebounce.Change(1200, Timeout.Infinite);
     private void OnAvailabilityChange(object? sender, NetworkAvailabilityEventArgs args) => networkDebounce.Change(1200, Timeout.Infinite);
+    private static string NetworkSignature() => string.Join("|", NetworkInterface.GetAllNetworkInterfaces()
+        .Where(x => !x.Name.StartsWith("PersonalVPN", StringComparison.Ordinal))
+        .OrderBy(x => x.Id).Select(x => x.Id + ":" + x.OperationalStatus + ":" +
+            string.Join(",", x.GetIPProperties().UnicastAddresses.Select(a => a.Address + "/" + a.PrefixLength).OrderBy(a => a)) + ":" +
+            string.Join(",", x.GetIPProperties().GatewayAddresses.Select(a => a.Address.ToString()).OrderBy(a => a)) + ":" +
+            string.Join(",", x.GetIPProperties().DnsAddresses.Select(a => a.ToString()).OrderBy(a => a))));
     private void NetworkChanged()
     {
         lock (gate)
         {
-            if (session == null || DateTime.UtcNow < ownNetworkTransitionUntil) return;
+            string observed = NetworkSignature();
+            if (observed == networkSignature) return;
+            networkSignature = observed;
+            if (session == null) return;
             generation++;
             cycle?.Cancel();
         }
@@ -450,7 +459,6 @@ public sealed class Backend : IAsyncDisposable
                     token.ThrowIfCancellationRequested();
                     if (tun && adapterLease == null)
                     {
-                        lock (gate) ownNetworkTransitionUntil = DateTime.UtcNow.AddSeconds(50);
                         SetState("Verifying", "Authenticated server verified; preparing TUN adapter and checking the captured path.", expected);
                         adapterLease = await TunLease.Start(folder, token);
                         Log.Add("INFO", "backend.adapter_reused", "Persistent adapter opened: " + adapterLease.AdapterId + ". No device creation or deletion for this session.");
@@ -460,7 +468,6 @@ public sealed class Backend : IAsyncDisposable
                         var tunCore = new OwnedCore(job, VerifyCore("sing-box.exe"), new[] { "run", "-c", path }, Log); owned.Add(tunCore);
                         lock (gate) { cores.Clear(); cores.AddRange(owned); }
                         await TunSupport.WaitForAdapter(adapterLease, token, () => tunCore.Exited ? "TUN core stopped before adapter readiness. " + tunCore.StartupDiagnostic : null);
-                        lock (gate) ownNetworkTransitionUntil = DateTime.UtcNow.AddSeconds(3);
                         Log.Add("INFO", "backend.tun_started", "Owned TUN adapter ready; verifying DNS and HTTPS through system capture.");
                     }
                     if (tun)
@@ -510,7 +517,6 @@ public sealed class Backend : IAsyncDisposable
             for (int i = owned.Count - 1; i >= 0; i--) owned[i].Dispose();
             if (adapterLease != null)
             {
-                lock (gate) ownNetworkTransitionUntil = DateTime.UtcNow.AddSeconds(5);
                 adapterLease.Dispose(); Log.Add("INFO", "backend.tun_stopped", "Capture routes and DNS released; persistent adapter retained.");
             }
             // Only a freshly generated child of our protected runtime directory is removed.
