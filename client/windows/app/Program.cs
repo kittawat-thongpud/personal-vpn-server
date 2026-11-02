@@ -143,7 +143,12 @@ internal static class Tests
             _ = Application.Current ?? new Application();
             Application.Current.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/PersonalVPN;component/Theme.xaml", UriKind.Relative) });
             foreach (var widget in new System.Windows.Controls.Control[] { new System.Windows.Controls.ComboBox(), new System.Windows.Controls.Primitives.ScrollBar(), new System.Windows.Controls.Slider(), new System.Windows.Controls.TextBox(), new System.Windows.Controls.MenuItem(), new System.Windows.Controls.CheckBox() })
-                Assert(widget.ApplyTemplate(), "Dark widget template did not load: " + widget.GetType().Name);
+            {
+                // Standalone controls have no window to resolve implicit styles during layout.
+                widget.Style = (Style)Application.Current.FindResource(widget.GetType());
+                widget.ApplyTemplate();
+                Assert(widget.Template != null && System.Windows.Media.VisualTreeHelper.GetChildrenCount(widget) > 0, "Dark widget template did not load: " + widget.GetType().Name);
+            }
             passed.Add("dark ComboBox, ScrollBar, Slider, TextBox, MenuItem and CheckBox templates load");
             return Report(args, new { result = "PASS", checks = passed }, 0);
         }
