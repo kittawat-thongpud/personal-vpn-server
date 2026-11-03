@@ -25,15 +25,15 @@ PERSONAL_EXPECT_REALITY_REJECT=true go test -ldflags='-checklinkname=0' -tags 'w
 python3 "$project/native/patch.py"
 cp "$project/native/pin_test.go" common/tls/personal_pin_test.go
 gofmt -w option/tls.go common/tls/std_client.go common/tls/reality_client.go
+# Build the loopback diagnostic before qualification so a failing test can be
+# investigated with the exact patched handshake, without a local source build.
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags='-s -w -checklinkname=0' -tags 'with_quic,with_utls' -o "$project/app/libs/reality-probe.exe" ./cmd/sing-box
 go install github.com/sagernet/gomobile/cmd/gomobile github.com/sagernet/gomobile/cmd/gobind
 go test -tags 'with_gvisor,with_quic,with_utls' ./experimental/personalvpn ./common/tls
 go test -ldflags='-checklinkname=0' -tags 'with_gvisor,with_quic,with_utls' ./experimental/libbox -run '^TestPersonal(HealthHysteriaRepeated|RealityXray)$' -count=1 -timeout=90s
 mkdir -p cmd/personal-fixture
 cp "$project/test-fixture/main.go" cmd/personal-fixture/main.go
 go build -trimpath -tags 'with_gvisor,with_quic,with_utls' -o "$project/app/libs/test-fixture" ./cmd/personal-fixture
-# Isolated loopback-only diagnostic executable, for a live interoperability
-# check on Windows without replacing the installed VPN or its network routes.
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags='-s -w -checklinkname=0' -tags 'with_quic,with_utls' -o "$project/app/libs/reality-probe.exe" ./cmd/sing-box
 "$(go env GOPATH)/bin/gomobile" bind -target=android/arm64,android/amd64 -androidapi=29 -javapkg=dev.personalvpn -libname=pvn -trimpath -ldflags='-s -w -checklinkname=0' -tags=with_gvisor,with_quic,with_utls -o "$project/app/libs/personalvpn.aar" ./experimental/personalvpn
 cp LICENSE "$project/app/libs/LICENSE-sing-box.txt"
 git rev-parse HEAD > "$project/app/libs/CORE-SOURCE.txt"

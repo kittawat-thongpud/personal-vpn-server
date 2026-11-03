@@ -59,6 +59,7 @@ jobs:
             ~/.cache/go-build
           key: android-go-${{ runner.os }}-${{ hashFiles('client/android/native/**', 'client/android/build-native.sh') }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && !cancelled()
         with:
           name: android-native
           path: client/android/app/libs/

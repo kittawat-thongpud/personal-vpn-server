@@ -39,7 +39,7 @@ func TestPersonalRealityXray(t *testing.T) {
  uuid:="10000000-0000-4000-8000-000000000001"
  server:=map[string]any{"log":map[string]any{"loglevel":"error"},"inbounds":[]any{map[string]any{"listen":"127.0.0.1","port":port,"protocol":"vless","settings":map[string]any{"decryption":"none","clients":[]any{map[string]any{"id":uuid,"flow":"xtls-rprx-vision"}}},"streamSettings":map[string]any{"network":"raw","security":"reality","realitySettings":map[string]any{"target":listener.Addr().String(),"serverNames":[]string{"fixture.local"},"privateKey":base64.RawURLEncoding.EncodeToString(reality.Bytes()),"shortIds":[]string{"0123456789abcdef"}}}}},"outbounds":[]any{map[string]any{"protocol":"freedom"}}}
  raw,_:=json.Marshal(server);path:=filepath.Join(t.TempDir(),"xray.json");if err=os.WriteFile(path,raw,0600);err!=nil{t.Fatal(err)}
- command:=exec.Command(executable,"run","-c",path);if err=command.Start();err!=nil{t.Fatal(err)};t.Cleanup(func(){command.Process.Kill();command.Wait()})
+ command:=exec.Command(executable,"run","-c",path);command.Stdout=os.Stdout;command.Stderr=os.Stderr;if err=command.Start();err!=nil{t.Fatal(err)};t.Cleanup(func(){command.Process.Kill();command.Wait()})
  deadline:=time.Now().Add(5*time.Second)
  for { connection,e:=net.DialTimeout("tcp",net.JoinHostPort("127.0.0.1",strconv.Itoa(port)),100*time.Millisecond);if e==nil{connection.Close();break};if time.Now().After(deadline){t.Fatal("Xray did not listen")};time.Sleep(50*time.Millisecond) }
  for _,mode:=range []string{"valid","short_id","public_key"} {
