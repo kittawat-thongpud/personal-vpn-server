@@ -1,13 +1,35 @@
 # Android validation
 
-0.1.0 is under active CI validation. Do not treat this file as proof of an APK
-release or physical-phone test until the completed results are recorded below.
+Android 0.1.0 preview was published on 2026-11-03 from commit
+`631043c33f5d6018eb5530810e6bb43b853c58c3`.
 
-Qualification requires JVM policy/import/log tests, a real TLS pin-match and
-pin-mismatch handshake, signature verification and Android 14 emulator tests of
-both protocols, OS capture, a different-UID app Block, App-over-Site priority,
-UDP forwarding and capture cleanup. Fixture credentials are generated on the
-isolated runner; the user's VPS credentials are not uploaded to CI.
+- [Completed qualification and release run](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/41612467476): native, app, emulator and release jobs succeeded.
+- [Private signed APK release](https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/android-v0.1.0): APK, INSTALL.md, SIGNATURE.txt and SHA256SUMS.txt are uploaded; this is a prerelease, not a draft.
+- APK SHA-256: `2ff79f8d2b62b01d07bec96c4b9d9a8e5f753666717b8dfe24b664bc7e47b1ba`.
+- Downloaded APK checksum independently matched the release asset. APK Signature Scheme v2 verification succeeded and the RSA-3072 certificate matched SIGNING-CERTIFICATE.txt. Both arm64-v8a and x86_64 libraries are present.
+
+## Completed checks
+
+JVM policy/import/log tests and Android lint passed. The native qualification
+includes real TLS pin-match/pin-mismatch handshakes and eight successive
+authenticated HTTPS requests over a local Hysteria 2 gateway. A short-response
+EOF found during qualification was fixed by consuming the health response before
+closing its HTTP transport.
+
+Android 14 x86_64 emulator instrumentation reported `OK (3 tests)` in 80.223 s:
+
+- Android Keystore encrypted storage round-trip and native configuration validation.
+- Actual Hysteria 2 and REALITY/Vision TUN capture; authenticated native HTTPS and separately captured Android HTTPS agree.
+- A companion APK with a different UID successfully sends HTTPS and UDP through the gateway.
+- App Block rejects that companion; explicit App Tunnel wins over Site Block; explicit App Bypass reaches the target through a protected Direct socket.
+- Reconnects and protocol changes retain the same Android TUN name/index. Normal Disconnect releases capture, clears Exit IP and shows zero current throughput.
+- Tunnel byte counters increase with captured traffic. Arbitrary exported Activity commands cannot disconnect; the authorized widget PendingIntent command can disconnect when foreground launch is permitted.
+- Home controls fit on screen. The resulting Home screenshot was visually inspected.
+
+The emulator uses generated credentials and an isolated TLS/DNS/UDP gateway on
+the GitHub runner. It does not use the user's VPS credentials or prove Internet
+access from the physical phone in China. Notification/widget/tile UI interactions,
+radio handover and OEM background behavior still require physical acceptance.
 
 The target Redmi Note 13 Pro+ 5G / Android 14 is not connected through ADB in
 this workspace. Physical throughput, Wi-Fi/cellular transitions, screen-off and

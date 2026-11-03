@@ -1,6 +1,8 @@
 # Android client design — 2026-11-03
 
-Status: researched implementation proposal, not an implemented or tested APK.
+Status: implemented Android 0.1.0 preview. Current qualification evidence and
+physical-device limitations are recorded in VALIDATION.md. The decisions below
+retain the original platform analysis; they are not physical-phone test results.
 Primary acceptance device supplied by the user: Redmi Note 13 Pro+ 5G,
 Android 14, build UP1A.231005.007. The Xiaomi ROM version, ABI list and battery
 policy have not been read from the phone.
@@ -16,7 +18,7 @@ VPN can query TCP/UDP connection ownership through getConnectionOwnerUid from
 API 29. This baseline is a product decision, not an Android VPN requirement.
 [Connection ownership API](https://developer.android.com/reference/android/net/ConnectivityManager#getConnectionOwnerUid(int,%20java.net.InetSocketAddress,%20java.net.InetSocketAddress)).
 
-Evaluate a pinned libbox Android library before committing to it: prove existing
+The implementation uses a pinned libbox Android library. Physical acceptance must prove existing
 VLESS / REALITY / Vision and Hysteria 2 profiles against the VPS, including the
 current REALITY SNI and Hysteria certificate pin. It offers Android package-name
 rules, unlike Windows process paths. If compatibility fails, assess separate
