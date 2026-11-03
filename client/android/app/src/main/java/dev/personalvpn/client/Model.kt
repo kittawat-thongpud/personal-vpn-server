@@ -19,9 +19,10 @@ data class Policy(val mode: Action = Action.Disabled, val rules: List<Rule> = em
 }
 
 object AppRules {
+    fun validPackage(value: String) = value == "android" || value.matches(Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+"))
     fun apply(policy: Policy, packages: Set<String>, action: Action): Policy {
         require(action != Action.Disabled)
-        require(packages.all { it != EngineConfig.APP && it.matches(Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+")) })
+        require(packages.all { it != EngineConfig.APP && validPackage(it) })
         val combined = policy.rules.associateBy { it.target }.toMutableMap()
         packages.sorted().forEach { combined[it] = Rule(it, action, "App") }
         return policy.copy(rules = combined.values.toList())
@@ -147,7 +148,7 @@ object EngineConfig {
         require(if (config.protocol == "REALITY") profile.reality != null else profile.hysteria != null) { "This profile has no credentials for ${config.protocol}. Select its available protocol." }
         require(config.apps.rules.map { it.target }.distinct().size == config.apps.rules.size) { "Duplicate app rule." }
         for (rule in config.apps.rules + config.sites.rules) require(rule.action != Action.Disabled && rule.target.isNotBlank()) { "Invalid rule." }
-        for (rule in config.apps.rules) require(rule.target.matches(Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+")) && rule.target != APP) { "Choose an installed app package." }
+        for (rule in config.apps.rules) require(AppRules.validPackage(rule.target) && rule.target != APP) { "Choose an installed app package." }
         for (rule in config.sites.rules) {
             if (rule.kind == "Domain") require(rule.target.matches(Regex("[A-Za-z0-9_*-]+(\\.[A-Za-z0-9_-]+)+")) && !rule.target.contains('*')) { "Enter a domain without scheme, path or wildcard." }
             else { val parts = rule.target.split('/'); require(parts.size <= 2 && parts[0].matches(Regex("[0-9a-fA-F:.]+"))); if (parts.size == 2) require(parts[1].toInt() in 0..if (parts[0].contains(':')) 128 else 32) }

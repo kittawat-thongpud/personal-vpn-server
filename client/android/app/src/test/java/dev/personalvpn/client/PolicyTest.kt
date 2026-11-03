@@ -20,6 +20,12 @@ class PolicyTest {
     }
     @Test(expected = IllegalArgumentException::class) fun bulkSelectionCannotOverrideOwnControlPackage() { AppRules.apply(Policy(), setOf("org.example.app", EngineConfig.APP), Action.Block) }
     @Test(expected = IllegalArgumentException::class) fun bulkSelectionCannotStoreRulesOffAsAnAction() { AppRules.apply(Policy(), setOf("org.example.app"), Action.Disabled) }
+    @Test fun androidFrameworkPackageIsAValidSystemAppException() {
+        val policy = AppRules.apply(Policy(Action.Tunnel), setOf("android"), Action.Block)
+        val p = profile()
+        EngineConfig.compile(Config(listOf(p), p.id, apps = policy), "192.0.2.1")
+        assertEquals(listOf(Rule("android", Action.Block, "App")), policy.rules)
+    }
     private fun profile() = Profile(hysteria = """{"server":"192.0.2.1","port":443,"auth":"synthetic","sni":"fixture.local","pin":"${"ab".repeat(32)}","obfs":""}""")
     @Test fun appExceptionWinsSiteAndDefaults() {
         val p = profile(); val c = Config(listOf(p), p.id, apps = Policy(Action.Block, listOf(Rule("org.example.app", Action.Bypass, "App"))), sites = Policy(Action.Tunnel, listOf(Rule("example.com", Action.Block))))
