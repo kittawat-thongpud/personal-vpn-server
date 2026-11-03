@@ -37,6 +37,9 @@ public static class MobileValidation
         checks.Add("site defaults, exception over Block default, rules-off, legacy migration");
         var policy = new Settings { Sites = new TunnelPolicy { Mode = "Block", Entries = new() { new() { Kind = "Domain", Value = "example.com", Action = "Block" } } }, Apps = new TunnelPolicy { Mode = "Tunnel", Entries = new() { new() { Kind = "App", Value = @"C:\Apps\browser.exe", Action = "Bypass" } } } };
         var plan = TunPlan.Compile(policy, new[] { "203.0.113.10", "2001:db8::10" }, new[] { @"C:\PersonalVPN\cores\xray.exe", @"C:\PersonalVPN\cores\hysteria.exe" });
+        Assert((string?)plan["dns"]!["strategy"] == "ipv4_only", "Default TUN DNS must not advertise unusable IPv6 destinations.");
+        var dual = policy.Snapshot(); dual.AllowIpv6Dns = true;
+        Assert((string?)TunPlan.Compile(dual, new[] { "203.0.113.10" }, new[] { @"C:\PersonalVPN\cores\xray.exe" })["dns"]!["strategy"] == "prefer_ipv4", "Explicit IPv6 DNS option was ignored.");
         var tunRules = plan["route"]!["rules"]!.AsArray();
         Assert((string?)tunRules[3]?["outbound"] == "direct" && tunRules[3]?["process_path_regex"] != null && (string?)tunRules[4]?["action"] == "reject", "App exception must beat a conflicting site Block.");
         Assert(plan["inbounds"]![0]!["route_exclude_address"]!.AsArray().Count == 2, "Transport recursion exclusions lost.");

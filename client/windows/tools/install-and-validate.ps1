@@ -14,7 +14,7 @@ $before=(Get-FileHash -LiteralPath $settingsFile).Hash
 $summary=[ordered]@{ installed=$false; settingsUnchanged=$false; tunActivated=$false }
 try {
     $base=if ($Architecture -eq 'x86' -and $env:PROCESSOR_ARCHITECTURE -eq 'AMD64') { $env:ProgramFiles + ' (x86)' } else { $env:ProgramFiles }
-    $installed=Join-Path $base ("PersonalVPN/0.6.1-" + $Architecture)
+    $installed=Join-Path $base ("PersonalVPN/0.6.2-" + $Architecture)
     $setupLog=Join-Path $ReportDirectory 'setup.log'
     $setup=Start-Process -FilePath $InstallerPath -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/DIR="'+$installed+'"'),('/LOG="'+$setupLog+'"')) -PassThru -Wait -WindowStyle Hidden
     $summary.setupExitCode=$setup.ExitCode

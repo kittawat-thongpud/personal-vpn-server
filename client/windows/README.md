@@ -1,4 +1,4 @@
-# Personal VPN for Windows — 0.6.1 preview
+# Personal VPN for Windows — 0.6.2 preview
 
 Download the x86 (32-bit) or x64 Windows Setup EXE from the private GitHub release.
 Windows 10 build 19041 or later is required. Setup and the application require Administrator. Setup includes the self-contained
@@ -30,6 +30,11 @@ checks DNS / HTTPS through OS capture before showing Connected. Both TCP and UDP
 are enabled on the native frontend. No protocol automatically falls back to Direct.
 There is no whole-machine kill switch; reconnect can interrupt flows and temporarily
 release capture. The protection state is shown and logged.
+
+TUN DNS returns IPv4 addresses by default for VPS compatibility. Enable IPv6 DNS
+in VPN configure only after the VPS IPv6 Internet path has been verified. This
+does not disable Windows IPv6 or mesh interfaces; IPv6 address space stays in
+the TUN capture plan.
 
 App / Site rules support Tunnel, Bypass and Block defaults with per-target
 exceptions. Rules off retains but ignores that module's list. Explicit App rules

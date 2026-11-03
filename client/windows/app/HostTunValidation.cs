@@ -39,6 +39,13 @@ internal static partial class Tests
                 var output = curl.StandardOutput.ReadToEndAsync(); var error = curl.StandardError.ReadToEndAsync();
                 await curl.WaitForExitAsync(); await Task.WhenAll(output, error);
                 Assert(curl.ExitCode == 0 && JsonNode.Parse(await output)?["ip"]?.GetValue<string>() == expected, "External curl did not use the VPS exit.");
+                curlInfo.ArgumentList.Clear();
+                foreach (string argument in new[] { "--noproxy", "*", "--max-time", "12", "-fsS", "-o", "NUL", "https://www.google.com/generate_204" }) curlInfo.ArgumentList.Add(argument);
+                using var googleCurl = Process.Start(curlInfo)!;
+                var googleOutput = googleCurl.StandardOutput.ReadToEndAsync(); var googleError = googleCurl.StandardError.ReadToEndAsync();
+                await googleCurl.WaitForExitAsync(); await Task.WhenAll(googleOutput, googleError);
+                Assert(googleCurl.ExitCode == 0, "External default curl failed Google HTTPS; IPv6 compatibility is not healthy.");
+                Assert((await Dns.GetHostAddressesAsync("www.google.com")).All(x => x.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork), "Default DNS advertised IPv6 on the IPv4-compatible profile.");
                 Assert(WindowsProxy.Matches(WindowsProxy.Read(), WindowsProxy.Direct()), "Windows proxy was not suspended for TUN.");
                 Assert(AdapterService.CurrentId() == adapter, "Adapter GUID changed.");
                 checks.Add(protocol + ": captured HTTPS exit " + expected + "; Google reachable; same adapter GUID");

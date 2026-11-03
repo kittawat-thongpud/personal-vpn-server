@@ -53,6 +53,7 @@ public sealed class Settings
     public string Traffic { get; set; } = "Global";
     public string CaptureMode { get; set; } = "Proxy";
     public bool ChainReality { get; set; }
+    public bool AllowIpv6Dns { get; set; }
     public bool SystemProxy { get; set; } = true;
     public int UpstreamPort { get; set; } = 7688;
     public int HttpPort { get; set; } = 17890;

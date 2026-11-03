@@ -70,7 +70,7 @@ public sealed partial class MainWindow
         appTunnel.Name = "AppTunnelSettings"; appTunnel.IsEnabled = settings.CaptureMode == "TUN" && CaptureCapabilities.TunAvailable; rows.Children.Add(appTunnel);
         rows.Children.Add(SettingsRow("Site Tunnel", "Domain / IP exceptions · " + ModeName(settings.Sites!.Mode), "SiteTunnel"));
         rows.Children.Add(SettingsRow("Backend logs", "Connection events", "Diagnostics")); Put(body, rows, 1);
-        Put(body, Text("PERSONAL VPN  0.6.1\nProxy / TUN · Administrator", 11, "#8395B2"), 2); return body;
+        Put(body, Text("PERSONAL VPN  0.6.2\nProxy / TUN · Administrator", 11, "#8395B2"), 2); return body;
     }
     private Button SettingsRow(string title, string description, string target)
     {
@@ -111,6 +111,8 @@ public sealed partial class MainWindow
             form.Children.Add(Text("VLESS + REALITY + Vision · TCP\nDevice credentials remain in the imported profile.", 11, "#9BAECD"));
         }
         else form.Children.Add(Text("Hysteria 2 · QUIC / UDP\nFull-certificate pin enforced · BBR congestion control. Credentials and pin remain in the imported profile.", 11, "#9BAECD"));
+        var ipv6 = new CheckBox { Content = "IPv6 DNS in TUN (requires VPS IPv6)", IsChecked = settings.AllowIpv6Dns }; form.Children.Add(ipv6);
+        form.Children.Add(Text("IPv4 DNS is the default for VPS compatibility. Enable IPv6 only after its Internet path is working.", 11, "#9BAECD"));
         form.Children.Add(Text("Capture: " + settings.CaptureMode, 11, "#9BAECD"));
         Put(body, Card(WidgetScroll(form)), 1);
         Put(body, AsyncAction("Save & apply", async () =>
@@ -124,6 +126,7 @@ public sealed partial class MainWindow
                 tls["serverName"] = name; tls["fingerprint"] = (string)fingerprint!.SelectedItem; profile.Xray = config.ToJsonString(); settings.ChainReality = chain!.IsChecked == true;
             }
             else { config["server"] = (host.Contains(':') ? "[" + host + "]" : host) + ":" + number; config["tls"]!["sni"] = name; profile.Hysteria = config.ToJsonString(); }
+            settings.AllowIpv6Dns = ipv6.IsChecked == true;
             await ApplyPolicy();
         }), 2); return body;
     }

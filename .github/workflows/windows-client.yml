@@ -18,7 +18,7 @@ concurrency:
   group: windows-client-${{ github.ref }}
   cancel-in-progress: false
 env:
-  CLIENT_VERSION: '0.6.1'
+  CLIENT_VERSION: '0.6.2'
 jobs:
   build:
     strategy:

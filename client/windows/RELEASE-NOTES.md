@@ -1,4 +1,8 @@
-Windows 0.6.1: persistent TUN adapter lifecycle and versioned installer upgrades.
+Windows 0.6.2: IPv4-compatible TUN DNS and persistent adapter lifecycle.
+
+The default TUN DNS strategy now returns IPv4 addresses. This fixes the observed case where the VPS IPv4 path worked, while applications selecting an IPv6 address failed during TLS. VPN configure includes an explicit IPv6 DNS option for servers with working IPv6 Internet access. Windows IPv6 and mesh interfaces are unchanged; IPv6 address space remains captured by TUN.
+
+CI and host diagnostics now test ordinary external curl against Google without forcing an address family, and verify that the default DNS does not advertise unusable AAAA destinations.
 
 Setup explicitly uses the new version directory instead of the previous installation path. CI installs the previous version first, verifies the new default destination and checks that the previous executable stays unchanged. Native binaries are reused from the SHA-256 pinned, Actions-tested 0.6.0 bundle when the source recipe is unchanged.
 

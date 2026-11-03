@@ -45,7 +45,7 @@ public static class TunPlan
             ["dns"] = new JsonObject
             {
                 ["servers"] = new JsonArray(new JsonObject { ["type"] = "https", ["tag"] = "remote-dns", ["server"] = "1.1.1.1", ["path"] = "/dns-query", ["detour"] = "tunnel" }),
-                ["final"] = "remote-dns", ["reverse_mapping"] = true
+                ["final"] = "remote-dns", ["strategy"] = settings.AllowIpv6Dns ? "prefer_ipv4" : "ipv4_only", ["reverse_mapping"] = true
             },
             ["inbounds"] = new JsonArray(new JsonObject
             {

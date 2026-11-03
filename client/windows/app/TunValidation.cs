@@ -42,10 +42,10 @@ internal static partial class Tests
         string curlPath = Path.Combine(windows, "System32", "curl.exe");
         string curlLaunch = Path.Combine(windows, Environment.Is64BitProcess ? "System32" : "Sysnative", "curl.exe");
         string lastCurlError = "";
-        async Task<int> Curl()
+        async Task<int> Curl(string url = "https://api.ipify.org/?format=json")
         {
             var info = new ProcessStartInfo(curlLaunch) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
-            foreach (string arg in new[] { "--noproxy", "*", "--max-time", "8", "-fsS", "-o", "NUL", "https://api.ipify.org/?format=json" }) info.ArgumentList.Add(arg);
+            foreach (string arg in new[] { "--noproxy", "*", "--max-time", "8", "-fsS", "-o", "NUL", url }) info.ArgumentList.Add(arg);
             using var process = Process.Start(info)!; var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync(); await Task.WhenAll(output, error); lastCurlError = (await error)[..Math.Min(700, (await error).Length)]; return process.ExitCode;
         }
@@ -57,6 +57,9 @@ internal static partial class Tests
             Assert(AdapterService.CurrentId() == persistentId, "TUN replaced the persistent device.");
             checks.Add("persistent Wintun adapter, authenticated frontend, captured DNS/HTTPS and suspended Windows proxy verified");
             int baseline = await Curl(); Assert(baseline == 0, "External process baseline failed: exit=" + baseline + "; " + lastCurlError + "; " + backend.NativeTunDiagnostic);
+            Assert((await Dns.GetHostAddressesAsync("www.google.com")).All(x => x.AddressFamily == AddressFamily.InterNetwork), "IPv4-only DNS still advertises AAAA addresses.");
+            Assert(await Curl("https://www.google.com/generate_204") == 0, "Default external curl failed Google HTTPS without a forced address family: " + lastCurlError);
+            checks.Add("IPv4 DNS default suppresses unusable AAAA; external default curl reaches Google without -4");
             await SocksUdpEcho(settings.SocksPort); checks.Add("native SOCKS UDP relay traverses Xray and Hysteria");
             settings.Apps = new TunnelPolicy { Mode = "Tunnel", Entries = new() { new() { Kind = "App", Value = curlPath, Action = "Block" } } };
             await backend.ConnectAsync(settings);
