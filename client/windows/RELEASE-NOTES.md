@@ -1,4 +1,6 @@
-Windows 0.6.0: persistent TUN adapter lifecycle.
+Windows 0.6.1: persistent TUN adapter lifecycle and versioned installer upgrades.
+
+Setup explicitly uses the new version directory instead of the previous installation path. CI installs the previous version first, verifies the new default destination and checks that the previous executable stays unchanged. Native binaries are reused from the SHA-256 pinned, Actions-tested 0.6.0 bundle when the source recipe is unchanged.
 
 Setup installs the signed Wintun driver and a small automatic Windows service. The service holds one PersonalVPN adapter. Connect, Disconnect, reconnect and Proxy / TUN switches reuse that device; they reset session routes, addresses and DNS rather than deleting and recreating adapters. The TUN core is built in GitHub Actions from a pinned source revision with an OpenAdapter-only patch.
 

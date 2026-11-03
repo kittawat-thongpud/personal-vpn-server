@@ -14,6 +14,19 @@ function Expand-Verified([string]$Url,[string]$Hash,[string]$Name) {
 }
 $is32 = $Architecture -eq 'x86'
 Set-Content -LiteralPath (Join-Path $packageRoot ('architecture-' + $Architecture + '.txt')) -Value $Architecture -Encoding ascii
+# Reuse binaries already built and qualified by Actions for an identical recipe.
+$recipe = (Get-FileHash (Join-Path $PSScriptRoot 'build-tun-core.ps1')).Hash
+if ($env:GITHUB_ACTIONS -eq 'true' -and $recipe -eq '01DA964D441ABA83F168380862E70AF72405A5EFA99CF411F6E3C1A0A2598120') {
+    $asset = 'PersonalVPN-windows-' + $Architecture + '-0.6.0.zip'
+    $archive = Join-Path $temporary $asset
+    gh release download windows-v0.6.0 --repo $env:GITHUB_REPOSITORY --pattern $asset --dir $temporary
+    if ($LASTEXITCODE -ne 0) { throw 'Qualified native bundle download failed' }
+    $expected = if ($is32) { '988dd29454f13e9a730d209c54fe61ff3853c2948b3582ca2e67d28c65bcedc1' } else { '5a144cf27b955096093d29fd093b5e3bcaba0e7b7112dabad676200cbe9d2eae' }
+    if ((Get-FileHash -LiteralPath $archive).Hash -ne $expected) { throw 'Qualified native bundle checksum mismatch' }
+    $prior = Join-Path $temporary 'qualified-native'
+    Expand-Archive -LiteralPath $archive -DestinationPath $prior
+    Get-ChildItem -LiteralPath (Join-Path $prior 'cores') | Copy-Item -Destination $cores -Recurse -Force
+} else {
 $xrayName = if ($is32) { '32' } else { '64' }
 $xrayHash = if ($is32) { '9EA3A5849463F155B2484F8F32A9E8FD2A5628886571579D0C75D7FD0D888881' } else { '2E04A9995A6F2AD1B28C0BB25C708ECB2695E43A1C9C7889C4B6AC2B48CF7A6A' }
 $xray = Expand-Verified "https://github.com/XTLS/Xray-core/releases/download/v26.10.31/Xray-windows-$xrayName.zip" $xrayHash 'xray'
@@ -33,6 +46,8 @@ $driver = Join-Path $wintun "wintun/bin/$winArch/wintun.dll"
 if ((Get-AuthenticodeSignature -LiteralPath $driver).Status -ne 'Valid') { throw 'Wintun signature verification failed' }
 Copy-Item -LiteralPath $driver -Destination $cores
 Copy-Item -LiteralPath (Join-Path $wintun 'wintun/LICENSE.txt') -Destination (Join-Path $cores 'LICENSE-Wintun.txt')
+}
+if ((Get-AuthenticodeSignature -LiteralPath (Join-Path $cores 'wintun.dll')).Status -ne 'Valid') { throw 'Packaged Wintun signature verification failed' }
 foreach ($file in @('install.ps1','README.md','reset-tun.ps1')) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $packageRoot }
 @'
 Native components: verified downloads and a pinned source build with embedded runtime hash:

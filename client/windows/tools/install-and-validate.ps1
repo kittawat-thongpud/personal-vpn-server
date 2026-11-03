@@ -13,10 +13,12 @@ $settingsFile=Join-Path $env:LOCALAPPDATA 'PersonalVPN/settings.dpapi'
 $before=(Get-FileHash -LiteralPath $settingsFile).Hash
 $summary=[ordered]@{ installed=$false; settingsUnchanged=$false; tunActivated=$false }
 try {
-    $setup=Start-Process -FilePath $InstallerPath -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-') -PassThru -Wait -WindowStyle Hidden
-    if ($setup.ExitCode -ne 0) { throw 'Windows Setup did not finish.' }
     $base=if ($Architecture -eq 'x86' -and $env:PROCESSOR_ARCHITECTURE -eq 'AMD64') { $env:ProgramFiles + ' (x86)' } else { $env:ProgramFiles }
-    $installed=Join-Path $base ("PersonalVPN/0.6.0-" + $Architecture)
+    $installed=Join-Path $base ("PersonalVPN/0.6.1-" + $Architecture)
+    $setupLog=Join-Path $ReportDirectory 'setup.log'
+    $setup=Start-Process -FilePath $InstallerPath -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/DIR="'+$installed+'"'),('/LOG="'+$setupLog+'"')) -PassThru -Wait -WindowStyle Hidden
+    $summary.setupExitCode=$setup.ExitCode
+    if ($setup.ExitCode -ne 0) { throw ('Windows Setup failed with exit code '+$setup.ExitCode+'; see setup.log.') }
     $executable=Join-Path $installed 'PersonalVPN.exe'
     if (-not (Test-Path -LiteralPath $executable)) { throw 'Installed executable missing.' }
     $driver=Get-Content -LiteralPath (Join-Path $installed 'driver-install.json') -Raw | ConvertFrom-Json

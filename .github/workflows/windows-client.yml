@@ -18,7 +18,7 @@ concurrency:
   group: windows-client-${{ github.ref }}
   cancel-in-progress: false
 env:
-  CLIENT_VERSION: '0.6.0'
+  CLIENT_VERSION: '0.6.1'
 jobs:
   build:
     strategy:
@@ -38,7 +38,9 @@ jobs:
         with:
           go-version: '1.27.3'
           cache: false
-      - name: Build patched TUN core and package pinned native components
+      - name: Prepare qualified native cores (source build if recipe changes)
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: ./client/windows/package.ps1 -Architecture ${{ matrix.arch }}
       - name: Publish architecture-matched Administrator application with embedded TUN hash
@@ -94,9 +96,21 @@ jobs:
           if (-not $compiler) { throw 'Inno Setup compiler missing' }
           & $compiler.FullName "/DArchitecture=${{ matrix.arch }}" "/DPackageDir=$((Resolve-Path dist/windows).Path)" client/windows/setup.iss
           if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
-      - name: Test installer without launching GUI
+      - name: Test upgrade from an existing version without reusing its directory
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
+          $priorDir = Join-Path $env:RUNNER_TEMP 'personalvpn-prior-install'
+          $asset = 'PersonalVPN-Setup-0.6.0-${{ matrix.arch }}.exe'
+          gh release download windows-v0.6.0 --repo $env:GITHUB_REPOSITORY --pattern $asset --dir $env:RUNNER_TEMP
+          if ($LASTEXITCODE -ne 0) { throw 'Previous installer download failed' }
+          $priorSetup = Join-Path $env:RUNNER_TEMP $asset
+          $expected = if ('${{ matrix.arch }}' -eq 'x86') { 'd754fed8e9222f038a13f8816719d071ae900c2a48ac1b1cfe8b6b6700b7b580' } else { '1900118a8415a92a96ef09d013112eea95459abd65479c70238408bc915d2fab' }
+          if ((Get-FileHash $priorSetup).Hash -ne $expected) { throw 'Previous installer checksum mismatch' }
+          $prior = Start-Process $priorSetup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/DIR="'+$priorDir+'"')) -PassThru -Wait -WindowStyle Hidden
+          if ($prior.ExitCode -ne 0) { throw 'Previous installation fixture failed' }
+          $priorHash = (Get-FileHash (Join-Path $priorDir 'PersonalVPN.exe')).Hash
           $setup = (Resolve-Path "dist/PersonalVPN-Setup-$env:CLIENT_VERSION-${{ matrix.arch }}.exe").Path
           $p = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-') -PassThru -Wait -WindowStyle Hidden
           $setupExitCode = $p.ExitCode
@@ -110,6 +124,7 @@ jobs:
             throw 'Installed driver check failed'
           }
           if ((Get-FileHash (Join-Path $installed 'PersonalVPN.exe')).Hash -ne (Get-FileHash dist/windows/PersonalVPN.exe).Hash) { throw 'Installed executable differs from package' }
+          if ((Get-FileHash (Join-Path $priorDir 'PersonalVPN.exe')).Hash -ne $priorHash) { throw 'Upgrade overwrote the previous version' }
       - name: Package architecture-matched ZIP and checksums
         shell: pwsh
         run: |

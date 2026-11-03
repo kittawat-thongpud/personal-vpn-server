@@ -1,4 +1,4 @@
-# Personal VPN for Windows — 0.6.0 preview
+# Personal VPN for Windows — 0.6.1 preview
 
 Download the x86 (32-bit) or x64 Windows Setup EXE from the private GitHub release.
 Windows 10 build 19041 or later is required. Setup and the application require Administrator. Setup includes the self-contained
