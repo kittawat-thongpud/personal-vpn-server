@@ -65,7 +65,7 @@ class TunnelService : VpnService() {
         if (Build.VERSION.SDK_INT >= 34) startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED) else startForeground(1, notification)
         when (intent?.action) {
             DISCONNECT -> {
-                if (isAlwaysOn) { Repository.state.value = Repository.state.value.copy(detail = "Always-on is managed in Android VPN settings."); Surfaces.refresh(this); return START_STICKY }
+                if (isAlwaysOn) { Repository.log("WARN", "disconnect.managed", "Always-on is managed in Android VPN settings."); Repository.state.value = Repository.state.value.copy(detail = "Always-on is managed in Android VPN settings."); Surfaces.refresh(this); return START_STICKY }
                 desired = false; worker?.cancel(); worker = scope.launch { lifecycle.withLock { closeCore(); closeCapture(); update("Disconnected", false, false); withContext(Dispatchers.Main) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() } } }
             }
             else -> {
@@ -132,10 +132,10 @@ class TunnelService : VpnService() {
     private fun capturedExit(): String {
         val connection = java.net.URL("https://api.ipify.org/").openConnection() as HttpsURLConnection
         connection.connectTimeout = 8000; connection.readTimeout = 8000; connection.useCaches = false
-        return try { check(connection.responseCode == 200); connection.inputStream.use { it.readBytes().also { b -> check(b.size <= 128) }.toString(Charsets.UTF_8).trim() } } finally { connection.disconnect() }
+        return try { check(connection.responseCode == 200); connection.inputStream.use { input -> val out = java.io.ByteArrayOutputStream(); val buffer = ByteArray(128); while (true) { val count = input.read(buffer); if (count < 0) break; check(out.size() + count <= 128); out.write(buffer, 0, count) }; out.toString("UTF-8").trim() } } finally { connection.disconnect() }
     }
     private fun closeCore() { val previous = core; core = null; if (previous != null) { baseUp += previous.upload(); baseDown += previous.download(); previous.close(); Repository.log("INFO", "core.stopped") } }
-    private fun closeCapture() { tun?.close(); tun = null; setUnderlyingNetworks(null); Repository.log("INFO", "capture.released") }
+    private fun closeCapture() { val previous = tun; tun = null; runCatching { previous?.close() }.onFailure { Repository.log("WARN", "capture.close_failed", it.javaClass.simpleName) }; runCatching { setUnderlyingNetworks(null) }; if (previous != null) Repository.log("INFO", "capture.released") }
     private fun update(status: String, active: Boolean, busy: Boolean, detail: String = "") {
         if (status != Repository.state.value.status) Repository.log("INFO", "state.${status.lowercase().replace(' ', '_')}", detail)
         Repository.state.value = Repository.state.value.copy(status = status, active = active, busy = busy, detail = detail)

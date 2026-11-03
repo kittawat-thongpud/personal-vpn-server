@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 package dev.personalvpn.client
 
 import android.Manifest
@@ -71,7 +72,7 @@ class MainActivity : ComponentActivity() {
     private fun consentThenConnect() { val intent = VpnService.prepare(this); if (intent == null) startTunnel() else consent.launch(intent) }
     private fun startTunnel() { TunnelService.command(this, if (dirty && Repository.state.value.active) TunnelService.RECONNECT else TunnelService.CONNECT); dirty = false }
     private fun save(config: Config) { try { Repository.save(config); dirty = Repository.state.value.active } catch (_: Exception) { message = "Could not save encrypted settings. Existing settings were preserved." } }
-    private fun addProfiles(profiles: List<Profile>) { val c = Repository.config.value; save(c.copy(profiles = c.profiles + profiles, selected = profiles.first().id)) }
+    private fun addProfiles(profiles: List<Profile>) { val c = Repository.config.value; val first = profiles.first(); save(c.copy(profiles = c.profiles + profiles, selected = first.id, protocol = if (first.hysteria != null) "Hysteria 2" else "REALITY")) }
 
     @Composable private fun Client() {
         val scheme = darkColorScheme(primary = Color(0xFF13C6A2), onPrimary = Color(0xFF06272D), background = Color(0xFF0D1627), surface = Color(0xFF19283B), onSurface = Color(0xFFECF2FF), secondary = Color(0xFF5C9FFF))
@@ -200,6 +201,7 @@ class MainActivity : ComponentActivity() {
         OutlinedTextField(name, { name = it }, label = { Text("Profile name") }, singleLine = true)
         OutlinedTextField(country, { country = it.uppercase().take(2) }, label = { Text("Country code, e.g. JP") }, singleLine = true)
         Row { listOf("REALITY", "Hysteria 2").forEach { p -> FilterChip(protocol == p, { protocol = p }, label = { Text(p) }) } }
+        Text(if (protocol == "REALITY") "TCP / REALITY · streams may reconnect after a network change." else "QUIC / UDP · may fail on networks that block UDP.", fontSize = 12.sp, color = Color(0xFF9CAEC8))
         val fields = if (protocol == "REALITY") listOf("server" to "Server IP / hostname", "port" to "Port", "uuid" to "UUID", "sni" to "TLS server name", "publicKey" to "REALITY public key", "shortId" to "Short ID") else listOf("server" to "Server IP / hostname", "port" to "Port", "auth" to "Authentication", "sni" to "TLS server name", "pin" to "Certificate SHA-256 pin", "obfs" to "Salamander password (optional)")
         for ((key, label) in fields) OutlinedTextField(current.optString(key, if (key == "port") "443" else ""), { set(key, it) }, label = { Text(label) }, singleLine = true, visualTransformation = if (key in listOf("auth", "obfs", "uuid")) PasswordVisualTransformation() else VisualTransformation.None)
         if (error.isNotEmpty()) Text(error, color = Color(0xFFFFBA9B), fontSize = 12.sp)

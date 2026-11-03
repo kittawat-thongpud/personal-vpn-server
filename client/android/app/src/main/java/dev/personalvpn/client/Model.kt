@@ -129,7 +129,9 @@ object EngineConfig {
     }
     private fun rule(rule: Rule, field: String) = JSONObject().put(field, JSONArray().put(rule.target)).put("action", if (rule.action == Action.Block) "reject" else "route").also { if (rule.action != Action.Block) it.put("outbound", if (rule.action == Action.Bypass) "direct" else "tunnel") }
     fun validate(config: Config) {
-        config.selectedProfile()
+        val profile = config.selectedProfile()
+        require(config.protocol in listOf("REALITY", "Hysteria 2")) { "Select a supported VPN protocol." }
+        require(if (config.protocol == "REALITY") profile.reality != null else profile.hysteria != null) { "This profile has no credentials for ${config.protocol}. Select its available protocol." }
         require(config.apps.rules.map { it.target }.distinct().size == config.apps.rules.size) { "Duplicate app rule." }
         for (rule in config.apps.rules + config.sites.rules) require(rule.action != Action.Disabled && rule.target.isNotBlank()) { "Invalid rule." }
         for (rule in config.apps.rules) require(rule.target.matches(Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+")) && rule.target != APP) { "Choose an installed app package." }

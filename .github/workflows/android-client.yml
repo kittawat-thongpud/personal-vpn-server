@@ -2,7 +2,16 @@ name: Android client
 on:
   push:
     branches: [main]
-    paths: ['client/android/**', '.github/workflows/android-client.yml']
+    paths:
+      - 'client/android/app/**'
+      - 'client/android/probe/**'
+      - 'client/android/native/**'
+      - 'client/android/test-fixture/**'
+      - 'client/android/*.sh'
+      - 'client/android/*.gradle.kts'
+      - 'client/android/gradle.properties'
+      - 'client/android/SIGNING-CERTIFICATE.txt'
+      - '.github/workflows/android-client.yml'
   workflow_dispatch:
     inputs:
       native_only:
@@ -161,6 +170,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir release
+          current=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          test "$current" = "$GITHUB_SHA"
           cp android-artifact/app/build/outputs/apk/release/app-release.apk "release/PersonalVPN-Android-${CLIENT_VERSION}.apk"
           cp android-artifact/app/build/signature.txt release/SIGNATURE.txt
           cp client/android/README.md release/INSTALL.md
