@@ -1,0 +1,5 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:gravity="center_vertical" android:background="@drawable/widget_background">
+    <TextView android:id="@+id/widget_title" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Personal VPN" android:textColor="#ECF2FF" android:textSize="17sp" android:textStyle="bold"/>
+    <TextView android:id="@+id/widget_status" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Disconnected" android:textColor="#A4B5CE" android:textSize="13sp" android:maxLines="2"/>
+    <Button android:id="@+id/widget_connect" android:layout_width="match_parent" android:layout_height="48dp" android:text="Connect" android:textColor="#FFFFFF" android:backgroundTint="#225367"/>
+</LinearLayout>

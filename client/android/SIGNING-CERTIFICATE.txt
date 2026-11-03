@@ -1,0 +1,4 @@
+Personal VPN Android release signing certificate
+SHA-256: F3B001E35BE832185F44FA115DCCC3033CFBFF0B7BB91F2CAE819B7608ABE896
+Alias: personal-vpn
+Private signing material is stored in GitHub Actions secrets and a protected local recovery copy. It is never included in the APK or source.

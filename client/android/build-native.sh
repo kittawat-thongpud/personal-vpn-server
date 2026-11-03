@@ -15,6 +15,9 @@ gofmt -w experimental/personalvpn experimental/libbox/personal_instance.go optio
 go install github.com/sagernet/gomobile/cmd/gomobile github.com/sagernet/gomobile/cmd/gobind
 go test -tags 'with_gvisor,with_quic,with_utls' ./experimental/personalvpn ./common/tls
 mkdir -p "$project/app/libs"
+mkdir -p cmd/personal-fixture
+cp "$project/test-fixture/main.go" cmd/personal-fixture/main.go
+go build -trimpath -tags 'with_gvisor,with_quic,with_utls' -o "$project/app/libs/test-fixture" ./cmd/personal-fixture
 "$(go env GOPATH)/bin/gomobile" bind -target=android/arm64,android/amd64 -androidapi=29 -javapkg=dev.personalvpn -libname=pvn -trimpath -ldflags='-s -w' -tags=with_gvisor,with_quic,with_utls -o "$project/app/libs/personalvpn.aar" ./experimental/personalvpn
 cp LICENSE "$project/app/libs/LICENSE-sing-box.txt"
 git rev-parse HEAD > "$project/app/libs/CORE-SOURCE.txt"
