@@ -1,8 +1,9 @@
 # Android validation
 
-The current shared client is **0.7.0**, including the installed-app multiselection
-UI. See [shared qualification](../VALIDATION.md) for its completed all-platform
-run, four Android 14 instrumented tests, source snapshots and installer manifest.
+The shared **0.7.1** correction uses modern Xray for REALITY qualification and
+fixes the hybrid ClientHello compatibility gap found after 0.7.0. See
+[shared qualification](../VALIDATION.md) for native regression, live VPS evidence
+and the all-platform release gates. The installed-app multiselection UI remains.
 The 0.1.0 results below are retained as historical evidence.
 
 Android 0.1.0 preview was published on 2026-11-03 from commit

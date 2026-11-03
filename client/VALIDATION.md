@@ -1,3 +1,72 @@
+# Client 0.7.1 REALITY correction — 2026-11-03
+
+Release source: `31cd4b97919bcc8d64d0a83f5525be2fff9f33e3`.
+Runtime changes were complete at `30fba0d`; subsequent commits only adjust CI
+emulator provisioning, redundant job inputs and device-operation timeouts.
+[Native qualification](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/41635231439)
+passed. [Unified qualification](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/41640656081)
+contains the Android APK and Windows x86/x64 installer gates.
+All qualification and publication jobs completed successfully. The unified
+[Client 0.7.1 release](https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/client-v0.7.1)
+is stable, non-draft and explicitly Latest. All 12 assets are present, including
+the APK, both Windows setup EXEs/portable ZIPs, guides, signature and manifest.
+Downloaded release checksums and manifest agree with the qualified APK and
+source. `base/client-v0.7.1`, `release/client-v0.7.1` and the release tag all point
+to the qualified commit above; `legacy/client-v0.7.0` preserves the prior source.
+
+The phone's original `proxyerror` masked REALITY authentication rejection. An
+unmodified official sing-box 1.14.4 client reproduced `reality verification
+failed` against the existing VPS on TCP 443 and 8443. An Xray client using the
+same local profile succeeded. The pinned sing-box source removed both browser
+X25519MLKEM768 extensions; modern Xray requires that hybrid share before optional
+X25519. The checked backport retains those shares and supports the corresponding
+authentication key. No server credentials, TLS authentication or pin checks were
+relaxed. See [upstream investigation](https://github.com/SagerNet/sing-box/issues/4520).
+
+The corrected protocol core was compiled in Actions and run on Windows only as
+an isolated loopback SOCKS listener, without changing host routes, adapters, DNS,
+system proxy or the user's running VPN. On the current China Wi-Fi route it
+returned HTTPS 200 with the VPS exit IP and Google HTTPS 204 on both TCP 443 and
+8443, using the existing profile and SNI. This checks the corrected protocol
+implementation against the live server; it is not a physical Redmi APK test.
+An additional Go 1.27.3 HTTPS client through the corrected core also returned
+HTTP 200 and the VPS exit IP on both ports, exercising Go's inner TLS stack as
+used by the native health check. No further live network changes were made.
+
+Native CI first asserts rejection with the original upstream implementation,
+then verifies repeated authenticated HTTPS against official Xray 26.10.31 after
+patching. Wrong short IDs and wrong public keys still fail. Hysteria's repeated
+HTTPS and correct/wrong certificate pin checks pass too. The new Xray fixtures
+allow only the generated local HTTPS/UDP test targets: freedom otherwise blocks
+private addresses by default. This fixture correction does not alter the VPS.
+
+Recovery logs now include the failed stage, a fixed error category and retry
+delay. Raw native messages and credentials are not logged in production. New JVM
+checks cover category redaction, stale callbacks retaining the backoff, a new
+network waking recovery and cancellation. The original session log limits remain.
+
+An earlier full run completed Windows and Android APK qualification but was
+canceled because its emulator could not allocate the template's 7+ GiB userdata
+partition. It never ran the Android instrumentation tests. The final harness
+requests 3 GiB but the SDK image can impose a larger filesystem minimum. It also
+removes redundant job-local downloads and unused diagnostic build inputs to
+provide headroom, reports startup fatal errors and bounds boot, instrumentation
+and cleanup commands so an absent device cannot leave log collection hanging.
+
+Android 14 emulator instrumentation completed `OK (4 tests)` in 93.059 seconds,
+including REALITY/Vision through the official Xray gateway, retained TUN across
+protocol changes, captured HTTPS from a separate UID, App/Site policy, counters
+and disconnect cleanup. All 14 JVM tests and lint passed; versionName 0.7.1 and
+versionCode 70100 were verified. The APK signing identity is unchanged.
+The downloaded Android package matched its Actions checksum:
+`cfb2469986d1b3d533aa0322e8f90ce445dbcb1e4b1058ac6cc2b7ab7e443a88`.
+
+The first Windows x64 TUN check reported an unexpected core exit. The failed job
+was rerun with the same source and full checks; no checks were disabled or
+relaxed. Windows application/native sources are unchanged from the 0.7.0
+baseline apart from the shared assembly/package version. The transient failure's
+cause was not established during this Android correction.
+
 # Client 0.7.0 qualification — 2026-11-03
 
 Release classification: normal stable release, explicitly marked Latest.
