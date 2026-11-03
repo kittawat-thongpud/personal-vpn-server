@@ -3,9 +3,9 @@ from pathlib import Path
 root = Path('.')
 p = root / 'option/tls.go'
 s = p.read_text()
-needle = 'CertificatePublicKeySHA256 badoption.Listable[[]byte]'
+needle = '\n\tCertificatePublicKeySHA256 badoption.Listable[[]byte]'
 assert needle in s
-s = s.replace(needle, 'CertificateSHA256 badoption.Listable[[]byte] `json:"certificate_sha256,omitempty"`\n\t'+needle, 1)
+s = s.replace(needle, '\n\tCertificateSHA256 badoption.Listable[[]byte] `json:"certificate_sha256,omitempty"`'+needle, 1)
 p.write_text(s)
 p = root / 'common/tls/std_client.go'
 s = p.read_text()

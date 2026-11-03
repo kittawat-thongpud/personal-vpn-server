@@ -50,6 +50,13 @@ jobs:
       - name: Build and test pinned Android native library
         if: steps.native-cache.outputs.cache-hit != 'true'
         run: bash client/android/build-native.sh
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        if: always()
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: android-go-${{ runner.os }}-${{ hashFiles('client/android/native/**', 'client/android/build-native.sh') }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: android-native
