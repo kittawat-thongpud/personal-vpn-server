@@ -23,7 +23,9 @@ internal static partial class Tests
         await File.WriteAllTextAsync(path, TunPlan.Compile(settings, new[] { "127.0.0.1" }, new[] { Backend.VerifyCore("xray.exe"), Backend.VerifyCore("hysteria.exe") }, lease.InterfaceName).ToJsonString());
         using var core = new OwnedCore(job, Backend.VerifyCore("sing-box.exe"), new[] { "run", "-c", path }, new SessionLog());
         await TunSupport.WaitForAdapter(lease, CancellationToken.None);
-        await File.WriteAllTextAsync(Program.Option(args, "--report")!, JsonSerializer.Serialize(new { adapter = lease.AdapterId }));
+        string ready = Program.Option(args, "--report")!;
+        await File.WriteAllTextAsync(ready + ".new", JsonSerializer.Serialize(new { adapter = lease.AdapterId }));
+        File.Move(ready + ".new", ready); // Publish only after the writer has closed.
         await Task.Delay(Timeout.Infinite); return 0;
     }
     private static async Task<string[]> TunIntegration(string folder, string expected)
