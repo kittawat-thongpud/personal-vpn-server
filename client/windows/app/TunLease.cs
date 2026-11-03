@@ -50,7 +50,7 @@ public sealed class TunLease : IDisposable
         var lease = new TunLease(folder, record, guard);
         try
         {
-            for (int i = 0; i < 450; i++)
+            for (int i = 0; i < 600; i++)
             {
                 token.ThrowIfCancellationRequested();
                 string error = Path.Combine(folder, "tun-error.txt");
@@ -79,7 +79,7 @@ public sealed class TunLease : IDisposable
             if (!acquired) throw new InvalidOperationException("Another Personal VPN TUN session is still active.");
             try
             {
-            TunReset.Capture(record.AdapterId);
+            TunReset.Capture(record.AdapterId, skipIfIdle: true);
             File.WriteAllText(Path.Combine(folder, "tun-ready"), "ready");
             try
             {
@@ -101,13 +101,14 @@ public sealed class TunLease : IDisposable
     {
         if (disposed) return; disposed = true;
         File.WriteAllText(Path.Combine(folder, "tun-stop"), "stop");
-        bool exited = guard.WaitForExit(25000);
+        bool exited = guard.WaitForExit(50000);
         if (!exited) { guard.Kill(); guard.WaitForExit(3000); }
         int code = guard.HasExited ? guard.ExitCode : -1; guard.Dispose();
         // The independent guard resets capture even after a killed GUI. A device
         // remaining here is expected: the Windows service owns its lifetime.
         if ((!exited || code != 0) && File.Exists(Path.Combine(folder, "tun-ready"))) TunReset.Capture(record.AdapterId);
-        else if (code != 0) throw new InvalidOperationException("TUN guard preparation failed; another active session was left untouched.");
+        // If preparation never published ready, Start retains its original error.
+        // There is no active capture to reset, and another owner must be untouched.
     }
     public static void RecoverAbandoned()
     {
