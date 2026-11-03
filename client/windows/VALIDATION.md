@@ -1,5 +1,32 @@
 # Installed Windows preview validation
 
+## 0.6.3 tray opening and dismissal — 2026-11-03
+
+- Runtime source `320c27a`; x86/x64 builds, native TUN regression checks and
+  Setup upgrade checks passed in
+  https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/41584317743.
+  Release: https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/windows-v0.6.3.
+- Fixes two concrete menu bugs: the first empty popup inherited Cancel=true
+  before Opening populated it; canceling every AppFocusChange also prevented
+  dismissal after switching to another application. Opening now sets the final
+  cancel state after rebuilding, and standard shell dismissal is retained.
+- The regression test calls Show on the initially empty native ContextMenuStrip
+  and asserts visibility after one request. Each AppFocusChange, AppClicked,
+  Keyboard and ItemClicked Close request hides the popup. This tests real popup
+  events and visibility, not physical tray mouse injection.
+- Installed x86 Setup SHA-256:
+  `3cc1a7c5833a0d687ccb05fa1ce917e982857d2beb69ca1dc24fe4956edefe49`.
+  Host Setup exit 0 and adapter preparation PASS on the first attempt; protected
+  settings hash unchanged. The installed layout / tray tests passed as well.
+- The updated GUI was left connected. Ordinary no-proxy curl verified exit
+  `45.77.179.227` and Google HTTP 204. ZeroTier self and peer ping passed.
+  Exactly one PersonalVPN adapter remained, with the same GUID recorded for
+  0.6.2. VPN07 was preserved. No TUN runtime changes were made in this release.
+- Host evidence: ignored `.cache/windows-client-0.6.3/validation/activated.json`
+  and `layout.json`. The desktop automation inventory did not expose the
+  tray-only Personal VPN window, so actual desktop right-click / outside-click
+  behavior has not been independently observed by UI automation.
+
 ## 0.6.2 captured traffic on the development host — 2026-11-03
 
 - Release / source: https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/windows-v0.6.2
