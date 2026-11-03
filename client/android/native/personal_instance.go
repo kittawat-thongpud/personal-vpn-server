@@ -70,7 +70,9 @@ func (c *PersonalInstance) VerifyAt(address, certificate string) (string, error)
  parsed, err := url.Parse(address)
  if err != nil || parsed.Scheme != "https" { return "", os.ErrInvalid }
  outbound, _ := c.box.Outbound().Outbound("tunnel")
- transport := &http.Transport{DisableKeepAlives: true, DialContext: func(ctx context.Context, network, address string) (net.Conn,error) { return outbound.DialContext(ctx, network, M.ParseSocksaddr(address)) }}
+ // Read the authenticated response before closing its transport. Requesting
+ // Connection: close can race the upstream QUIC stream's buffered final data.
+ transport := &http.Transport{DialContext: func(ctx context.Context, network, address string) (net.Conn,error) { return outbound.DialContext(ctx, network, M.ParseSocksaddr(address)) }}
  if certificate != "" {
   roots := x509.NewCertPool()
   if !roots.AppendCertsFromPEM([]byte(certificate)) { return "", os.ErrInvalid }

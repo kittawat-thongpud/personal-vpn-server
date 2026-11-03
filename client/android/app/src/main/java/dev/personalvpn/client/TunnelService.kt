@@ -109,6 +109,7 @@ class TunnelService : VpnService() {
                         if (!wasConnected) update("Verifying", true, true)
                         val certificate = Repository.instrumentedCertificate
                         val verified = if (certificate != null) core!!.verifyAt("https://fixture.local:18445/ip", certificate) else core!!.verify()
+                        if (Repository.instrumentedDiagnostics) Repository.log("INFO", "fixture.outbound_verified", verified)
                         currentCoroutineContext().ensureActive()
                         // Separate OS-capture proof: this app is captured and its
                         // reserved rule routes health traffic through the VPN.
