@@ -61,7 +61,7 @@ jobs:
         if: steps.native-cache.outputs.cache-hit != 'true'
         run: bash client/android/build-native.sh
       - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
-        if: always() && steps.native-cache.outputs.cache-hit != 'true'
+        if: always() && !cancelled() && steps.native-cache.outputs.cache-hit != 'true'
         with:
           path: |
             ~/go/pkg/mod
@@ -115,7 +115,7 @@ jobs:
           keytool -list -keystore "$ANDROID_KEYSTORE" -storetype PKCS12 -storepass:env ANDROID_KEYSTORE_PASSWORD -alias personal-vpn
           bash client/android/build-app.sh
       - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
-        if: always()
+        if: always() && !cancelled()
         with:
           path: ~/.gradle/caches
           key: android-gradle-v1-${{ hashFiles('client/android/*.gradle.kts', 'client/android/app/build.gradle.kts', 'client/android/probe/build.gradle.kts', 'client/android/gradle.properties') }}
