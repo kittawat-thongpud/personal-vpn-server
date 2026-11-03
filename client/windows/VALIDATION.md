@@ -1,5 +1,39 @@
 # Installed Windows preview validation
 
+
+## 0.6.0 persistent adapter lifecycle — 2026-11-03
+
+- Release / source: https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/windows-v0.6.0
+  (workflow target 102f47b, runtime service handoff fix d88ff90).
+- Both x86 and x64 builds, native integration tests and actual Setup installation
+  passed: https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/41499328725.
+- The automatic Windows service holds one Wintun device. The pinned source-built
+  sing-box core only opens that existing device; ordinary sessions never create
+  or delete it. Native hashes are embedded in the managed application.
+- Actual CI tests cover authenticated DNS/HTTPS capture, IPv4 / IPv6 route
+  readiness, SOCKS UDP relay, external executable Block, App Tunnel over Site
+  Block, repeated Proxy/TUN/Disconnect transitions, forced core death, a stale
+  owned loopback proxy, and abrupt parent death. One adapter GUID/count and the
+  same service process are asserted across connection cycles. Stop resets only
+  owned capture routes, addresses and DNS; physical DNS is unchanged.
+- TUN suspends WinINet manual/PAC selection through a guarded ownership lease.
+  A canceled/faulted worker no longer prevents later Connect or mode changes.
+  Network changes on the owned adapter no longer trigger upstream reconnects.
+- Installer handoff tolerates already-stopping service states (Windows 1061),
+  waits for the prior process to exit, and propagates preparation failure as a
+  nonzero Setup exit. Both architecture installers passed this upgrade path.
+- Downloaded x86 installer SHA-256:
+  d754fed8e9222f038a13f8816719d071ae900c2a48ac1b1cfe8b6b6700b7b580.
+- The development-host installation attempt was canceled at Windows UAC before
+  Setup started. No 0.6.0 host TUN activation or installed-VPS probe is claimed.
+  The current connected version was preserved. An encrypted pre-upgrade settings
+  backup was saved under the ignored .state client-test directory.
+- Before the update, read-only host checks again confirmed the on-link ZeroTier
+  10.46.136.0/24 route and successful self / peer ping to 10.46.136.123 and
+  10.46.136.125 (peer 208 ms). No ZeroTier repair or service restart was performed.
+- x86 is tested under WOW64, not on physical 32-bit Windows. There is no
+  whole-machine kill switch; existing flows can be interrupted during recovery.
+
 ## 0.5.0 Administrator TUN and Windows installers — 2026-11-03
 
 - Runtime source: `2c6677a`; all x86 / x64 build, native integration and
