@@ -15,7 +15,7 @@ cp "$project/native/core.go" experimental/personalvpn/core.go
 gofmt -w experimental/personalvpn experimental/libbox/personal_instance.go option/tls.go common/tls/std_client.go
 go install github.com/sagernet/gomobile/cmd/gomobile github.com/sagernet/gomobile/cmd/gobind
 go test -tags 'with_gvisor,with_quic,with_utls' ./experimental/personalvpn ./common/tls
-go test -tags 'with_gvisor,with_quic,with_utls' ./experimental/libbox -run '^TestPersonalHealthHysteriaRepeated$' -count=1 -timeout=90s
+go test -ldflags='-checklinkname=0' -tags 'with_gvisor,with_quic,with_utls' ./experimental/libbox -run '^TestPersonalHealthHysteriaRepeated$' -count=1 -timeout=90s
 mkdir -p "$project/app/libs"
 mkdir -p cmd/personal-fixture
 cp "$project/test-fixture/main.go" cmd/personal-fixture/main.go
