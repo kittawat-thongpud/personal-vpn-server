@@ -36,7 +36,6 @@ func PersonalStart(root, config string, platform PlatformInterface) (*PersonalIn
  service.MustRegister[adapter.PlatformInterface](ctx, &platformInterfaceWrapper{iif: platform, powerManager: power})
  options, err := parseConfig(ctx, config)
  if err != nil { cancel(); return nil, err }
- options.Log.Disabled = true
  instance, err := box.New(box.Options{Options: options, Context: ctx})
  if err != nil { cancel(); return nil, err }
  result := &PersonalInstance{box: instance, cancel: cancel}

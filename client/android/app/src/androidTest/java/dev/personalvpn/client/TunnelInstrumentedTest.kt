@@ -80,6 +80,9 @@ class TunnelInstrumentedTest {
             assertTrue("Explicit App Bypass must use a working protected Direct socket", probe())
             assertEquals(firstName, captureName())
         } finally {
+            // Bring the app foreground before sending our widget capability:
+            // a test process in background has no user-tap BAL privilege.
+            UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).executeShellCommand("am start -W -n dev.personalvpn.client/.MainActivity")
             Surfaces.activity(context, TunnelService.DISCONNECT, 99).send()
             waitFor("Disconnect capture cleanup", 40) { !Repository.state.value.active && captureName() == null }
         }
