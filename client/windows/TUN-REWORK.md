@@ -29,6 +29,20 @@ Implemented in 0.6.0:
 All builds stay in GitHub Actions. Do not activate test routes on the user's
 working host before the new runtime is qualified.
 
-Validation: both architecture matrices and Setup upgrades passed in Actions run
-41499328725. The host update was canceled at UAC, so the old connection remains
-active and host-side 0.6.0 TUN validation is still pending.
+Current validation (0.6.2): both architecture matrices, native TUN integration
+and Setup upgrades passed in Actions run 41581428268. The x86 package is installed
+on the development host. Both REALITY and Hysteria 2 captured HTTPS through
+45.77.179.227, and repeated TUN / Proxy / TUN / Disconnect cycles retained one
+adapter GUID. The final GUI session remains connected using TUN / Hysteria 2;
+ordinary no-proxy curl reaches Google, and both ZeroTier self and peer ping pass.
+
+Live testing found a second issue beyond adapter ownership: the upstream IPv6
+path did not work for apps selecting DNS AAAA results. Version 0.6.2 defaults
+TUN DNS to IPv4, with an explicit opt-in for working VPS IPv6. This does not
+disable Windows or mesh IPv6. Literal IPv6 still needs upstream support.
+
+The first 0.6.2 installed service bootstrap failed readiness; a retry of the
+installed adapter preparation succeeded. Its cause was not established and is
+recorded separately from the subsequent successful live tests. See VALIDATION.md
+for evidence and limits, including the transient peer-ping timeout and WOW64
+rather than physical 32-bit coverage.

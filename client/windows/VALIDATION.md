@@ -1,5 +1,55 @@
 # Installed Windows preview validation
 
+## 0.6.2 captured traffic on the development host — 2026-11-03
+
+- Release / source: https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/windows-v0.6.2
+  (`1fe9bc9`). Both architecture builds, installer upgrades and native TUN
+  integration checks passed in Actions run
+  https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/41581428268.
+  Build and packaging ran in Actions; no local binary build/upload was used.
+- Installed x86 Setup SHA-256:
+  `e2685eb59512ecff4875b7a61a38cb1f74b9db391be5f400f2d42d269638ae41`.
+  The first installed adapter-service start failed readiness. An explicit retry
+  of the installed `--install-adapter` succeeded. This is a recovered bootstrap,
+  not a clean first-attempt Setup pass; its precise cause was not established.
+- Actual operator-run TUN tests passed against VPS `45.77.179.227` with both
+  Hysteria 2 and REALITY. HTTPS egress matched that IP, an ordinary external
+  curl reached Google with HTTP 204, and Google DNS returned IPv4 addresses.
+  REALITY uses the current server SNI `www.amazon.jp`; credentials and TLS
+  certificate checks were retained.
+- TUN / Proxy / TUN / Disconnect cycles restored the previous Windows proxy,
+  retained the device, and kept adapter GUID
+  `5e9eb91b-8623-d4f2-4fd4-128fc6c10fa5` throughout. One persistent adapter service
+  remains running. The GUI was left connected in TUN / Hysteria 2 mode.
+- From the connected GUI session, Windows manual proxy was disabled, no-proxy
+  curl reported `45.77.179.227`, and Google returned HTTP 204 without forcing
+  curl's IPv4 option. A subsequent check repeated HTTP 204 successfully.
+- ZeroTier self `10.46.136.123` passed throughout. Peer `10.46.136.125` timed out
+  once during Hysteria testing, passed under REALITY, and passed again after
+  the final Hysteria GUI connection and a later read-only check. No ZeroTier
+  service repair, rejoin or restart was performed; VPN07 was preserved.
+- The demonstrated 0.6.1 failure was address-family dependent: default / IPv6
+  curl to Google reset while IPv4-only curl returned HTTP 204. Version 0.6.2
+  defaults TUN DNS to `ipv4_only` without disabling Windows or mesh IPv6.
+  IPv6 DNS is an explicit option for VPS routes that support it. Literal IPv6
+  destinations still require working upstream IPv6.
+- Local evidence is ignored and contains no committed profiles:
+  `.cache/windows-client-0.6.2/validation/activated.json` and `tun-host.json`.
+  The earlier `installation.json` deliberately retains the initial Setup failure.
+- x86 runs were under WOW64, not physical 32-bit Windows. There is no
+  whole-machine kill switch; existing flows can be interrupted during recovery.
+
+## 0.6.1 upgrade and host validation — 2026-11-03
+
+- Actions run `41571324076` passed both architecture matrices and Setup
+  upgrade checks. Inno Setup no longer reuses a previous version's directory.
+- The installed host package passed driver preparation, native REALITY and
+  Hysteria HTTPS probes, self-tests and layouts; installation preserved the
+  encrypted settings byte-for-byte. Idle capture cleanup and atomic crash-test
+  readiness fixes were included.
+- Real TUN mode transitions and captured HTTPS passed on the host, but ordinary
+  curl exposed the IPv6-destination failure described above. Therefore 0.6.1
+  is superseded by 0.6.2 for this host's Internet compatibility.
 
 ## 0.6.0 persistent adapter lifecycle — 2026-11-03
 
