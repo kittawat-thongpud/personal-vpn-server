@@ -50,6 +50,9 @@ class EventRing {
 }
 data class TunnelState(val status: String = "Disconnected", val active: Boolean = false, val busy: Boolean = false, val exitIp: String = "—", val detail: String = "", val appliedConfig: String = "", val profileName: String = "", val protocol: String = "", val uploadRate: Long = 0, val downloadRate: Long = 0, val uploaded: Long = 0, val downloaded: Long = 0, val history: List<Pair<Long, Long>> = emptyList())
 object Repository {
+    // Enabled only by the isolated instrumentation APK with generated fixtures.
+    // There is no UI or external command that enables raw exception details.
+    @Volatile internal var instrumentedDiagnostics = false
     lateinit var context: Context; private lateinit var store: SecureStore
     private val settings = MutableStateFlow(Config()); val config = settings.asStateFlow()
     val state = MutableStateFlow(TunnelState())
@@ -60,6 +63,7 @@ object Repository {
     @Synchronized fun log(level: String, code: String, detail: String = "") { events.value = ring.add(level, code, detail) }
     @Synchronized fun clearLogs() { ring.clear(); events.value = emptyList() }
     fun cause(error: Throwable): String {
+        if (instrumentedDiagnostics) return error.javaClass.simpleName + ": " + error.message.orEmpty().take(800)
         val text = error.message.orEmpty().lowercase()
         return when { "pin mismatch" in text -> "certificate_pin"; "certificate" in text || "tls" in text -> "tls"; "timeout" in text || "timed out" in text -> "timeout"; "auth" in text -> "authentication"; "network" in text || "connect" in text -> "network"; else -> error.javaClass.simpleName.take(64) }
     }

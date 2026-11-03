@@ -13,11 +13,15 @@ import dev.personalvpn.personalvpn.Personalvpn
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.Before
+import org.junit.After
 import org.junit.runner.RunWith
 import java.net.NetworkInterface
 
 @RunWith(AndroidJUnit4::class)
 class TunnelInstrumentedTest {
+    @Before fun enableFixtureDiagnostics() { Repository.instrumentedDiagnostics = true }
+    @After fun disableFixtureDiagnostics() { Repository.instrumentedDiagnostics = false }
     private val context: Context get() = ApplicationProvider.getApplicationContext()
     private fun waitFor(reason: String, seconds: Int = 90, check: () -> Boolean) {
         val until = System.currentTimeMillis() + seconds * 1000L
