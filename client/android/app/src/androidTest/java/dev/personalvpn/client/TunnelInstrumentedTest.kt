@@ -40,6 +40,33 @@ class TunnelInstrumentedTest {
         waitFor("Companion network probe", 20) { val text = device.executeShellCommand("run-as dev.personalvpn.probe cat files/result.json"); result = runCatching { JSONObject(text) }.getOrNull(); result != null }
         return result!!.getBoolean("success")
     }
+    @Test fun bulkInstalledAppSelectionAndExceptionEditing() {
+        val original = Repository.config.value
+        val ids = listOf("dev.personalvpn.probe", "dev.personalvpn.client.test")
+        Repository.save(original.copy(apps = Policy(Action.Tunnel)))
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use {
+                val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+                device.wait(Until.findObject(By.text("Settings")), 15000).click()
+                device.wait(Until.findObject(By.text("App Tunnel")), 15000).click()
+                device.wait(Until.findObject(By.clazz("android.widget.EditText")), 15000).text = "dev.personalvpn"
+                fun selectBoth() { ids.forEach { id -> device.wait(Until.findObject(By.desc("Select app $id")), 20000).click() } }
+                selectBoth()
+                device.findObject(By.text("Block")).click()
+                device.findObject(By.text("Apply to 2 apps")).click()
+                waitFor("Bulk App Block saved", 10) { Repository.config.value.apps.rules.size == 2 && Repository.config.value.apps.rules.all { it.action == Action.Block } }
+                device.takeScreenshot(java.io.File(context.filesDir, "app-tunnel.png"))
+                selectBoth()
+                device.findObject(By.text("Bypass")).click()
+                device.findObject(By.text("Apply to 2 apps")).click()
+                waitFor("Bulk App Bypass replaces rules", 10) { Repository.config.value.apps.rules.size == 2 && Repository.config.value.apps.rules.all { it.action == Action.Bypass } }
+                selectBoth()
+                device.findObject(By.text("Use default")).click()
+                waitFor("Bulk exceptions removed", 10) { Repository.config.value.apps.rules.isEmpty() }
+                assertEquals(Action.Tunnel, Repository.config.value.apps.mode)
+            }
+        } finally { Repository.save(original) }
+    }
     @Test fun nativeCaptureProtocolsPoliciesAndLifecycle() {
         assertNull("The isolated emulator must have VPN permission before instrumentation.", VpnService.prepare(context))
         val fixture = fixture()

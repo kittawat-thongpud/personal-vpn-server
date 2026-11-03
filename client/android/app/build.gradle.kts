@@ -3,6 +3,9 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+val clientVersion = rootProject.file("../VERSION").readText().trim()
+val versionParts = clientVersion.split('.').map(String::toInt)
+require(versionParts.size == 3 && versionParts.all { it in 0..99 })
 android {
     namespace = "dev.personalvpn.client"
     compileSdk = 35
@@ -11,8 +14,8 @@ android {
         applicationId = "dev.personalvpn.client"
         minSdk = 29
         targetSdk = 35
-        versionCode = 10000
-        versionName = "0.1.0"
+        versionCode = versionParts[0] * 1000000 + versionParts[1] * 10000 + versionParts[2] * 100
+        versionName = clientVersion
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }

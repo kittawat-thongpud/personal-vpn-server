@@ -1,24 +1,17 @@
 name: Windows client
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'client/windows/app/**'
-      - 'client/windows/package.ps1'
-      - 'client/windows/build-tun-core.ps1'
-      - 'client/windows/reset-tun.ps1'
-      - 'client/windows/install.ps1'
-      - 'client/windows/setup.iss'
-      - 'client/windows/README.md'
-      - '.github/workflows/windows-client.yml'
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      client_version:
+        required: true
+        type: string
 permissions:
   contents: read
 concurrency:
   group: windows-client-${{ github.ref }}
   cancel-in-progress: false
 env:
-  CLIENT_VERSION: '0.6.3'
+  CLIENT_VERSION: ${{ inputs.client_version }}
 jobs:
   build:
     strategy:
@@ -31,6 +24,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - name: Check shared client version
+        shell: pwsh
+        run: |
+          if ((Get-Content client/VERSION -Raw).Trim() -ne $env:CLIENT_VERSION) { throw 'Client version mismatch' }
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
         with:
           dotnet-version: '10.0.x'
@@ -49,6 +46,8 @@ jobs:
           $hash = (Get-FileHash dist/windows/cores/sing-box.exe).Hash
           dotnet publish client/windows/app/PersonalVpn.csproj -c Release -r win-${{ matrix.arch }} --self-contained true -o dist/windows -p:DebugType=None -p:DebugSymbols=false "-p:SingBoxHash=$hash"
           if ($LASTEXITCODE -ne 0) { throw 'Managed application build failed' }
+          $version = [Diagnostics.FileVersionInfo]::GetVersionInfo((Resolve-Path dist/windows/PersonalVPN.exe)).ProductVersion.Split('+')[0]
+          if ($version -ne $env:CLIENT_VERSION) { throw 'Windows executable version mismatch' }
       - name: Check policy, logs and architecture-matched binary integrity
         shell: pwsh
         run: |
@@ -94,7 +93,7 @@ jobs:
         run: |
           $compiler = Get-ChildItem 'C:/Program Files (x86)/Inno Setup*/ISCC.exe' | Select-Object -First 1
           if (-not $compiler) { throw 'Inno Setup compiler missing' }
-          & $compiler.FullName "/DArchitecture=${{ matrix.arch }}" "/DPackageDir=$((Resolve-Path dist/windows).Path)" client/windows/setup.iss
+          & $compiler.FullName "/DArchitecture=${{ matrix.arch }}" "/DAppVersion=$env:CLIENT_VERSION" "/DPackageDir=$((Resolve-Path dist/windows).Path)" client/windows/setup.iss
           if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
       - name: Test upgrade from an existing version without reusing its directory
         env:
@@ -140,24 +139,3 @@ jobs:
             dist/PersonalVPN-*.zip
             dist/SHA256SUMS-*.txt
           retention-days: 7
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          pattern: windows-*
-          path: dist
-          merge-multiple: true
-      - name: Publish tested x86 and x64 installers
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          cat dist/SHA256SUMS-*.txt > dist/SHA256SUMS.txt
-          gh release create "windows-v$CLIENT_VERSION" dist/PersonalVPN-*.exe dist/PersonalVPN-*.zip dist/SHA256SUMS.txt --target "$GITHUB_SHA" --title "Windows client $CLIENT_VERSION preview" --notes-file client/windows/RELEASE-NOTES.md --prerelease

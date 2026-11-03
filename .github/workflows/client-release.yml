@@ -1,0 +1,86 @@
+name: Client release
+on:
+  push:
+    branches: [main, 'release/client-v*']
+    paths:
+      - 'client/VERSION'
+      - 'client/Directory.Build.props'
+      - 'client/release/**'
+      - 'client/windows/app/**'
+      - 'client/windows/*.ps1'
+      - 'client/windows/setup.iss'
+      - 'client/android/app/**'
+      - 'client/android/probe/**'
+      - 'client/android/native/**'
+      - 'client/android/test-fixture/**'
+      - 'client/android/*.sh'
+      - 'client/android/*.gradle.kts'
+      - 'client/android/gradle.properties'
+      - 'client/android/SIGNING-CERTIFICATE.txt'
+      - '.github/workflows/*client*.yml'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the complete client release after qualification
+        type: boolean
+        default: true
+permissions:
+  contents: read
+concurrency:
+  group: client-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - id: version
+        name: Read the shared version and verify bundle safeguards
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISH: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
+        run: |
+          python3 -m unittest discover -s client/release -v
+          version=$(tr -d '\r\n' < client/VERSION)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$PUBLISH" = true ] && gh release view "client-v$version" >/dev/null 2>&1; then
+            echo 'This client version is already published. Increment client/VERSION or run with publish=false.' >&2
+            exit 1
+          fi
+  windows:
+    needs: version
+    uses: ./.github/workflows/windows-client.yml
+    with:
+      client_version: ${{ needs.version.outputs.version }}
+  android:
+    needs: version
+    uses: ./.github/workflows/android-client.yml
+    with:
+      client_version: ${{ needs.version.outputs.version }}
+    secrets: inherit
+  release:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
+    needs: [version, windows, android]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: windows-*
+          path: client-bundle
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: android-release
+          path: client-bundle
+      - name: Verify every platform, preserve source branches and publish one release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 client/release/publish.py --assets client-bundle

@@ -4,6 +4,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PolicyTest {
+    @Test fun bulkAppActionsReplaceSelectedAndPreserveOtherExceptions() {
+        val original = Policy(Action.Bypass, listOf(Rule("org.example.first", Action.Tunnel, "App"), Rule("org.example.kept", Action.Block, "App")))
+        val updated = AppRules.apply(original, setOf("org.example.first", "org.example.second"), Action.Block)
+        assertEquals(Action.Bypass, updated.mode)
+        assertEquals(3, updated.rules.size)
+        assertTrue(updated.rules.all { it.action == Action.Block })
+        val replaced = AppRules.apply(updated, setOf("org.example.first", "org.example.second"), Action.Bypass)
+        assertEquals(3, replaced.rules.size)
+        assertEquals(Action.Block, replaced.rules.single { it.target == "org.example.kept" }.action)
+        val removed = AppRules.remove(replaced, setOf("org.example.first", "org.example.second"))
+        assertEquals(listOf(Rule("org.example.kept", Action.Block, "App")), removed.rules)
+        assertEquals(Action.Bypass, removed.mode)
+        assertEquals(Action.Tunnel, original.rules.first().action)
+    }
+    @Test(expected = IllegalArgumentException::class) fun bulkSelectionCannotOverrideOwnControlPackage() { AppRules.apply(Policy(), setOf("org.example.app", EngineConfig.APP), Action.Block) }
+    @Test(expected = IllegalArgumentException::class) fun bulkSelectionCannotStoreRulesOffAsAnAction() { AppRules.apply(Policy(), setOf("org.example.app"), Action.Disabled) }
     private fun profile() = Profile(hysteria = """{"server":"192.0.2.1","port":443,"auth":"synthetic","sni":"fixture.local","pin":"${"ab".repeat(32)}","obfs":""}""")
     @Test fun appExceptionWinsSiteAndDefaults() {
         val p = profile(); val c = Config(listOf(p), p.id, apps = Policy(Action.Block, listOf(Rule("org.example.app", Action.Bypass, "App"))), sites = Policy(Action.Tunnel, listOf(Rule("example.com", Action.Block))))

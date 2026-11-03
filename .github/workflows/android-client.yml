@@ -1,19 +1,10 @@
 name: Android client
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'client/android/app/**'
-      - 'client/android/probe/**'
-      - 'client/android/native/**'
-      - 'client/android/test-fixture/**'
-      - 'client/android/*.sh'
-      - 'client/android/*.gradle.kts'
-      - 'client/android/gradle.properties'
-      - 'client/android/SIGNING-CERTIFICATE.txt'
-      - '.github/workflows/android-client.yml'
-  workflow_dispatch:
+  workflow_call:
     inputs:
+      client_version:
+        required: true
+        type: string
       native_only:
         description: Build the native library without publishing an APK
         type: boolean
@@ -24,7 +15,7 @@ concurrency:
   group: android-client-${{ github.ref }}
   cancel-in-progress: false
 env:
-  CLIENT_VERSION: '0.1.0'
+  CLIENT_VERSION: ${{ inputs.client_version }}
 jobs:
   native:
     runs-on: ubuntu-24.04
@@ -107,6 +98,7 @@ jobs:
           ANDROID_KEYSTORE: ${{ runner.temp }}/android-signing.p12
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
+          test "$(tr -d '\r\n' < client/VERSION)" = "$CLIENT_VERSION"
           alias=$(keytool -J-Duser.language=en -J-Duser.country=US -list -keystore "$ANDROID_KEYSTORE" -storetype PKCS12 -storepass:env ANDROID_KEYSTORE_PASSWORD | sed -n 's/^\([^,]*\), .*PrivateKeyEntry.*$/\1/p' | head -n 1)
           test -n "$alias"
           if [ "$alias" != personal-vpn ]; then
@@ -125,6 +117,7 @@ jobs:
           expected=$(sed -n 's/^SHA-256: //p' client/android/SIGNING-CERTIFICATE.txt | tr -d '\r')
           actual=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' client/android/app/build/signature.txt | tr '[:lower:]' '[:upper:]')
           test "$actual" = "$expected"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging client/android/app/build/outputs/apk/release/app-release.apk | grep -F "versionName='$CLIENT_VERSION'"
           unzip -l client/android/app/build/outputs/apk/release/app-release.apk | grep -E 'lib/(arm64-v8a|x86_64)/libpvn.so'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
@@ -175,27 +168,25 @@ jobs:
             ${{ runner.temp }}/fixture.log
             ${{ runner.temp }}/emulator.log
           retention-days: 7
-  release:
+  package:
+    if: ${{ !inputs.native_only }}
     needs: [app, emulator]
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: android-app
           path: android-artifact
-      - name: Publish signed APK and checksums
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Package qualified Android installer for the shared release
         run: |
-          mkdir release
-          current=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
-          test "$current" = "$GITHUB_SHA"
-          cp android-artifact/app/build/outputs/apk/release/app-release.apk "release/PersonalVPN-Android-${CLIENT_VERSION}.apk"
-          cp android-artifact/app/build/signature.txt release/SIGNATURE.txt
-          cp client/android/README.md release/INSTALL.md
-          cd release
-          sha256sum ./* > SHA256SUMS.txt
-          gh release create "android-v${CLIENT_VERSION}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "Personal VPN Android ${CLIENT_VERSION}" --notes-file ../client/android/RELEASE-NOTES.md ./*
+          mkdir android-release
+          cp android-artifact/app/build/outputs/apk/release/app-release.apk "android-release/PersonalVPN-Android-${CLIENT_VERSION}.apk"
+          cp android-artifact/app/build/signature.txt android-release/ANDROID-SIGNATURE.txt
+          cd android-release
+          sha256sum ./* > SHA256SUMS-android.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-release
+          path: android-release/
+          retention-days: 7

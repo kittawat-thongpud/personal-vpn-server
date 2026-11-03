@@ -47,7 +47,7 @@ public sealed partial class MainWindow : Window
         settings = initial;
         Policy.Upgrade(settings);
         settings.SystemProxy = settings.CaptureMode == "Proxy";
-        Title = "Personal VPN · Windows preview 0.6.3";
+        Title = "Personal VPN · Client " + ClientVersion.Current;
         Width = Math.Min(438, SystemParameters.WorkArea.Width - 24); Height = Math.Min(800, SystemParameters.WorkArea.Height - 24);
         MinWidth = Math.Min(380, Width); MinHeight = Math.Min(640, Height);
         WindowStartupLocation = WindowStartupLocation.CenterScreen;

@@ -1,6 +1,6 @@
-# Personal VPN for Windows — 0.6.3 preview
+# Personal VPN for Windows client
 
-Download the x86 (32-bit) or x64 Windows Setup EXE from the private GitHub release.
+Download the x86 (32-bit) or x64 Windows Setup EXE from the unified private Client release.
 Windows 10 build 19041 or later is required. Setup and the application require Administrator. Setup includes the self-contained
 .NET runtime, architecture-matched Xray / Hysteria / sing-box, and signed Wintun.
 No local compilation or separate driver download is needed. Setup prepares the

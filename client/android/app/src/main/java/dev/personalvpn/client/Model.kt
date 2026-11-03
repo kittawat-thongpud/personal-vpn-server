@@ -17,6 +17,17 @@ data class Policy(val mode: Action = Action.Disabled, val rules: List<Rule> = em
         fun parse(o: JSONObject?) = if (o == null) Policy() else Policy(Action.valueOf(o.getString("mode")), o.optJSONArray("rules").objects().map { Rule(it.getString("target"), Action.valueOf(it.getString("action")), it.optString("kind", "Domain")) })
     }
 }
+
+object AppRules {
+    fun apply(policy: Policy, packages: Set<String>, action: Action): Policy {
+        require(action != Action.Disabled)
+        require(packages.all { it != EngineConfig.APP && it.matches(Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+")) })
+        val combined = policy.rules.associateBy { it.target }.toMutableMap()
+        packages.sorted().forEach { combined[it] = Rule(it, action, "App") }
+        return policy.copy(rules = combined.values.toList())
+    }
+    fun remove(policy: Policy, packages: Set<String>) = policy.copy(rules = policy.rules.filterNot { it.target in packages })
+}
 data class Profile(val id: String = UUID.randomUUID().toString(), val name: String = "My server", val country: String = "JP", val reality: String? = null, val hysteria: String? = null) {
     fun json() = JSONObject().put("id", id).put("name", name).put("country", country).put("reality", reality).put("hysteria", hysteria)
     fun endpoint(protocol: String): String = if (protocol == "REALITY") JSONObject(reality!!).getString("server") else JSONObject(hysteria!!).getString("server")

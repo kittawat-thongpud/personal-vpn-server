@@ -1,6 +1,6 @@
-# Personal VPN Android — 0.1.0 preview
+# Personal VPN Android client
 
-Install `PersonalVPN-Android-0.1.0.apk` from the private GitHub release on the
+Install `PersonalVPN-Android-<client-version>.apk` from the unified private Client release on the
 phone. This is a signed APK installer, not an Android Studio project you must
 compile. Android 10+ is required; the APK contains arm64-v8a and x86_64 native
 libraries. The first physical target is Redmi Note 13 Pro+ 5G / Android 14.
@@ -30,6 +30,17 @@ the core, not implemented by excluding the app from VPN. With App rules enabled,
 unresolved/shared-UID ownership is conservatively rejected. Services/helper
 packages may need separate rules. The app's own control/health traffic is reserved.
 Domain matching is limited for independent encrypted DNS or opaque traffic.
+
+App Tunnel displays installed app names and icons. Search, select any number of
+apps with checkboxes, choose Tunnel/Bypass/Block, and Apply once. Select existing
+exceptions to replace their action, or choose Use default to remove them in bulk.
+Selection is retained while searching/filtering; Clear selection resets it.
+Exceptions and System apps filters keep the list manageable. Package labels are
+cached in memory after background enumeration; only visible rows request icons,
+with a bounded cache. The refresh action updates the installed list explicitly.
+Applying exceptions while Rules off requires confirming that App rules should
+be enabled with Tunnel as the default. Saving rules marks a live VPN connection
+for Apply & reconnect, preserving the existing connection until confirmed.
 
 The foreground VPN service continues when the app UI is hidden. All entry points
 share its connection controller. It observes physical Wi-Fi/cellular changes,

@@ -4,6 +4,7 @@ $packageRoot = [IO.Path]::GetFullPath($Output)
 $cores = Join-Path $packageRoot 'cores'
 $temporary = Join-Path $env:RUNNER_TEMP ('personal-vpn-core-downloads-' + $Architecture)
 New-Item -ItemType Directory -Force -Path $cores,$temporary | Out-Null
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../VERSION') -Destination (Join-Path $packageRoot 'CLIENT-VERSION.txt')
 function Expand-Verified([string]$Url,[string]$Hash,[string]$Name) {
     $archive = Join-Path $temporary ($Name + '.zip')
     Invoke-WebRequest $Url -OutFile $archive

@@ -127,8 +127,8 @@ class MainActivity : ComponentActivity() {
                                         }
                                     } }
                                 }
-                                "App Tunnel" -> RulesPage(true, config.apps) { save(config.copy(apps = it)) }
-                                "Site Tunnel" -> RulesPage(false, config.sites) { save(config.copy(sites = it)) }
+                                "App Tunnel" -> AppTunnelPage(config.apps) { save(config.copy(apps = it)) }
+                                "Site Tunnel" -> SiteRulesPage(config.sites) { save(config.copy(sites = it)) }
                                 "Backend logs" -> Logs { exportLogs.launch("personal-vpn-session.json") }
                             }
                         }
@@ -143,32 +143,25 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    @Composable private fun RulesPage(apps: Boolean, policy: Policy, changed: (Policy) -> Unit) {
+    @Composable private fun SiteRulesPage(policy: Policy, changed: (Policy) -> Unit) {
         var adding by remember { mutableStateOf(false) }; var modeExpanded by remember { mutableStateOf(false) }
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Box { OutlinedButton(onClick = { modeExpanded = true }, Modifier.fillMaxWidth()) { Text(modeLabel(policy.mode)) }; DropdownMenu(modeExpanded, { modeExpanded = false }) { Action.entries.forEach { mode -> DropdownMenuItem(text = { Text(modeLabel(mode)) }, onClick = { changed(policy.copy(mode = mode)); modeExpanded = false }) } } }
-            Button(onClick = { adding = true }, Modifier.fillMaxWidth()) { Text(if (apps) "Choose installed app" else "Add domain / IP") }
+            Button(onClick = { adding = true }, Modifier.fillMaxWidth()) { Text("Add domain / IP") }
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) { items(policy.rules) { rule -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) { Text(rule.target, maxLines = 2); Row(verticalAlignment = Alignment.CenterVertically) { Text(rule.action.name, Modifier.weight(1f), color = MaterialTheme.colorScheme.primary); TextButton(onClick = { changed(policy.copy(rules = policy.rules.filterNot { it == rule })) }) { Text("Remove") } } } } } }
             if (policy.mode == Action.Disabled) Text("Rules off · saved exceptions are ignored.", fontSize = 12.sp, color = Color(0xFF9CAEC8))
         }
-        if (adding) RuleDialog(apps, { adding = false }) { rule -> val next = policy.copy(rules = policy.rules.filterNot { it.target == rule.target } + rule); val c = Repository.config.value; try { EngineConfig.validate(if (apps) c.copy(apps = next) else c.copy(sites = next)); changed(next); adding = false } catch (e: Exception) { message = e.message ?: "Invalid rule." } }
+        if (adding) SiteRuleDialog({ adding = false }) { rule -> val next = policy.copy(rules = policy.rules.filterNot { it.target == rule.target } + rule); val c = Repository.config.value; try { EngineConfig.validate(c.copy(sites = next)); changed(next); adding = false } catch (e: Exception) { message = e.message ?: "Invalid rule." } }
     }
-    @Composable private fun RuleDialog(apps: Boolean, dismiss: () -> Unit, add: (Rule) -> Unit) {
+    @Composable private fun SiteRuleDialog(dismiss: () -> Unit, add: (Rule) -> Unit) {
         var target by remember { mutableStateOf("") }; var action by remember { mutableStateOf(Action.Tunnel) }; var kind by remember { mutableStateOf("Domain") }
-        val installed by produceState<List<Pair<String, String>>>(emptyList(), apps) { if (apps) value = withContext(Dispatchers.IO) { @Suppress("DEPRECATION") packageManager.getInstalledApplications(0).filter { it.packageName != packageName }.map { it.loadLabel(packageManager).toString() to it.packageName }.sortedBy { it.first.lowercase() } } }
-        var search by remember { mutableStateOf("") }
-        AlertDialog(onDismissRequest = dismiss, title = { Text(if (apps) "App exception" else "Site exception") }, text = {
+        AlertDialog(onDismissRequest = dismiss, title = { Text("Site exception") }, text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row { listOf(Action.Tunnel, Action.Bypass, Action.Block).forEach { value -> FilterChip(action == value, { action = value }, label = { Text(value.name) }, modifier = Modifier.padding(end = 4.dp)) } }
-                if (apps) {
-                    OutlinedTextField(search, { search = it }, label = { Text("Search apps / packages") }, singleLine = true)
-                    LazyColumn(Modifier.heightIn(max = 320.dp)) { items(installed.filter { search.isBlank() || it.first.contains(search, true) || it.second.contains(search, true) }) { (name, id) -> TextButton(onClick = { target = id }, Modifier.fillMaxWidth()) { Column(Modifier.fillMaxWidth()) { Text("${if (target == id) "✓ " else ""}$name"); Text(id, fontSize = 11.sp) } } } }
-                } else {
                     Row { listOf("Domain", "IP").forEach { value -> FilterChip(kind == value, { kind = value }, label = { Text(value) }) } }
                     OutlinedTextField(target, { target = it.trim() }, label = { Text(if (kind == "Domain") "example.com" else "IP address or CIDR") }, singleLine = true)
-                }
             }
-        }, confirmButton = { TextButton(onClick = { add(Rule(target, action, if (apps) "App" else kind)) }, enabled = target.isNotBlank()) { Text("Add") } }, dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } })
+        }, confirmButton = { TextButton(onClick = { add(Rule(target, action, kind)) }, enabled = target.isNotBlank()) { Text("Add") } }, dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } })
     }
 }
 
@@ -216,4 +209,4 @@ class MainActivity : ComponentActivity() {
     } }, confirmButton = { TextButton(onClick = { try { if (!current.has("port")) set("port", "443"); if (protocol == "Hysteria 2") { if (!current.has("pin")) set("pin", ""); if (!current.has("obfs")) set("obfs", "") }; if (protocol == "REALITY" && !current.has("shortId")) set("shortId", ""); Imports.validate(protocol, current); require(name.isNotBlank() && country.matches(Regex("[A-Z]{2}"))); save(profile.copy(name = name, country = country, reality = reality.takeIf { it != "{}" }, hysteria = hysteria.takeIf { it != "{}" })) } catch (e: Exception) { error = e.message ?: "Invalid profile." } }) { Text("Save") } }, dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } })
 }
 private fun flag(country: String) = if (country.length == 2 && country.all { it in 'A'..'Z' }) country.map { String(Character.toChars(0x1F1E6 + it.code - 'A'.code)) }.joinToString("") else "◎"
-private fun modeLabel(action: Action) = if (action == Action.Disabled) "Rules off" else "${action.name} by default"
+internal fun modeLabel(action: Action) = if (action == Action.Disabled) "Rules off" else "${action.name} by default"
