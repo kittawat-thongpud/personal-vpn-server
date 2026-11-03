@@ -162,7 +162,7 @@ class TunnelService : VpnService() {
             val up = baseUp + (current?.upload() ?: 0); val down = baseDown + (current?.download() ?: 0)
             val now = SystemClock.elapsedRealtime(); val elapsed = maxOf(1, now - lastTime)
             val upRate = maxOf(0, up - lastUp) * 1000 / elapsed; val downRate = maxOf(0, down - lastDown) * 1000 / elapsed
-            Repository.state.update { old -> old.copy(uploadRate = upRate, downloadRate = downRate, uploaded = maxOf(old.uploaded, up), downloaded = maxOf(old.downloaded, down), history = (old.history + (upRate to downRate)).takeLast(60)) }
+            Repository.state.update { old -> old.copy(uploadRate = if (old.active) upRate else 0, downloadRate = if (old.active) downRate else 0, uploaded = maxOf(old.uploaded, up), downloaded = maxOf(old.downloaded, down), history = (old.history + (upRate to downRate)).takeLast(60)) }
             if (desired) Surfaces.rate(this)
             lastUp = up; lastDown = down; lastTime = now
         }
