@@ -25,3 +25,9 @@ vpn-server-source.tar.gz
 # Local .NET build intermediates (Windows releases are built by Actions).
 **/bin/
 **/obj/
+# Android binaries and local SDK/signing state. Actions builds the APK.
+**/.gradle/
+client/android/app/libs/
+client/android/local.properties
+*.jks
+*.p12

@@ -6,6 +6,7 @@ on:
     paths-ignore:
       - 'client/**'
       - '.github/workflows/windows-client.yml'
+      - '.github/workflows/android-client.yml'
   pull_request:
   workflow_dispatch:
 
