@@ -71,6 +71,10 @@ class TunnelService : VpnService() {
             }
             else -> {
                 if (desired && intent?.action != RECONNECT) return START_STICKY
+                if (!desired && tun == null) {
+                    baseUp = 0; baseDown = 0
+                    Repository.state.update { it.copy(exitIp = "—", appliedConfig = "", uploadRate = 0, downloadRate = 0, uploaded = 0, downloaded = 0, history = emptyList()) }
+                }
                 desired = true; worker?.cancel()
                 worker = scope.launch { lifecycle.withLock { runSession(Repository.config.value) } }
                 if (ticker == null) ticker = scope.launch { streamTraffic() }
@@ -147,7 +151,7 @@ class TunnelService : VpnService() {
     private fun closeCapture() { val previous = tun; tun = null; runCatching { previous?.close() }.onFailure { Repository.log("WARN", "capture.close_failed", it.javaClass.simpleName) }; runCatching { setUnderlyingNetworks(null) }; if (previous != null) Repository.log("INFO", "capture.released") }
     private fun update(status: String, active: Boolean, busy: Boolean, detail: String = "") {
         if (status != Repository.state.value.status) Repository.log("INFO", "state.${status.lowercase().replace(' ', '_')}", detail)
-        Repository.state.update { it.copy(status = status, active = active, busy = busy, detail = detail) }
+        Repository.state.update { it.copy(status = status, active = active, busy = busy, detail = detail, exitIp = if (active) it.exitIp else "—", uploadRate = if (active) it.uploadRate else 0, downloadRate = if (active) it.downloadRate else 0) }
         Surfaces.refresh(this)
     }
     private suspend fun streamTraffic() {

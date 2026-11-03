@@ -57,6 +57,7 @@ class TunnelInstrumentedTest {
                 val name = captureName(); assertNotNull(name)
                 if (firstName == null) firstName = name else assertEquals("Transport changes must retain TUN", firstName, name)
                 assertTrue("External application HTTPS capture", probe())
+                waitFor("Live tunnel counters", 10) { Repository.state.value.uploaded > 0 && Repository.state.value.downloaded > 0 }
                 if (protocol == "Hysteria 2") {
                     assertTrue("UDP forwarding", probe(udp = true))
                     UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).executeShellCommand("am start -W -n dev.personalvpn.client/.MainActivity -a dev.personalvpn.DISCONNECT")
@@ -85,6 +86,9 @@ class TunnelInstrumentedTest {
             UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).executeShellCommand("am start -W -n dev.personalvpn.client/.MainActivity")
             Surfaces.activity(context, TunnelService.DISCONNECT, 99).send()
             waitFor("Disconnect capture cleanup", 40) { !Repository.state.value.active && captureName() == null }
+            assertEquals("—", Repository.state.value.exitIp)
+            assertEquals(0L, Repository.state.value.uploadRate)
+            assertEquals(0L, Repository.state.value.downloadRate)
         }
     }
     @Test fun encryptedStorageAndNativePinConfiguration() {
