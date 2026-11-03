@@ -18,6 +18,10 @@ import (
  "net"
  "net/http"
  "os"
+ "os/exec"
+ "os/signal"
+ "path/filepath"
+ "syscall"
  "time"
  box "github.com/sagernet/sing-box"
  "github.com/sagernet/sing-box/include"
@@ -26,6 +30,7 @@ import (
  "golang.org/x/net/dns/dnsmessage"
 )
 func main() {
+ lifetime,cancel:=signal.NotifyContext(context.Background(),os.Interrupt,syscall.SIGTERM);defer cancel()
  key,_:=ecdsa.GenerateKey(elliptic.P256(),rand.Reader)
  template:=&x509.Certificate{SerialNumber:big.NewInt(1),DNSNames:[]string{"fixture.local"},NotBefore:time.Now().Add(-time.Hour),NotAfter:time.Now().Add(time.Hour),KeyUsage:x509.KeyUsageDigitalSignature,ExtKeyUsage:[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
  der,_:=x509.CreateCertificate(rand.Reader,template,template,&key.PublicKey,key);digest:=sha256.Sum256(der)
@@ -41,11 +46,14 @@ func main() {
  uuid:="10000000-0000-4000-8000-000000000001";authBytes:=make([]byte,24);rand.Read(authBytes);auth:=base64.RawURLEncoding.EncodeToString(authBytes)
  config:=map[string]any{"log":map[string]any{"level":"debug","timestamp":true},"inbounds":[]any{
   map[string]any{"type":"hysteria2","listen":"0.0.0.0","listen_port":18443,"users":[]any{map[string]any{"password":auth}},"tls":map[string]any{"enabled":true,"certificate":[]string{certPEM},"key":[]string{keyPEM}}},
-  map[string]any{"type":"vless","listen":"0.0.0.0","listen_port":18444,"users":[]any{map[string]any{"uuid":uuid,"flow":"xtls-rprx-vision"}},"tls":map[string]any{"enabled":true,"server_name":"fixture.local","reality":map[string]any{"enabled":true,"handshake":map[string]any{"server":"127.0.0.1","server_port":18445},"private_key":base64.RawURLEncoding.EncodeToString(reality.Bytes()),"short_id":[]string{"0123456789abcdef"}}}},
  },"outbounds":[]any{map[string]any{"type":"direct","tag":"direct"}},"dns":map[string]any{"servers":[]any{map[string]any{"type":"local","tag":"system"}}},"route":map[string]any{"final":"direct","default_domain_resolver":"system"}}
  ctx:=box.Context(context.Background(),include.InboundRegistry(),include.OutboundRegistry(),include.EndpointRegistry(),include.DNSTransportRegistry(),include.ServiceRegistry(),include.CertificateProviderRegistry())
  raw,_:=json.Marshal(config);options,err:=sj.UnmarshalExtendedContext[option.Options](ctx,raw);if err!=nil{panic(err)}
  instance,err:=box.New(box.Options{Context:ctx,Options:options});if err!=nil{panic(err)};if err=instance.Start();err!=nil{panic(err)};defer instance.Close()
+ // REALITY is served by official Xray, not by the client library itself.
+ xrayConfig:=map[string]any{"log":map[string]any{"loglevel":"warning"},"inbounds":[]any{map[string]any{"listen":"0.0.0.0","port":18444,"protocol":"vless","settings":map[string]any{"decryption":"none","clients":[]any{map[string]any{"id":uuid,"flow":"xtls-rprx-vision"}}},"streamSettings":map[string]any{"network":"raw","security":"reality","realitySettings":map[string]any{"target":"127.0.0.1:18445","serverNames":[]string{"fixture.local"},"privateKey":base64.RawURLEncoding.EncodeToString(reality.Bytes()),"shortIds":[]string{"0123456789abcdef"}}}}},"outbounds":[]any{map[string]any{"protocol":"freedom"}}}
+ xrayBytes,_:=json.Marshal(xrayConfig);xrayPath:=filepath.Join(filepath.Dir(os.Args[1]),"fixture-xray.json");if err=os.WriteFile(xrayPath,xrayBytes,0600);err!=nil{panic(err)};defer os.Remove(xrayPath)
+ xray:=exec.CommandContext(lifetime,os.Args[2],"run","-c",xrayPath);xray.Stdout=os.Stdout;xray.Stderr=os.Stderr;if err=xray.Start();err!=nil{panic(err)};defer func(){xray.Process.Kill();xray.Wait()}()
  fixture:=map[string]any{"reality":map[string]any{"server":"10.0.2.2","port":18444,"uuid":uuid,"sni":"fixture.local","publicKey":base64.RawURLEncoding.EncodeToString(reality.PublicKey().Bytes()),"shortId":"0123456789abcdef"},"hysteria":map[string]any{"server":"10.0.2.2","port":18443,"auth":auth,"sni":"fixture.local","pin":hex.EncodeToString(digest[:]),"insecure":true,"obfs":""}}
  fixture["ca"]=certPEM
  encoded,_:=json.Marshal(fixture);if err=os.WriteFile(os.Args[1],encoded,0600);err!=nil{panic(err)}

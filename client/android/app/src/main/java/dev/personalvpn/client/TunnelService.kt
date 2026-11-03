@@ -40,7 +40,7 @@ class TunnelService : VpnService() {
     @Volatile private var desired = false
     private val wake = Channel<Unit>(Channel.CONFLATED)
     private val cm by lazy { getSystemService(ConnectivityManager::class.java) }
-    private var networkSignature = ""
+    @Volatile private var networkSignature = ""
     private val platform = object : Platform {
         override fun openTun(mtu: Int) = this@TunnelService.openTun(mtu)
         override fun protect(fd: Int) = protectSocket(fd)
@@ -88,6 +88,7 @@ class TunnelService : VpnService() {
         try {
             EngineConfig.validate(config)
             while (currentCoroutineContext().isActive && desired) {
+                var phase = "network"
                 try {
                     val physical = network
                     if (physical == null) { update("Waiting for network", true, true); withTimeoutOrNull(3000) { wake.receive() }; continue }
@@ -96,6 +97,7 @@ class TunnelService : VpnService() {
                         val host = config.selectedProfile().endpoint(config.protocol)
                         val resolved = physical.getAllByName(host).firstOrNull { it is java.net.Inet4Address } ?: physical.getAllByName(host).first()
                         val content = EngineConfig.compile(config, resolved.hostAddress!!, Repository.instrumentedCertificate != null)
+                        phase = "core_start"
                         Personalvpn.check(content)
                         core = Personalvpn.start(noBackupFilesDir.absolutePath, content, platform)
                         currentCoroutineContext().ensureActive()
@@ -112,13 +114,16 @@ class TunnelService : VpnService() {
                         val wasConnected = Repository.state.value.status == "Connected"
                         if (!wasConnected) update("Verifying", true, true)
                         val certificate = Repository.instrumentedCertificate
+                        phase = "outbound_https"
                         val verified = if (certificate != null) core!!.verifyAt("https://fixture.local:18445/ip", certificate) else core!!.verify()
                         if (Repository.instrumentedDiagnostics) Repository.log("INFO", "fixture.outbound_verified", verified)
                         currentCoroutineContext().ensureActive()
                         // Separate OS-capture proof: this app is captured and its
                         // reserved rule routes health traffic through the VPN.
+                        phase = "captured_https"
                         val captured = capturedExit()
                         currentCoroutineContext().ensureActive()
+                        phase = "exit_compare"
                         check(verified == captured) { "Captured exit differs from authenticated outbound." }
                         if (!wasConnected) Repository.log("INFO", "health.verified", "Authenticated HTTPS and captured exit agree.")
                         Repository.state.update { it.copy(status = "Connected", active = true, busy = false, exitIp = verified, detail = config.protocol) }
@@ -127,13 +132,16 @@ class TunnelService : VpnService() {
                     withTimeoutOrNull(1000) { wake.receive() }
                 } catch (cancel: CancellationException) { throw cancel }
                 catch (error: Exception) {
-                    attempt++; Repository.log("WARN", "backend.retry", "Attempt $attempt; ${Repository.cause(error)}; no Direct fallback.")
-                    update("Reconnecting", true, true, Repository.cause(error))
+                    attempt++
+                    val failedNetwork = networkSignature
+                    val reason = Repository.cause(error)
+                    val delayMs = minOf(30000L, 1000L shl minOf(attempt, 5)) + (0..400).random()
+                    Repository.log("WARN", "backend.retry", "Attempt $attempt; stage=$phase; reason=$reason; retry in ${delayMs}ms; no Direct fallback.")
+                    update("Reconnecting", true, true, "$phase: $reason")
                     closeCore()
                     // Keep the original TUN FD: a transport failure must not
                     // deliberately return captured application traffic to Direct.
-                    val delayMs = minOf(30000L, 1000L shl minOf(attempt, 5)) + (0..400).random()
-                    withTimeoutOrNull(delayMs) { wake.receive() }
+                    awaitNetworkChange(wake, delayMs) { networkSignature != failedNetwork }
                 }
             }
         } catch (cancel: CancellationException) { throw cancel }

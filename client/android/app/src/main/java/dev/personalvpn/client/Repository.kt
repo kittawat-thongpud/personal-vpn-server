@@ -74,7 +74,6 @@ object Repository {
     @Synchronized fun clearLogs() { ring.clear(); events.value = emptyList() }
     fun cause(error: Throwable): String {
         if (instrumentedDiagnostics) return error.javaClass.simpleName + ": " + error.message.orEmpty().take(800)
-        val text = error.message.orEmpty().lowercase()
-        return when { "pin mismatch" in text -> "certificate_pin"; "certificate" in text || "tls" in text -> "tls"; "timeout" in text || "timed out" in text -> "timeout"; "auth" in text -> "authentication"; "network" in text || "connect" in text -> "network"; else -> error.javaClass.simpleName.take(64) }
+        return BackendFailures.reason(error)
     }
 }

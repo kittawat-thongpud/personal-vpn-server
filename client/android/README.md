@@ -69,6 +69,13 @@ Windows backup connection available while testing the phone.
 All binaries are built in GitHub Actions from the pinned sing-box revision
 `c005f35300ce76427dc285481ec5695f5b179cd2`, with a small JNI surface and reviewed
 full-certificate SHA-256 pin backport. TLS pin mismatch is tested using real TLS.
+Client 0.7.1 also retains the browser's hybrid REALITY key share for modern Xray
+servers. Native regression checks reproduce the upstream failure before the
+patch and verify authenticated HTTPS after it, including wrong-short-ID
+rejection. The Android REALITY emulator gateway is official Xray 26.10.31,
+matching the VPS server, rather than another instance of the client library.
+Retry logs expose fixed error categories and the failed phase without raw
+credential-bearing errors. Stale network callbacks do not skip retry backoff.
 The native core is GPL-3.0-or-later; its corresponding source and modifications
 are available in this repository and the pinned upstream commit. Preserve its
 license when redistributing. APKs use a stable private signing key in Actions
