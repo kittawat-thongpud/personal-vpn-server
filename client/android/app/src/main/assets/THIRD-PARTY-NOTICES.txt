@@ -1,0 +1,8 @@
+Personal VPN Android uses sing-box / libbox, Copyright SagerNet and contributors,
+under GPL-3.0-or-later. The complete license is included as LICENSE-sing-box.txt.
+Core source: https://github.com/SagerNet/sing-box/tree/c005f35300ce76427dc285481ec5695f5b179cd2
+Personal VPN native modifications and corresponding application source:
+https://github.com/kittawat-thongpud/personal-vpn-server/tree/main/client/android
+The Go module dependency versions and checksums are pinned by upstream go.mod/go.sum.
+AndroidX / Kotlin dependencies retain their respective Apache 2.0 and other
+third-party notices in the build artifacts and their upstream distributions.

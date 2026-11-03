@@ -89,10 +89,15 @@ jobs:
         env:
           ANDROID_KEYSTORE: ${{ runner.temp }}/android-signing.p12
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-        run: bash client/android/build-app.sh
+        run: |
+          keytool -list -keystore "$ANDROID_KEYSTORE" -storetype PKCS12 -storepass:env ANDROID_KEYSTORE_PASSWORD -alias personal-vpn
+          bash client/android/build-app.sh
       - name: Verify release signature and ABI
         run: |
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs client/android/app/build/outputs/apk/release/app-release.apk > client/android/app/build/signature.txt
+          expected=$(sed -n 's/^SHA-256: //p' client/android/SIGNING-CERTIFICATE.txt | tr -d '\r')
+          actual=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' client/android/app/build/signature.txt | tr '[:lower:]' '[:upper:]')
+          test "$actual" = "$expected"
           unzip -l client/android/app/build/outputs/apk/release/app-release.apk | grep -E 'lib/(arm64-v8a|x86_64)/libpvn.so'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
