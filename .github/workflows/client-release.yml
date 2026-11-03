@@ -34,6 +34,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
+      build: ${{ steps.version.outputs.build }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - id: version
@@ -46,23 +47,27 @@ jobs:
           version=$(tr -d '\r\n' < client/VERSION)
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          build=true
           if [ "$PUBLISH" = true ] && gh release view "client-v$version" >/dev/null 2>&1; then
-            echo 'This client version is already published. Increment client/VERSION or run with publish=false.' >&2
-            exit 1
+            python3 client/release/release_policy.py --published-tag "client-v$version"
+            build=false
           fi
+          echo "build=$build" >> "$GITHUB_OUTPUT"
   windows:
+    if: ${{ needs.version.outputs.build == 'true' }}
     needs: version
     uses: ./.github/workflows/windows-client.yml
     with:
       client_version: ${{ needs.version.outputs.version }}
   android:
+    if: ${{ needs.version.outputs.build == 'true' }}
     needs: version
     uses: ./.github/workflows/android-client.yml
     with:
       client_version: ${{ needs.version.outputs.version }}
     secrets: inherit
   release:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
+    if: ${{ needs.version.outputs.build == 'true' && (github.event_name != 'workflow_dispatch' || inputs.publish) }}
     needs: [version, windows, android]
     runs-on: ubuntu-24.04
     permissions:

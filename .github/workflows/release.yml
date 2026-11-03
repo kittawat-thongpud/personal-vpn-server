@@ -167,5 +167,5 @@ jobs:
           set -euo pipefail
           printf 'Source commit: %s\n\n' "$SOURCE_SHA" > dist/notes.md
           printf 'Includes deployment bundle, Linux amd64 Docker image archive and SHA256SUMS. No server credentials. See DEPLOY.md in the bundle. GHCR images also support arm64.\n' >> dist/notes.md
-          gh release create "$VERSION" dist/*.tar.gz dist/SHA256SUMS --repo "$GH_REPO" --target "$SOURCE_SHA" --title "Personal VPN $VERSION" --notes-file dist/notes.md --draft
-          gh release edit "$VERSION" --repo "$GH_REPO" --draft=false
+          gh release create "$VERSION" dist/*.tar.gz dist/SHA256SUMS --repo "$GH_REPO" --target "$SOURCE_SHA" --title "VPN Server $VERSION" --notes-file dist/notes.md --draft --latest=false
+          gh release edit "$VERSION" --repo "$GH_REPO" --draft=false --latest=false

@@ -1,5 +1,10 @@
 # Client 0.7.0 qualification — 2026-11-03
 
+Release classification: normal stable release, explicitly marked Latest.
+The initial prerelease classification was corrected without replacing any
+qualified binary or changing its signature/checksum. Future client publication
+uses stable Latest; development prereleases require explicit separate intent.
+
 [Unified CI run](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/41619670984)
 and [Client release](https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/client-v0.7.0).
 Qualified source: `a8065f73b0aba99633ec9c543401c0c3f36905d0`.

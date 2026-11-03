@@ -8,10 +8,20 @@ container versions remain independent.
 The **Client release** workflow builds/tests Windows x86, Windows x64 and Android
 from one commit, then publishes `client-v<version>` with every installer, portable
 ZIP, platform guide, Android signature report, SHA256SUMS.txt and CLIENT-RELEASE.json.
+Published client versions are normal stable releases and explicitly marked Latest.
+Pre-release is reserved for an explicitly requested development/test build.
 No partial platform release is published if a required platform fails. Signing
 keeps the existing Android identity so a normal APK update preserves settings.
 Builds and installer uploads occur in Actions. The optional manual `publish=false`
 run qualifies code without creating a release or modifying snapshot branches.
+For an already published version, changes limited to release automation/docs
+validate without rebuilding or replacing its installers. App/native/package
+changes still require a version increment.
+
+The release list keeps the current Client as Latest, the server versions needed
+by the VPS, and the Windows 0.6.0 CI dependency bundle. Obsolete independent
+Windows/Android installer releases can be removed after checking references;
+their source tags and baseline/legacy branches remain available.
 
 ## Source branches
 

@@ -1,4 +1,4 @@
-Client 0.7.0 preview is the first shared Windows and Android feature release.
+Client 0.7.0 is the first shared Windows and Android feature release.
 
 Android App Tunnel now shows installed app names and icons in a searchable list.
 Select multiple apps with checkboxes, choose Tunnel / Bypass / Block and save all
@@ -9,8 +9,9 @@ with bounded caching. App exceptions still precede conflicting Site rules.
 
 Windows x86/x64 installers and portable ZIPs plus the signed Android APK are
 built and qualified in GitHub Actions from the same source/version. The release
-contains one checksum list and a source/asset manifest. Previous releases are
-preserved. Source snapshots: base/client-v0.7.0 and release/client-v0.7.0; older
+contains one checksum list and a source/asset manifest. Previous source snapshots
+are preserved; unused installer releases are removed. Source snapshots:
+base/client-v0.7.0 and release/client-v0.7.0; older
 platform baselines are retained under legacy/. Future unified releases archive
 earlier client source under legacy/client-v*.
 

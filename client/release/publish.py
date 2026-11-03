@@ -118,7 +118,7 @@ def main() -> None:
     lines = [f"{digest(path)}  {path.name}" for path in sorted(root.iterdir()) if path.is_file()]
     (root / "SHA256SUMS.txt").write_text("\n".join(lines) + "\n", encoding="ascii")
     subprocess.run(["gh", "release", "create", f"client-v{version}", "--repo", repository,
-                    "--target", sha, "--prerelease", "--latest=false", "--title", f"Personal VPN Client {version}",
+                    "--target", sha, "--latest", "--title", f"Personal VPN Client {version}",
                     "--notes-file", str(client / "RELEASE-NOTES.md"), *map(str, sorted(root.iterdir()))], check=True)
 
 
