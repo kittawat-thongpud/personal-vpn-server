@@ -29,6 +29,7 @@ func (c *Core) Download() int64 { c.mu.Lock(); defer c.mu.Unlock(); if c.instanc
 func (c *Core) NetworkChanged() { c.mu.Lock(); defer c.mu.Unlock(); if c.instance!=nil { c.platform.update(); c.instance.ResetNetwork() } }
 func Check(config string) error { return libbox.CheckConfig(config) }
 type stringsIterator struct { values []string; index int }
+func (i *stringsIterator) Len() int32 { return int32(len(i.values)-i.index) }
 func (i *stringsIterator) HasNext() bool { return i.index<len(i.values) }
 func (i *stringsIterator) Next() string { s:=i.values[i.index];i.index++;return s }
 type interfacesIterator struct { values []*libbox.NetworkInterface; index int }
