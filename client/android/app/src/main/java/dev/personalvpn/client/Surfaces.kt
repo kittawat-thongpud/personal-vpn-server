@@ -67,6 +67,11 @@ class VpnTile : TileService() {
         val action = if (Repository.state.value.active) TunnelService.DISCONNECT else TunnelService.CONNECT
         if (VpnService.prepare(this) == null) { TunnelService.command(this, action); onStartListening() }
         else if (Build.VERSION.SDK_INT >= 34) startActivityAndCollapse(Surfaces.activity(this, action, 4))
-        else { @Suppress("DEPRECATION") startActivityAndCollapse(Intent(this, MainActivity::class.java).setAction(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        else launchBeforeAndroid14(action)
     }
+    // PendingIntent overload was added in API 34. This compatibility path is
+    // reachable only on API 29–33, where the Intent overload is still supported.
+    @android.annotation.SuppressLint("StartActivityAndCollapseDeprecated")
+    @Suppress("DEPRECATION")
+    private fun launchBeforeAndroid14(action: String) { startActivityAndCollapse(Intent(this, MainActivity::class.java).setAction(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
 }

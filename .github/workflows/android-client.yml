@@ -97,6 +97,11 @@ jobs:
           test -n "$SIGNING_KEY"
           umask 077
           printf '%s' "$SIGNING_KEY" | base64 --decode > "$RUNNER_TEMP/android-signing.p12"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ~/.gradle/caches
+          key: android-gradle-v1-${{ hashFiles('client/android/*.gradle.kts', 'client/android/app/build.gradle.kts', 'client/android/probe/build.gradle.kts', 'client/android/gradle.properties') }}
+          restore-keys: android-gradle-v1-
       - name: Build, test and sign Android APK
         env:
           ANDROID_KEYSTORE: ${{ runner.temp }}/android-signing.p12
@@ -109,6 +114,11 @@ jobs:
           fi
           keytool -list -keystore "$ANDROID_KEYSTORE" -storetype PKCS12 -storepass:env ANDROID_KEYSTORE_PASSWORD -alias personal-vpn
           bash client/android/build-app.sh
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        if: always()
+        with:
+          path: ~/.gradle/caches
+          key: android-gradle-v1-${{ hashFiles('client/android/*.gradle.kts', 'client/android/app/build.gradle.kts', 'client/android/probe/build.gradle.kts', 'client/android/gradle.properties') }}
       - name: Verify release signature and ABI
         run: |
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs client/android/app/build/outputs/apk/release/app-release.apk > client/android/app/build/signature.txt

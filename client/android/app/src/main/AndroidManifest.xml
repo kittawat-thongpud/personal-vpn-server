@@ -1,4 +1,4 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
@@ -6,12 +6,17 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <!-- Required for the user's complete installed-app routing picker, including services. -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
+    <!-- A VPN app picker needs service-only/system packages, not just launchers.
+         This private client uses visibility locally for the user-requested rules. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission"/>
     <application android:name=".VpnApplication" android:label="Personal VPN" android:icon="@drawable/ic_vpn" android:roundIcon="@drawable/ic_vpn" android:theme="@style/AppTheme" android:allowBackup="false" android:usesCleartextTraffic="false" android:supportsRtl="true">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
         </activity>
-        <service android:name=".TunnelService" android:permission="android.permission.BIND_VPN_SERVICE" android:foregroundServiceType="systemExempted" android:exported="true">
+        <!-- Configured VPNs qualify for systemExempted without exact-alarm
+             permission. prepare() is checked before startForeground().
+             https://developer.android.com/develop/background-work/services/fgs/service-types#system-exempted -->
+        <service android:name=".TunnelService" android:permission="android.permission.BIND_VPN_SERVICE" android:foregroundServiceType="systemExempted" android:exported="true" tools:ignore="ForegroundServicePermission">
             <intent-filter><action android:name="android.net.VpnService"/></intent-filter>
         </service>
         <service android:name=".VpnTile" android:label="Personal VPN" android:icon="@drawable/ic_vpn" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE" android:exported="true">

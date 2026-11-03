@@ -28,4 +28,7 @@ fixture=$(base64 -w 0 "$RUNNER_TEMP/fixture.json")
 mkdir -p "$project/app/build/emulator"
 adb shell am instrument -w -r -e fixture "$fixture" dev.personalvpn.client.test/androidx.test.runner.AndroidJUnitRunner | tee "$project/app/build/emulator/result.txt"
 grep -Eq '^OK \([0-9]+ tests?\)' "$project/app/build/emulator/result.txt"
+adb shell am start -W -n dev.personalvpn.client/.MainActivity
+sleep 2
+adb exec-out screencap -p > "$project/app/build/emulator/home.png"
 adb logcat -d -t 300 > "$project/app/build/emulator/logcat.txt"

@@ -3,9 +3,12 @@ package dev.personalvpn.client
 import android.content.Context
 import android.net.VpnService
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.Until
 import dev.personalvpn.personalvpn.Personalvpn
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -21,7 +24,7 @@ class TunnelInstrumentedTest {
         while (System.currentTimeMillis() < until) { if (check()) return; Thread.sleep(300) }
         error("$reason: ${Repository.state.value.status}; events=" + Repository.logs.value.takeLast(8).joinToString { "${it.code}:${it.detail}" })
     }
-    private fun captureName() = NetworkInterface.getNetworkInterfaces().toList().firstOrNull { nic -> nic.inetAddresses.toList().any { it.hostAddress == "172.29.255.1" } }?.name
+    private fun captureName() = NetworkInterface.getNetworkInterfaces().toList().firstOrNull { nic -> nic.inetAddresses.toList().any { it.hostAddress == "172.29.255.1" } }?.let { "${it.name}/${it.index}" }
     private fun probe(udp: Boolean = false): Boolean {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         device.executeShellCommand("am force-stop dev.personalvpn.probe")
@@ -78,5 +81,15 @@ class TunnelInstrumentedTest {
             assertFalse(String(bytes, Charsets.ISO_8859_1).contains("fixture-secret"))
             Personalvpn.check(EngineConfig.compile(config, "192.0.2.1"))
         } finally { store.save(original) }
+    }
+    @Test fun homeControlsFitInsideTheScreen() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+            assertTrue(device.wait(Until.hasObject(By.text("Connect")), 15000))
+            val connect = device.findObject(By.text("Connect")).visibleBounds
+            assertTrue(connect.top >= 0 && connect.bottom <= device.displayHeight)
+            assertTrue(device.hasObject(By.text("Settings")))
+            assertTrue(device.hasObject(By.text("TUNNEL TRAFFIC")))
+        }
     }
 }
