@@ -87,6 +87,8 @@ jobs:
           name: android-native
           path: client/android/app/libs
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          packages: platform-tools
       - name: Restore private signing identity
         env:
           SIGNING_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -130,6 +132,8 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          packages: platform-tools
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: android-native
