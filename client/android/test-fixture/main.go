@@ -52,6 +52,12 @@ func main() {
  instance,err:=box.New(box.Options{Context:ctx,Options:options});if err!=nil{panic(err)};if err=instance.Start();err!=nil{panic(err)};defer instance.Close()
  // REALITY is served by official Xray, not by the client library itself.
  xrayConfig:=map[string]any{"log":map[string]any{"loglevel":"warning"},"inbounds":[]any{map[string]any{"listen":"0.0.0.0","port":18444,"protocol":"vless","settings":map[string]any{"decryption":"none","clients":[]any{map[string]any{"id":uuid,"flow":"xtls-rprx-vision"}}},"streamSettings":map[string]any{"network":"raw","security":"reality","realitySettings":map[string]any{"target":"127.0.0.1:18445","serverNames":[]string{"fixture.local"},"privateKey":base64.RawURLEncoding.EncodeToString(reality.Bytes()),"shortIds":[]string{"0123456789abcdef"}}}}},"outbounds":[]any{map[string]any{"protocol":"freedom"}}}
+ // Allow only the controlled HTTPS/UDP fixtures. Xray's production private
+ // address restrictions must not silently blackhole these CI-only targets.
+ xrayConfig["outbounds"]=[]any{map[string]any{"protocol":"freedom","settings":map[string]any{"finalRules":[]any{
+  map[string]any{"action":"allow","network":"tcp","ip":[]string{"198.18.0.1/32"},"port":18445},
+  map[string]any{"action":"allow","network":"udp","ip":[]string{"198.18.0.1/32"},"port":19000},
+ }}}}
  xrayBytes,_:=json.Marshal(xrayConfig);xrayPath:=filepath.Join(filepath.Dir(os.Args[1]),"fixture-xray.json");if err=os.WriteFile(xrayPath,xrayBytes,0600);err!=nil{panic(err)};defer os.Remove(xrayPath)
  xray:=exec.CommandContext(lifetime,os.Args[2],"run","-c",xrayPath);xray.Stdout=os.Stdout;xray.Stderr=os.Stderr;if err=xray.Start();err!=nil{panic(err)};defer func(){xray.Process.Kill();xray.Wait()}()
  fixture:=map[string]any{"reality":map[string]any{"server":"10.0.2.2","port":18444,"uuid":uuid,"sni":"fixture.local","publicKey":base64.RawURLEncoding.EncodeToString(reality.PublicKey().Bytes()),"shortId":"0123456789abcdef"},"hysteria":map[string]any{"server":"10.0.2.2","port":18443,"auth":auth,"sni":"fixture.local","pin":hex.EncodeToString(digest[:]),"insecure":true,"obfs":""}}
