@@ -4,9 +4,12 @@ package libbox
 
 import (
  "context"
+ "crypto/tls"
+ "crypto/x509"
  "io"
  "net"
  "net/http"
+ "net/url"
  "os"
  "strings"
  "sync/atomic"
@@ -62,11 +65,21 @@ func (f *personalFlow) FlowEstablished() {}
 func (f *personalFlow) CloseFlow(tun.FlowCloseReason) {}
 func (c *PersonalInstance) RoutedFlow(ctx context.Context, metadata adapter.InboundContext, rule adapter.Rule, outbound adapter.Outbound) tun.FlowTracker { return &personalFlow{c, tunnel(outbound)} }
 func (c *PersonalInstance) Verify() (string, error) {
+ return c.VerifyAt("https://api.ipify.org/", "")
+}
+func (c *PersonalInstance) VerifyAt(address, certificate string) (string, error) {
+ parsed, err := url.Parse(address)
+ if err != nil || parsed.Scheme != "https" { return "", os.ErrInvalid }
  outbound, _ := c.box.Outbound().Outbound("tunnel")
  transport := &http.Transport{DisableKeepAlives: true, DialContext: func(ctx context.Context, network, address string) (net.Conn,error) { return outbound.DialContext(ctx, network, M.ParseSocksaddr(address)) }}
+ if certificate != "" {
+  roots := x509.NewCertPool()
+  if !roots.AppendCertsFromPEM([]byte(certificate)) { return "", os.ErrInvalid }
+  transport.TLSClientConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS13}
+ }
  defer transport.CloseIdleConnections()
  client := &http.Client{Transport: transport, Timeout: 12*time.Second}
- response, err := client.Get("https://api.ipify.org/")
+ response, err := client.Get(address)
  if err != nil { return "", err }
  defer response.Body.Close()
  body, err := io.ReadAll(io.LimitReader(response.Body, 128))

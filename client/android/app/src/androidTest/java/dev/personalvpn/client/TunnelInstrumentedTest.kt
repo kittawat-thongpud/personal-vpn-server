@@ -20,8 +20,9 @@ import java.net.NetworkInterface
 
 @RunWith(AndroidJUnit4::class)
 class TunnelInstrumentedTest {
-    @Before fun enableFixtureDiagnostics() { Repository.instrumentedDiagnostics = true }
-    @After fun disableFixtureDiagnostics() { Repository.instrumentedDiagnostics = false }
+    @Before fun enableFixtureDiagnostics() { Repository.instrumentedDiagnostics = true; Repository.instrumentedCertificate = fixture().getString("ca") }
+    @After fun disableFixtureDiagnostics() { Repository.instrumentedDiagnostics = false; Repository.instrumentedCertificate = null }
+    private fun fixture() = JSONObject(String(java.util.Base64.getDecoder().decode(InstrumentationRegistry.getArguments().getString("fixture")!!)))
     private val context: Context get() = ApplicationProvider.getApplicationContext()
     private fun waitFor(reason: String, seconds: Int = 90, check: () -> Boolean) {
         val until = System.currentTimeMillis() + seconds * 1000L
@@ -33,21 +34,22 @@ class TunnelInstrumentedTest {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         device.executeShellCommand("am force-stop dev.personalvpn.probe")
         device.executeShellCommand("run-as dev.personalvpn.probe rm -f files/result.json")
-        device.executeShellCommand("am start -W -n dev.personalvpn.probe/.ProbeActivity --ez udp $udp")
+        val ca = java.util.Base64.getEncoder().encodeToString(fixture().getString("ca").toByteArray())
+        device.executeShellCommand("am start -W -n dev.personalvpn.probe/.ProbeActivity --ez udp $udp --es ca $ca")
         var result: JSONObject? = null
         waitFor("Companion network probe", 20) { val text = device.executeShellCommand("run-as dev.personalvpn.probe cat files/result.json"); result = runCatching { JSONObject(text) }.getOrNull(); result != null }
         return result!!.getBoolean("success")
     }
     @Test fun nativeCaptureProtocolsPoliciesAndLifecycle() {
         assertNull("The isolated emulator must have VPN permission before instrumentation.", VpnService.prepare(context))
-        val fixture = JSONObject(String(java.util.Base64.getDecoder().decode(InstrumentationRegistry.getArguments().getString("fixture")!!)))
+        val fixture = fixture()
         val profile = Profile(name = "CI fixture", reality = fixture.getJSONObject("reality").toString(), hysteria = fixture.getJSONObject("hysteria").toString())
         var config = Config(listOf(profile), profile.id)
         var firstName: String? = null
         try {
             for (protocol in listOf("Hysteria 2", "REALITY")) {
                 config = config.copy(protocol = protocol, apps = Policy(), sites = Policy(Action.Tunnel))
-                Personalvpn.check(EngineConfig.compile(config, "10.0.2.2"))
+                Personalvpn.check(EngineConfig.compile(config, "10.0.2.2", true))
                 Repository.save(config)
                 TunnelService.command(context, if (Repository.state.value.active) TunnelService.RECONNECT else TunnelService.CONNECT)
                 waitFor("Authenticated and captured HTTPS: $protocol") { Repository.state.value.status == "Connected" && Repository.state.value.detail == protocol }
@@ -63,7 +65,7 @@ class TunnelInstrumentedTest {
             Repository.save(config); TunnelService.command(context, TunnelService.RECONNECT)
             waitFor("Apply app Block") { Repository.state.value.status == "Connected" && Repository.state.value.appliedConfig == config.fingerprint() }
             assertFalse("App Block must not be an OS Bypass exclusion", probe())
-            config = config.copy(apps = Policy(Action.Block, listOf(Rule("dev.personalvpn.probe", Action.Tunnel, "App"))), sites = Policy(Action.Block, listOf(Rule("google.com", Action.Block))))
+            config = config.copy(apps = Policy(Action.Block, listOf(Rule("dev.personalvpn.probe", Action.Tunnel, "App"))), sites = Policy(Action.Block, listOf(Rule("fixture.local", Action.Block))))
             Repository.save(config); TunnelService.command(context, TunnelService.RECONNECT)
             waitFor("Apply App-over-Site policy") { Repository.state.value.status == "Connected" && Repository.state.value.appliedConfig == config.fingerprint() }
             assertTrue("Explicit App Tunnel must beat Site Block", probe())

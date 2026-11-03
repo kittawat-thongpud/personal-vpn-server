@@ -91,7 +91,7 @@ class TunnelService : VpnService() {
                         update(if (attempt == 0) "Connecting" else "Reconnecting", true, true)
                         val host = config.selectedProfile().endpoint(config.protocol)
                         val resolved = physical.getAllByName(host).firstOrNull { it is java.net.Inet4Address } ?: physical.getAllByName(host).first()
-                        val content = EngineConfig.compile(config, resolved.hostAddress!!)
+                        val content = EngineConfig.compile(config, resolved.hostAddress!!, Repository.instrumentedCertificate != null)
                         Personalvpn.check(content)
                         core = Personalvpn.start(noBackupFilesDir.absolutePath, content, platform)
                         currentCoroutineContext().ensureActive()
@@ -107,7 +107,8 @@ class TunnelService : VpnService() {
                     if (SystemClock.elapsedRealtime() >= nextHealth) {
                         val wasConnected = Repository.state.value.status == "Connected"
                         if (!wasConnected) update("Verifying", true, true)
-                        val verified = core!!.verify()
+                        val certificate = Repository.instrumentedCertificate
+                        val verified = if (certificate != null) core!!.verifyAt("https://fixture.local:18445/ip", certificate) else core!!.verify()
                         currentCoroutineContext().ensureActive()
                         // Separate OS-capture proof: this app is captured and its
                         // reserved rule routes health traffic through the VPN.
@@ -135,7 +136,9 @@ class TunnelService : VpnService() {
         finally { closeCore() }
     }
     private fun capturedExit(): String {
-        val connection = java.net.URL("https://api.ipify.org/").openConnection() as HttpsURLConnection
+        val certificate = Repository.instrumentedCertificate
+        val connection = java.net.URL(if (certificate != null) "https://fixture.local:18445/ip" else "https://api.ipify.org/").openConnection() as HttpsURLConnection
+        if (certificate != null) connection.sslSocketFactory = fixtureTrust(certificate)
         connection.connectTimeout = 8000; connection.readTimeout = 8000; connection.useCaches = false
         return try { check(connection.responseCode == 200); connection.inputStream.use { input -> val out = java.io.ByteArrayOutputStream(); val buffer = ByteArray(128); while (true) { val count = input.read(buffer); if (count < 0) break; check(out.size() + count <= 128); out.write(buffer, 0, count) }; out.toString("UTF-8").trim() } } finally { connection.disconnect() }
     }

@@ -9,6 +9,7 @@ mkdir -p "$ANDROID_AVD_HOME"
 sdkmanager 'platform-tools' 'emulator' 'system-images;android-34;google_apis;x86_64' >/dev/null
 sudo chmod 666 /dev/kvm
 sudo ip address add 198.18.0.1/32 dev lo
+printf '198.18.0.1 fixture.local\n' | sudo tee -a /etc/hosts >/dev/null
 chmod +x "$project/app/libs/test-fixture"
 "$project/app/libs/test-fixture" "$RUNNER_TEMP/fixture.json" > "$RUNNER_TEMP/fixture.log" 2>&1 &
 fixture_pid=$!

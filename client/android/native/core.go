@@ -24,6 +24,7 @@ func Start(root, config string, platform Platform) (*Core,error) {
 }
 func (c *Core) Close() { c.mu.Lock(); defer c.mu.Unlock(); if c.instance!=nil { c.instance.Close(); c.instance=nil } }
 func (c *Core) Verify() (string,error) { c.mu.Lock(); defer c.mu.Unlock(); if c.instance==nil { return "",errors.New("closed") }; return c.instance.Verify() }
+func (c *Core) VerifyAt(address, certificate string) (string,error) { c.mu.Lock(); defer c.mu.Unlock(); if c.instance==nil { return "",errors.New("closed") }; return c.instance.VerifyAt(address,certificate) }
 func (c *Core) Upload() int64 { c.mu.Lock(); defer c.mu.Unlock(); if c.instance==nil { return 0 }; return c.instance.Upload() }
 func (c *Core) Download() int64 { c.mu.Lock(); defer c.mu.Unlock(); if c.instance==nil { return 0 }; return c.instance.Download() }
 func (c *Core) NetworkChanged() { c.mu.Lock(); defer c.mu.Unlock(); if c.instance!=nil { c.platform.update(); c.instance.ResetNetwork() } }

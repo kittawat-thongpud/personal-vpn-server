@@ -112,7 +112,7 @@ object EngineConfig {
         }
         return out
     }
-    fun compile(config: Config, resolvedServer: String): String {
+    fun compile(config: Config, resolvedServer: String, fixtureDns: Boolean = false): String {
         validate(config)
         val rules = JSONArray().put(JSONObject().put("action", "sniff")).put(JSONObject().put("protocol", "dns").put("action", "hijack-dns"))
         // The app's health/control traffic cannot be overridden by user rules.
@@ -125,6 +125,7 @@ object EngineConfig {
         val fallback = if (config.apps.mode != Action.Disabled) config.apps.mode else if (config.sites.mode != Action.Disabled) config.sites.mode else Action.Tunnel
         if (fallback == Action.Block) rules.put(JSONObject().put("action", "reject"))
         val dns = JSONObject().put("servers", JSONArray().put(JSONObject().put("type", "https").put("tag", "remote").put("server", "1.1.1.1").put("path", "/dns-query").put("tls", JSONObject().put("enabled", true).put("server_name", "cloudflare-dns.com")).put("detour", "tunnel"))).put("strategy", if (config.ipv6Dns) "prefer_ipv4" else "ipv4_only").put("reverse_mapping", true)
+        if (fixtureDns) dns.put("servers", JSONArray().put(JSONObject().put("type", "udp").put("tag", "remote").put("server", "198.18.0.1").put("server_port", 15353).put("detour", "tunnel")))
         val tun = JSONObject().put("type", "tun").put("tag", "capture").put("address", JSONArray().put("172.29.255.1/30").put("fd66:706e:1::1/126")).put("mtu", 1280).put("auto_route", true).put("strict_route", true).put("stack", "gvisor")
         return JSONObject().put("log", JSONObject().put("disabled", true)).put("dns", dns).put("inbounds", JSONArray().put(tun)).put("outbounds", JSONArray().put(outbound(config.selectedProfile(), config.protocol, resolvedServer)).put(JSONObject().put("type", "direct").put("tag", "direct"))).put("route", JSONObject().put("auto_detect_interface", true).put("rules", rules).put("final", if (fallback == Action.Bypass) "direct" else "tunnel")).toString()
     }

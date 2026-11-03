@@ -14,6 +14,14 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
+// An exact fixture trust anchor, used only by the instrumentation process.
+internal fun fixtureTrust(pem: String): javax.net.ssl.SSLSocketFactory {
+    val certificate = java.security.cert.CertificateFactory.getInstance("X.509").generateCertificate(pem.byteInputStream())
+    val store = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setCertificateEntry("fixture", certificate) }
+    val managers = javax.net.ssl.TrustManagerFactory.getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm()).apply { init(store) }
+    return javax.net.ssl.SSLContext.getInstance("TLS").apply { init(null, managers.trustManagers, null) }.socketFactory
+}
+
 class VpnApplication : Application() { override fun onCreate() { super.onCreate(); Repository.initialize(this) } }
 class SecureStore(context: Context) {
     private val file = AtomicFile(File(context.noBackupFilesDir, "profiles.enc"))
@@ -53,6 +61,7 @@ object Repository {
     // Enabled only by the isolated instrumentation APK with generated fixtures.
     // There is no UI or external command that enables raw exception details.
     @Volatile internal var instrumentedDiagnostics = false
+    @Volatile internal var instrumentedCertificate: String? = null
     lateinit var context: Context; private lateinit var store: SecureStore
     private val settings = MutableStateFlow(Config()); val config = settings.asStateFlow()
     val state = MutableStateFlow(TunnelState())
