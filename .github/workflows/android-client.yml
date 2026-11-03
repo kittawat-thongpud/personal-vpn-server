@@ -1,5 +1,15 @@
 name: Android client
 on:
+  workflow_dispatch:
+    inputs:
+      client_version:
+        description: Shared client version from client/VERSION
+        required: true
+        type: string
+      native_only:
+        description: Qualify native code without building or publishing installers
+        type: boolean
+        default: true
   workflow_call:
     inputs:
       client_version:

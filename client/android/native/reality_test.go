@@ -38,6 +38,7 @@ func TestPersonalRealityXray(t *testing.T) {
  reality,err:=ecdh.X25519().GenerateKey(rand.Reader);if err!=nil{t.Fatal(err)}
  uuid:="10000000-0000-4000-8000-000000000001"
  server:=map[string]any{"log":map[string]any{"loglevel":"error"},"inbounds":[]any{map[string]any{"listen":"127.0.0.1","port":port,"protocol":"vless","settings":map[string]any{"decryption":"none","clients":[]any{map[string]any{"id":uuid,"flow":"xtls-rprx-vision"}}},"streamSettings":map[string]any{"network":"raw","security":"reality","realitySettings":map[string]any{"target":listener.Addr().String(),"serverNames":[]string{"fixture.local"},"privateKey":base64.RawURLEncoding.EncodeToString(reality.Bytes()),"shortIds":[]string{"0123456789abcdef"}}}}},"outbounds":[]any{map[string]any{"protocol":"freedom"}}}
+ server["log"]=map[string]any{"loglevel":"debug"}
  raw,_:=json.Marshal(server);path:=filepath.Join(t.TempDir(),"xray.json");if err=os.WriteFile(path,raw,0600);err!=nil{t.Fatal(err)}
  command:=exec.Command(executable,"run","-c",path);command.Stdout=os.Stdout;command.Stderr=os.Stderr;if err=command.Start();err!=nil{t.Fatal(err)};t.Cleanup(func(){command.Process.Kill();command.Wait()})
  deadline:=time.Now().Add(5*time.Second)
@@ -48,6 +49,7 @@ func TestPersonalRealityXray(t *testing.T) {
   if mode=="public_key" {other,e:=ecdh.X25519().GenerateKey(rand.Reader);if e!=nil{t.Fatal(e)};publicKey=other.PublicKey().Bytes()}
   ctx:=baseContext(nil)
   config:=map[string]any{"log":map[string]any{"disabled":true},"outbounds":[]any{map[string]any{"type":"vless","tag":"tunnel","server":"127.0.0.1","server_port":port,"uuid":uuid,"flow":"xtls-rprx-vision","tls":map[string]any{"enabled":true,"server_name":"fixture.local","utls":map[string]any{"enabled":true,"fingerprint":"chrome"},"reality":map[string]any{"enabled":true,"public_key":base64.RawURLEncoding.EncodeToString(publicKey),"short_id":shortID}}}}}
+  config["log"]=map[string]any{"level":"trace"}
   raw,_:=json.Marshal(config);options,e:=parseConfig(ctx,string(raw));if e!=nil{t.Fatal(e)};instance,e:=box.New(box.Options{Context:ctx,Options:options});if e!=nil{t.Fatal(e)};if e=instance.Start();e!=nil{t.Fatal(e)}
   core:=&PersonalInstance{box:instance}
   for i:=0;i<3;i++{result,e:=core.VerifyAt("https://"+listener.Addr().String()+"/ip",certPEM)
