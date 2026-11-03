@@ -28,3 +28,10 @@ Android installers are kept together in its release rather than being renamed
 from binaries with unrelated internal versions. Source and each asset's checksum
 are recorded in CLIENT-RELEASE.json. Platform limitations remain documented in
 the Windows and Android guides; a common number does not imply identical APIs.
+
+If the Actions token cannot create a source snapshot, publication stops. After
+qualification, create the requested refs with the existing authorized local
+GitHub CLI/git login and retry only the failed publisher. Do not upload a broad
+personal token to CI or force-update an existing snapshot. This migration needed
+that local ref-creation step for the initial 0.7.0 snapshots; the installed
+binaries were still built, tested and uploaded entirely in Actions.

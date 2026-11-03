@@ -308,3 +308,11 @@ on this host; the chained result must not be described as a direct path.
 No physical Wi-Fi / cellular switch, sleep / resume, TUN, DNS-leak qualification,
 whole-machine kill switch, process interception or mesh interoperability test was
 performed on the live development host. These remain separate acceptance work.
+
+## Shared client 0.7.0
+
+Both Windows architectures were rebuilt and qualified with the shared client
+version. See [shared qualification](../VALIDATION.md). Historical host checks
+below remain evidence for their recorded versions; the running user installation
+was not upgraded automatically as part of the Android App Tunnel change.
+

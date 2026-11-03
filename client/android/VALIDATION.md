@@ -1,5 +1,10 @@
 # Android validation
 
+The current shared client is **0.7.0**, including the installed-app multiselection
+UI. See [shared qualification](../VALIDATION.md) for its completed all-platform
+run, four Android 14 instrumented tests, source snapshots and installer manifest.
+The 0.1.0 results below are retained as historical evidence.
+
 Android 0.1.0 preview was published on 2026-11-03 from commit
 `631043c33f5d6018eb5530810e6bb43b853c58c3`.
 
