@@ -57,7 +57,12 @@ class TunnelInstrumentedTest {
                 val name = captureName(); assertNotNull(name)
                 if (firstName == null) firstName = name else assertEquals("Transport changes must retain TUN", firstName, name)
                 assertTrue("External application HTTPS capture", probe())
-                if (protocol == "Hysteria 2") assertTrue("UDP forwarding", probe(udp = true))
+                if (protocol == "Hysteria 2") {
+                    assertTrue("UDP forwarding", probe(udp = true))
+                    UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).executeShellCommand("am start -W -n dev.personalvpn.client/.MainActivity -a dev.personalvpn.DISCONNECT")
+                    Thread.sleep(500)
+                    assertTrue("Untrusted exported Activity command must not disconnect VPN", Repository.state.value.active)
+                }
             }
             // A different UID is necessary: the VPN application's own control
             // traffic is deliberately reserved and cannot test application Block.
@@ -75,7 +80,7 @@ class TunnelInstrumentedTest {
             assertTrue("Explicit App Bypass must use a working protected Direct socket", probe())
             assertEquals(firstName, captureName())
         } finally {
-            TunnelService.command(context, TunnelService.DISCONNECT)
+            Surfaces.activity(context, TunnelService.DISCONNECT, 99).send()
             waitFor("Disconnect capture cleanup", 40) { !Repository.state.value.active && captureName() == null }
         }
     }

@@ -66,7 +66,12 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) window.decorView.post { handle(intent) }
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handle(intent) }
-    private fun handle(intent: Intent) { when (intent.action) { TunnelService.CONNECT -> connect(); TunnelService.DISCONNECT -> TunnelService.command(this, TunnelService.DISCONNECT) } }
+    private fun handle(intent: Intent) {
+        // The launcher Activity is exported; arbitrary other apps must not be
+        // able to disconnect the VPN by fabricating a command Intent.
+        if (intent.getStringExtra(Surfaces.CONTROL_TOKEN) != Repository.controlToken) return
+        when (intent.action) { TunnelService.CONNECT -> connect(); TunnelService.DISCONNECT -> TunnelService.command(this, TunnelService.DISCONNECT) }
+    }
     private fun connect() {
         try { EngineConfig.validate(Repository.config.value) } catch (e: Exception) { message = e.message ?: "Import a server profile first."; return }
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) { connectAfterNotification = true; notifications.launch(Manifest.permission.POST_NOTIFICATIONS) } else consentThenConnect()

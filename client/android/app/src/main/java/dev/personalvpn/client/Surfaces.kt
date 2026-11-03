@@ -17,9 +17,10 @@ import java.util.Locale
 
 fun bytes(value: Long): String = when { value < 1024 -> "$value B"; value < 1024 * 1024 -> String.format(Locale.US, "%.1f KiB", value / 1024.0); value < 1024L * 1024 * 1024 -> String.format(Locale.US, "%.1f MiB", value / (1024.0 * 1024)); else -> String.format(Locale.US, "%.2f GiB", value / (1024.0 * 1024 * 1024)) }
 object Surfaces {
+    const val CONTROL_TOKEN = "dev.personalvpn.PRIVATE_CONTROL"
     private const val CHANNEL = "vpn-connection"
     fun channels(context: Context) { context.getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL, "VPN connection", NotificationManager.IMPORTANCE_LOW).apply { description = "Connection status and current tunnel speed"; setSound(null, null); enableVibration(false); setShowBadge(false) }) }
-    fun activity(context: Context, action: String = "", request: Int = 0): PendingIntent = PendingIntent.getActivity(context, request, Intent(context, MainActivity::class.java).setAction(action).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    fun activity(context: Context, action: String = "", request: Int = 0): PendingIntent = PendingIntent.getActivity(context, request, Intent(context, MainActivity::class.java).setAction(action).putExtra(CONTROL_TOKEN, Repository.controlToken).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     private fun command(context: Context, action: String, request: Int) = PendingIntent.getService(context, request, Intent(context, TunnelService::class.java).setAction(action), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     fun notification(context: Context): Notification {
         val state = Repository.state.value
@@ -73,5 +74,5 @@ class VpnTile : TileService() {
     // reachable only on API 29–33, where the Intent overload is still supported.
     @android.annotation.SuppressLint("StartActivityAndCollapseDeprecated")
     @Suppress("DEPRECATION")
-    private fun launchBeforeAndroid14(action: String) { startActivityAndCollapse(Intent(this, MainActivity::class.java).setAction(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+    private fun launchBeforeAndroid14(action: String) { startActivityAndCollapse(Intent(this, MainActivity::class.java).setAction(action).putExtra(Surfaces.CONTROL_TOKEN, Repository.controlToken).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
 }

@@ -58,6 +58,7 @@ class EventRing {
 }
 data class TunnelState(val status: String = "Disconnected", val active: Boolean = false, val busy: Boolean = false, val exitIp: String = "—", val detail: String = "", val appliedConfig: String = "", val profileName: String = "", val protocol: String = "", val uploadRate: Long = 0, val downloadRate: Long = 0, val uploaded: Long = 0, val downloaded: Long = 0, val history: List<Pair<Long, Long>> = emptyList())
 object Repository {
+    lateinit var controlToken: String; private set
     // Enabled only by the isolated instrumentation APK with generated fixtures.
     // There is no UI or external command that enables raw exception details.
     @Volatile internal var instrumentedDiagnostics = false
@@ -67,7 +68,7 @@ object Repository {
     val state = MutableStateFlow(TunnelState())
     private val events = MutableStateFlow<List<BackendEvent>>(emptyList()); val logs = events.asStateFlow()
     private val ring = EventRing()
-    fun initialize(context: Context) { this.context = context.applicationContext; store = SecureStore(this.context); try { settings.value = store.load() } catch (e: Exception) { log("ERROR", "settings.read_failed", e.javaClass.simpleName); state.value = TunnelState(detail = "Stored settings could not be decrypted. The original file was preserved.") } }
+    fun initialize(context: Context) { this.context = context.applicationContext; val control = this.context.getSharedPreferences("private-control", Context.MODE_PRIVATE); controlToken = control.getString("token", null) ?: java.util.UUID.randomUUID().toString().also { control.edit().putString("token", it).commit() }; store = SecureStore(this.context); try { settings.value = store.load() } catch (e: Exception) { log("ERROR", "settings.read_failed", e.javaClass.simpleName); state.value = TunnelState(detail = "Stored settings could not be decrypted. The original file was preserved.") } }
     @Synchronized fun save(config: Config) { store.save(config); settings.value = config }
     @Synchronized fun log(level: String, code: String, detail: String = "") { events.value = ring.add(level, code, detail) }
     @Synchronized fun clearLogs() { ring.clear(); events.value = emptyList() }

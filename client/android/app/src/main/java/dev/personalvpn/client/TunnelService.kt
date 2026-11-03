@@ -137,7 +137,7 @@ class TunnelService : VpnService() {
     }
     private fun capturedExit(): String {
         val certificate = Repository.instrumentedCertificate
-        val connection = java.net.URL(if (certificate != null) "https://fixture.local:18445/ip" else "https://api.ipify.org/").openConnection() as HttpsURLConnection
+        val connection = java.net.URL(if (certificate != null) "https://fixture.local:18445/ip" else "https://api.ipify.org/").openConnection(java.net.Proxy.NO_PROXY) as HttpsURLConnection
         if (certificate != null) connection.sslSocketFactory = fixtureTrust(certificate)
         connection.connectTimeout = 8000; connection.readTimeout = 8000; connection.useCaches = false
         return try { check(connection.responseCode == 200); connection.inputStream.use { input -> val out = java.io.ByteArrayOutputStream(); val buffer = ByteArray(128); while (true) { val count = input.read(buffer); if (count < 0) break; check(out.size() + count <= 128); out.write(buffer, 0, count) }; out.toString("UTF-8").trim() } } finally { connection.disconnect() }
