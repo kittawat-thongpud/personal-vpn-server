@@ -1,4 +1,8 @@
-Windows 0.6.2: IPv4-compatible TUN DNS and persistent adapter lifecycle.
+Windows 0.6.3: tray menu opens on the first request and dismisses normally.
+
+Fixes an initially empty WinForms menu inheriting Cancel=true before its Opening handler populates the actions, which required a second right-click. Also removes the blanket AppFocusChange cancellation so clicking another application dismisses the popup. Pointer movement alone uses the standard shell menu behavior. Regression checks open the initially empty native popup and verify focus-change, outside-click, Escape and action close reasons.
+
+Includes the 0.6.2 IPv4-compatible TUN DNS and persistent adapter fixes:
 
 The default TUN DNS strategy now returns IPv4 addresses. This fixes the observed case where the VPS IPv4 path worked, while applications selecting an IPv6 address failed during TLS. VPN configure includes an explicit IPv6 DNS option for servers with working IPv6 Internet access. Windows IPv6 and mesh interfaces are unchanged; IPv6 address space remains captured by TUN.
 

@@ -4,7 +4,7 @@
 #ifndef PackageDir
   #define PackageDir "..\..\dist\windows"
 #endif
-#define AppVersion "0.6.2"
+#define AppVersion "0.6.3"
 [Setup]
 AppId={{5A4D9679-160C-4DAA-A3E8-06409432D512}-{#Architecture}
 AppName=Personal VPN
