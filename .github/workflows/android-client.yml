@@ -45,7 +45,7 @@ jobs:
       - name: Install pinned NDK
         if: steps.native-cache.outputs.cache-hit != 'true'
         run: |
-          sdkmanager 'ndk;28.0.13004108'
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'ndk;28.0.13004108'
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.0.13004108" >> "$GITHUB_ENV"
       - name: Build and test pinned Android native library
         if: steps.native-cache.outputs.cache-hit != 'true'
@@ -70,6 +70,7 @@ jobs:
         with:
           name: android-native
           path: client/android/app/libs
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
       - name: Restore private signing identity
         env:
           SIGNING_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
