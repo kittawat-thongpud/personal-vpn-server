@@ -9,6 +9,11 @@ adb_binary="$ANDROID_HOME/platform-tools/adb"
 # Device operations and crash-log collection must not wait for a dead emulator.
 adb() { timeout 90 "$adb_binary" "$@"; }
 mkdir -p "$ANDROID_AVD_HOME"
+# The emulator needs only its two Linux gateways and debug/test APKs. Free the
+# redundant native build inputs/Windows probes and release APK in this job's
+# checkout. The signed release is retained in the immutable app artifact.
+rm -f -- "$project/app/libs/personalvpn.aar" "$project/app/libs/reality-probe.exe" "$project/app/libs/health-probe.exe" "$project/app/build/outputs/apk/release/app-release.apk"
+df -h "$RUNNER_TEMP"
 sdkmanager 'platform-tools' 'emulator' 'system-images;android-34;google_apis;x86_64' >/dev/null
 sudo chmod 666 /dev/kvm
 sudo ip address add 198.18.0.1/32 dev lo

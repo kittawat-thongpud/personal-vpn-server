@@ -168,6 +168,9 @@ jobs:
           mkdir -p client/android/app/build client/android/probe/build
           cp -r android-artifact/app/build/* client/android/app/build/
           cp -r android-artifact/probe/build/* client/android/probe/build/
+          # These are job-local duplicate inputs, not release assets or caches.
+          test "$(realpath android-artifact)" = "$GITHUB_WORKSPACE/android-artifact"
+          rm -rf -- "$GITHUB_WORKSPACE/android-artifact"
       - name: Verify real Android 14 capture and application policy
         run: bash client/android/test-emulator.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
