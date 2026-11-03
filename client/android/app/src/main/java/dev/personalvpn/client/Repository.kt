@@ -46,7 +46,7 @@ class EventRing {
     private fun size(event: BackendEvent) = event.level.toByteArray().size + event.code.toByteArray().size + event.detail.toByteArray().size + 64
     @Synchronized fun clear() { values.clear(); bytes = 0 }
 }
-data class TunnelState(val status: String = "Disconnected", val active: Boolean = false, val busy: Boolean = false, val exitIp: String = "—", val detail: String = "", val uploadRate: Long = 0, val downloadRate: Long = 0, val uploaded: Long = 0, val downloaded: Long = 0, val history: List<Pair<Long, Long>> = emptyList())
+data class TunnelState(val status: String = "Disconnected", val active: Boolean = false, val busy: Boolean = false, val exitIp: String = "—", val detail: String = "", val appliedConfig: String = "", val profileName: String = "", val protocol: String = "", val uploadRate: Long = 0, val downloadRate: Long = 0, val uploaded: Long = 0, val downloaded: Long = 0, val history: List<Pair<Long, Long>> = emptyList())
 object Repository {
     lateinit var context: Context; private lateinit var store: SecureStore
     private val settings = MutableStateFlow(Config()); val config = settings.asStateFlow()

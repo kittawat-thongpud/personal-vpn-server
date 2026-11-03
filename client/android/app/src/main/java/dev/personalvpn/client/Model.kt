@@ -23,6 +23,7 @@ data class Profile(val id: String = UUID.randomUUID().toString(), val name: Stri
     companion object { fun parse(o: JSONObject) = Profile(o.getString("id"), o.getString("name"), o.optString("country", "JP"), o.optString("reality").takeIf { it.isNotBlank() && it != "null" }, o.optString("hysteria").takeIf { it.isNotBlank() && it != "null" }) }
 }
 data class Config(val profiles: List<Profile> = emptyList(), val selected: String? = null, val protocol: String = "Hysteria 2", val apps: Policy = Policy(), val sites: Policy = Policy(Action.Tunnel), val ipv6Dns: Boolean = false) {
+    fun fingerprint(): String = java.util.Base64.getEncoder().encodeToString(java.security.MessageDigest.getInstance("SHA-256").digest(json().toString().toByteArray(Charsets.UTF_8)))
     fun selectedProfile() = profiles.find { it.id == selected } ?: error("Import and select a server profile first.")
     fun json() = JSONObject().put("profiles", JSONArray(profiles.map { it.json() })).put("selected", selected).put("protocol", protocol).put("apps", apps.json()).put("sites", sites.json()).put("ipv6Dns", ipv6Dns)
     companion object { fun parse(text: String): Config { val o = JSONObject(text); return Config(o.optJSONArray("profiles").objects().map(Profile::parse), o.optString("selected").takeIf { it.isNotBlank() && it != "null" }, o.optString("protocol", "Hysteria 2"), Policy.parse(o.optJSONObject("apps")), Policy.parse(o.optJSONObject("sites")), o.optBoolean("ipv6Dns")) } }

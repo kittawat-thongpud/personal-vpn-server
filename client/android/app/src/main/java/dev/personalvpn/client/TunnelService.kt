@@ -12,6 +12,7 @@ import dev.personalvpn.personalvpn.Personalvpn
 import dev.personalvpn.personalvpn.Platform
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
@@ -65,7 +66,7 @@ class TunnelService : VpnService() {
         if (Build.VERSION.SDK_INT >= 34) startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED) else startForeground(1, notification)
         when (intent?.action) {
             DISCONNECT -> {
-                if (isAlwaysOn) { Repository.log("WARN", "disconnect.managed", "Always-on is managed in Android VPN settings."); Repository.state.value = Repository.state.value.copy(detail = "Always-on is managed in Android VPN settings."); Surfaces.refresh(this); return START_STICKY }
+                if (isAlwaysOn) { Repository.log("WARN", "disconnect.managed", "Always-on is managed in Android VPN settings."); Repository.state.update { it.copy(detail = "Always-on is managed in Android VPN settings.") }; Surfaces.refresh(this); return START_STICKY }
                 desired = false; worker?.cancel(); worker = scope.launch { lifecycle.withLock { closeCore(); closeCapture(); update("Disconnected", false, false); withContext(Dispatchers.Main) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() } } }
             }
             else -> {
@@ -93,6 +94,8 @@ class TunnelService : VpnService() {
                         val content = EngineConfig.compile(config, resolved.hostAddress!!)
                         Personalvpn.check(content)
                         core = Personalvpn.start(noBackupFilesDir.absolutePath, content, platform)
+                        currentCoroutineContext().ensureActive()
+                        Repository.state.update { it.copy(appliedConfig = config.fingerprint(), profileName = config.selectedProfile().name, protocol = config.protocol) }
                         Repository.log("INFO", "core.started", config.protocol)
                         appliedNetwork = networkSignature; nextHealth = 0L
                     }
@@ -105,12 +108,14 @@ class TunnelService : VpnService() {
                         val wasConnected = Repository.state.value.status == "Connected"
                         if (!wasConnected) update("Verifying", true, true)
                         val verified = core!!.verify()
+                        currentCoroutineContext().ensureActive()
                         // Separate OS-capture proof: this app is captured and its
                         // reserved rule routes health traffic through the VPN.
                         val captured = capturedExit()
+                        currentCoroutineContext().ensureActive()
                         check(verified == captured) { "Captured exit differs from authenticated outbound." }
                         if (!wasConnected) Repository.log("INFO", "health.verified", "Authenticated HTTPS and captured exit agree.")
-                        Repository.state.value = Repository.state.value.copy(status = "Connected", active = true, busy = false, exitIp = verified, detail = config.protocol)
+                        Repository.state.update { it.copy(status = "Connected", active = true, busy = false, exitIp = verified, detail = config.protocol) }
                         Surfaces.refresh(this); attempt = 0; nextHealth = SystemClock.elapsedRealtime() + 15000
                     }
                     withTimeoutOrNull(1000) { wake.receive() }
@@ -138,7 +143,7 @@ class TunnelService : VpnService() {
     private fun closeCapture() { val previous = tun; tun = null; runCatching { previous?.close() }.onFailure { Repository.log("WARN", "capture.close_failed", it.javaClass.simpleName) }; runCatching { setUnderlyingNetworks(null) }; if (previous != null) Repository.log("INFO", "capture.released") }
     private fun update(status: String, active: Boolean, busy: Boolean, detail: String = "") {
         if (status != Repository.state.value.status) Repository.log("INFO", "state.${status.lowercase().replace(' ', '_')}", detail)
-        Repository.state.value = Repository.state.value.copy(status = status, active = active, busy = busy, detail = detail)
+        Repository.state.update { it.copy(status = status, active = active, busy = busy, detail = detail) }
         Surfaces.refresh(this)
     }
     private suspend fun streamTraffic() {
@@ -149,8 +154,7 @@ class TunnelService : VpnService() {
             val up = baseUp + (current?.upload() ?: 0); val down = baseDown + (current?.download() ?: 0)
             val now = SystemClock.elapsedRealtime(); val elapsed = maxOf(1, now - lastTime)
             val upRate = maxOf(0, up - lastUp) * 1000 / elapsed; val downRate = maxOf(0, down - lastDown) * 1000 / elapsed
-            val old = Repository.state.value
-            Repository.state.value = old.copy(uploadRate = upRate, downloadRate = downRate, uploaded = maxOf(old.uploaded, up), downloaded = maxOf(old.downloaded, down), history = (old.history + (upRate to downRate)).takeLast(60))
+            Repository.state.update { old -> old.copy(uploadRate = upRate, downloadRate = downRate, uploaded = maxOf(old.uploaded, up), downloaded = maxOf(old.downloaded, down), history = (old.history + (upRate to downRate)).takeLast(60)) }
             if (desired) Surfaces.rate(this)
             lastUp = up; lastDown = down; lastTime = now
         }

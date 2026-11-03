@@ -24,9 +24,10 @@ object Surfaces {
     fun notification(context: Context): Notification {
         val state = Repository.state.value
         val config = Repository.config.value
-        val profile = config.profiles.find { it.id == config.selected }?.name ?: "Personal VPN"
+        val profile = state.profileName.takeIf { state.active && it.isNotEmpty() } ?: config.profiles.find { it.id == config.selected }?.name ?: "Personal VPN"
+        val protocol = state.protocol.takeIf { state.active && it.isNotEmpty() } ?: config.protocol
         val rates = "↑ ${bytes(state.uploadRate)}/s    ↓ ${bytes(state.downloadRate)}/s"
-        val detail = "$profile · ${config.protocol}\n$rates\nSent ${bytes(state.uploaded)} · Received ${bytes(state.downloaded)}"
+        val detail = "$profile · $protocol\n$rates\nSent ${bytes(state.uploaded)} · Received ${bytes(state.downloaded)}"
         return Notification.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_notification).setColor(Color.rgb(20, 198, 162)).setContentTitle("Personal VPN · ${state.status}").setContentText(rates).setStyle(Notification.BigTextStyle().bigText(detail)).setContentIntent(activity(context)).setOnlyAlertOnce(true).setOngoing(true).setCategory(Notification.CATEGORY_SERVICE).setVisibility(Notification.VISIBILITY_PRIVATE).setShowWhen(false)
             .addAction(Notification.Action.Builder(null, "Reconnect", command(context, TunnelService.RECONNECT, 1)).build())
             .addAction(Notification.Action.Builder(null, "Disconnect", command(context, TunnelService.DISCONNECT, 2)).build()).build()

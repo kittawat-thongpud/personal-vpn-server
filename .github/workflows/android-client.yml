@@ -45,6 +45,7 @@ jobs:
           path: client/android/app/libs/
           key: android-aar-v1-${{ hashFiles('client/android/native/**', 'client/android/test-fixture/**', 'client/android/build-native.sh') }}
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        if: steps.native-cache.outputs.cache-hit != 'true'
         with:
           path: |
             ~/go/pkg/mod
@@ -60,7 +61,7 @@ jobs:
         if: steps.native-cache.outputs.cache-hit != 'true'
         run: bash client/android/build-native.sh
       - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
-        if: always()
+        if: always() && steps.native-cache.outputs.cache-hit != 'true'
         with:
           path: |
             ~/go/pkg/mod
@@ -101,6 +102,11 @@ jobs:
           ANDROID_KEYSTORE: ${{ runner.temp }}/android-signing.p12
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
+          alias=$(keytool -J-Duser.language=en -J-Duser.country=US -list -keystore "$ANDROID_KEYSTORE" -storetype PKCS12 -storepass:env ANDROID_KEYSTORE_PASSWORD | sed -n 's/^\([^,]*\), .*PrivateKeyEntry.*$/\1/p' | head -n 1)
+          test -n "$alias"
+          if [ "$alias" != personal-vpn ]; then
+            keytool -changealias -keystore "$ANDROID_KEYSTORE" -storetype PKCS12 -storepass:env ANDROID_KEYSTORE_PASSWORD -alias "$alias" -destalias personal-vpn
+          fi
           keytool -list -keystore "$ANDROID_KEYSTORE" -storetype PKCS12 -storepass:env ANDROID_KEYSTORE_PASSWORD -alias personal-vpn
           bash client/android/build-app.sh
       - name: Verify release signature and ABI

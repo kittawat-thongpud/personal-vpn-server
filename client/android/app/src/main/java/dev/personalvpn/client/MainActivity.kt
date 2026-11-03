@@ -8,6 +8,8 @@ import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -45,7 +47,6 @@ import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private var message by mutableStateOf<String?>(null)
-    private var dirty by mutableStateOf(false)
     private var connectAfterNotification = false
     private val consent = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result -> if (result.resultCode == RESULT_OK) startTunnel() else message = "VPN permission was not granted. The connection was not started." }
     private val notifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { if (connectAfterNotification) { connectAfterNotification = false; consentThenConnect() } }
@@ -60,6 +61,7 @@ class MainActivity : ComponentActivity() {
     private val exportLogs = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> if (uri != null) lifecycleScope.launch(Dispatchers.IO) { runCatching { val logs = JSONArray(Repository.logs.value.map { JSONObject().put("time", it.time).put("level", it.level).put("code", it.code).put("result", it.detail) }); contentResolver.openOutputStream(uri)?.use { it.write(logs.toString(2).toByteArray()) } }.onFailure { withContext(Dispatchers.Main) { message = "Log export failed." } } } }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(0xFF0D1627.toInt()), navigationBarStyle = SystemBarStyle.dark(0xFF0D1627.toInt()))
         setContent { Client() }
         if (savedInstanceState == null) window.decorView.post { handle(intent) }
     }
@@ -70,8 +72,8 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) { connectAfterNotification = true; notifications.launch(Manifest.permission.POST_NOTIFICATIONS) } else consentThenConnect()
     }
     private fun consentThenConnect() { val intent = VpnService.prepare(this); if (intent == null) startTunnel() else consent.launch(intent) }
-    private fun startTunnel() { TunnelService.command(this, if (dirty && Repository.state.value.active) TunnelService.RECONNECT else TunnelService.CONNECT); dirty = false }
-    private fun save(config: Config) { try { Repository.save(config); dirty = Repository.state.value.active } catch (_: Exception) { message = "Could not save encrypted settings. Existing settings were preserved." } }
+    private fun startTunnel() { TunnelService.command(this, if (Repository.state.value.active) TunnelService.RECONNECT else TunnelService.CONNECT) }
+    private fun save(config: Config) { try { Repository.save(config) } catch (_: Exception) { message = "Could not save encrypted settings. Existing settings were preserved." } }
     private fun addProfiles(profiles: List<Profile>) { val c = Repository.config.value; val first = profiles.first(); save(c.copy(profiles = c.profiles + profiles, selected = first.id, protocol = if (first.hysteria != null) "Hysteria 2" else "REALITY")) }
 
     @Composable private fun Client() {
@@ -79,6 +81,7 @@ class MainActivity : ComponentActivity() {
         MaterialTheme(colorScheme = scheme) {
             val config by Repository.config.collectAsStateWithLifecycle()
             val state by Repository.state.collectAsStateWithLifecycle()
+            val dirty = remember(config, state.active, state.appliedConfig) { state.active && config.fingerprint() != state.appliedConfig }
             var page by remember { mutableStateOf("Home") }
             var pasted by remember { mutableStateOf(false) }
             var editing by remember { mutableStateOf<Profile?>(null) }
