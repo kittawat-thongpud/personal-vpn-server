@@ -9,11 +9,13 @@ test "$(git rev-parse HEAD)" = c005f35300ce76427dc285481ec5695f5b179cd2
 python3 "$project/native/patch.py"
 cp "$project/native/personal_instance.go" experimental/libbox/personal_instance.go
 cp "$project/native/pin_test.go" common/tls/personal_pin_test.go
+cp "$project/native/health_test.go" experimental/libbox/personal_health_test.go
 mkdir -p experimental/personalvpn
 cp "$project/native/core.go" experimental/personalvpn/core.go
 gofmt -w experimental/personalvpn experimental/libbox/personal_instance.go option/tls.go common/tls/std_client.go
 go install github.com/sagernet/gomobile/cmd/gomobile github.com/sagernet/gomobile/cmd/gobind
 go test -tags 'with_gvisor,with_quic,with_utls' ./experimental/personalvpn ./common/tls
+go test -tags 'with_gvisor,with_quic,with_utls' ./experimental/libbox -run '^TestPersonalHealthHysteriaRepeated$' -count=1 -timeout=90s
 mkdir -p "$project/app/libs"
 mkdir -p cmd/personal-fixture
 cp "$project/test-fixture/main.go" cmd/personal-fixture/main.go
