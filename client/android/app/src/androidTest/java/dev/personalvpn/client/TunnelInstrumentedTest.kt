@@ -57,13 +57,16 @@ class TunnelInstrumentedTest {
             // traffic is deliberately reserved and cannot test application Block.
             config = config.copy(protocol = "Hysteria 2", apps = Policy(Action.Tunnel, listOf(Rule("dev.personalvpn.probe", Action.Block, "App"))))
             Repository.save(config); TunnelService.command(context, TunnelService.RECONNECT)
-            waitFor("Apply app Block") { Repository.state.value.status == "Connected" && Repository.state.value.detail == "Hysteria 2" }
-            Thread.sleep(1500)
+            waitFor("Apply app Block") { Repository.state.value.status == "Connected" && Repository.state.value.appliedConfig == config.fingerprint() }
             assertFalse("App Block must not be an OS Bypass exclusion", probe())
             config = config.copy(apps = Policy(Action.Block, listOf(Rule("dev.personalvpn.probe", Action.Tunnel, "App"))), sites = Policy(Action.Block, listOf(Rule("google.com", Action.Block))))
             Repository.save(config); TunnelService.command(context, TunnelService.RECONNECT)
-            Thread.sleep(1000); waitFor("Apply App-over-Site policy") { Repository.state.value.status == "Connected" }
+            waitFor("Apply App-over-Site policy") { Repository.state.value.status == "Connected" && Repository.state.value.appliedConfig == config.fingerprint() }
             assertTrue("Explicit App Tunnel must beat Site Block", probe())
+            config = config.copy(apps = Policy(Action.Block, listOf(Rule("dev.personalvpn.probe", Action.Bypass, "App"))))
+            Repository.save(config); TunnelService.command(context, TunnelService.RECONNECT)
+            waitFor("Apply App Bypass") { Repository.state.value.status == "Connected" && Repository.state.value.appliedConfig == config.fingerprint() }
+            assertTrue("Explicit App Bypass must use a working protected Direct socket", probe())
             assertEquals(firstName, captureName())
         } finally {
             TunnelService.command(context, TunnelService.DISCONNECT)

@@ -29,7 +29,9 @@ class SecureStore(context: Context) {
     }
     @Synchronized fun save(config: Config) {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
-        val encrypted = cipher.iv + cipher.doFinal(config.json().toString().toByteArray(Charsets.UTF_8))
+        val plain = config.json().toString().toByteArray(Charsets.UTF_8)
+        require(plain.size <= 2 * 1024 * 1024 - 28) { "Settings size limit reached." }
+        val encrypted = cipher.iv + cipher.doFinal(plain)
         val output = file.startWrite()
         try { output.write(encrypted); file.finishWrite(output) } catch (e: Exception) { file.failWrite(output); throw e }
     }

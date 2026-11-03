@@ -133,6 +133,7 @@ jobs:
           path: |
             client/android/app/build/outputs/apk/
             client/android/app/build/reports/
+            client/android/app/build/test-results/
             client/android/app/build/signature.txt
             client/android/probe/build/outputs/apk/debug/
           retention-days: 7
