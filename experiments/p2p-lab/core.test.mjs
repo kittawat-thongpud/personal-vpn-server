@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeSignal, iceServers, SessionLog, LIMIT, selectedPath, pairingCode } from './core.mjs';
+import { decodeSignal, iceServers, SessionLog, LIMIT, selectedPath, pairingCode, PeerLab } from './core.mjs';
 const id = '12345678-1234-1234-1234-123456789012';
 const sdp = fp => `v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=fingerprint:sha-256 ${Array(32).fill(fp).join(':')}\r\n`;
 const signal = (kind='offer', fp='AB') => ({ v:1, id, expires:Date.now()+60000, kind, sdp:sdp(fp) });
@@ -39,4 +39,10 @@ test('bounded in-memory backend logs discard oldest records and clear without pe
   assert.equal(log.rows.length,1000); assert.ok(log.bytes<=LIMIT.logBytes);
   assert.equal(log.rows[0].code,'backend.1000'); assert.equal(log.export()[0].size,undefined);
   log.clear();assert.equal(log.bytes,0);assert.equal(log.rows.length,0);
+});
+test('stop settles negotiation even when the platform promise never resolves', async () => {
+  const lab = new PeerLab(); const pc = {close(){}}; lab.pc = pc; lab.abort = new AbortController();
+  const pending = lab.step(new Promise(()=>{}),pc); lab.stop();
+  await assert.rejects(pending, error=>error.code==='session.cancelled');
+  assert.equal(lab.timers.size,0); assert.equal(lab.pc,null);
 });

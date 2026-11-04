@@ -115,7 +115,7 @@ public class MainActivity extends Activity {
     }
     @Override protected void onDestroy() {
         pendingExport = null; files.shutdownNow();
-        for (WebView view : views) { view.evaluateJavascript("window.lab?.stop()", null); view.removeJavascriptInterface("P2PLab"); view.destroy(); }
+        for (WebView view : views) { view.evaluateJavascript("window.lab?.stop()", null); root.removeView(view); view.removeJavascriptInterface("P2PLab"); view.destroy(); }
         views.clear(); super.onDestroy();
     }
 }

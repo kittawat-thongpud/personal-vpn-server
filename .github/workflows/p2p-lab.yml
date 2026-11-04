@@ -11,18 +11,23 @@ concurrency:
   cancel-in-progress: true
 jobs:
   browser:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 12
     defaults:
       run:
         working-directory: experiments/p2p-lab
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
       - name: Build offline lab and qualify real browser peers
         run: |
-          npm install --ignore-scripts --omit=optional
+          npm ci --ignore-scripts --omit=optional
           npm test
           npm run build
           npx playwright install --with-deps chromium
@@ -30,7 +35,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: p2p-lab-browser-evidence
+          name: p2p-lab-browser-evidence-${{ matrix.os }}
           path: |
             experiments/p2p-lab/dist/
             experiments/p2p-lab/test-results/
@@ -53,7 +58,7 @@ jobs:
           packages: platform-tools
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: p2p-lab-browser-evidence
+          name: p2p-lab-browser-evidence-ubuntu-24.04
           path: browser-input
       - name: Build separate foreground-only Android lab
         run: |
@@ -82,11 +87,16 @@ jobs:
         with:
           name: p2p-lab-android-evidence
           path: qualified
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: p2p-lab-browser-evidence-windows-2022
+          path: windows-qualified
       - name: Package only qualified experiments without publishing a client release
         env:
           SOURCE_SHA: ${{ github.sha }}
         run: |
           mkdir p2p-lab
+          cmp qualified/dist/Personal-VPN-P2P-Lab.html windows-qualified/dist/Personal-VPN-P2P-Lab.html
           cp qualified/dist/* p2p-lab/
           cp qualified/android-evidence/verified-transfer.json p2p-lab/ANDROID-LOCAL-RESULT.json
           python3 - <<'PY'
@@ -96,7 +106,7 @@ jobs:
           (p/'QUALIFICATION.json').write_text(json.dumps({
               'source': os.environ['SOURCE_SHA'], 'baseline': Path('client/VERSION').read_text().strip(),
               'kind': 'isolated experiment, not a stable client release',
-              'chromiumPeers': 'bidirectional 1 MiB verified', 'android14WebViewPeers': 'bidirectional 1 MiB verified',
+              'chromiumPeers': 'Linux and Windows: bidirectional 1 MiB verified', 'android14WebViewPeers': 'bidirectional 1 MiB verified',
               'physicalDeviceTrial': 'pending', 'chinaNetworkTrial': 'pending', 'physicalBypassVerified': False,
               'vpsModified': False, 'productionVpnModified': False
           }, indent=2)+'\n')

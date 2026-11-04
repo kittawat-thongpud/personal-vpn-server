@@ -1,7 +1,7 @@
 # Personal VPN P2P Lab — isolated experiment
 
 This is a **separate test tool**, not a new stable VPN client release. It never
-installs an adapter, changes routes/proxy/DNS, contacts our VPS, opens SSH/RDP
+installs an adapter, changes routes/proxy/DNS, addresses our VPS as a controller/relay, opens SSH/RDP
 listeners or implements Internet forwarding. The installed Client 0.7.1 stays
 unchanged. All APK/HTML packaging and browser/emulator qualification run in Actions.
 

@@ -1,7 +1,8 @@
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 const root = new URL('./', import.meta.url);
-const read = name => readFile(new URL(name, root), 'utf8');
+// HTML normalizes line endings before CSP hashing; make Windows checkouts match.
+const read = async name => (await readFile(new URL(name, root), 'utf8')).replace(/\r\n/g, '\n');
 const core = (await read('core.mjs')).replace(/^export /gm, '');
 const app = (await read('app.mjs')).replace(/^import .*;\r?\n/, '');
 const script = `'use strict';\n{\n${core}\n${app}\n}\n`;
