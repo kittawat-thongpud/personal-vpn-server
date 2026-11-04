@@ -203,10 +203,10 @@ jobs:
           bash -n ghcr-qualified/P2P-VPS-INSTALL.sh
           trap 'sudo docker compose -f /opt/personal-vpn-p2p-lab/compose.signal.yaml down || true' EXIT
           # Run only on the disposable Actions VM. Suppress the private invitation.
-          sudo env DOCKER_CONFIG="$HOME/.docker" bash ghcr-qualified/P2P-VPS-INSTALL.sh > "$RUNNER_TEMP/p2p-install.log" 2>&1 || { sed -E 's/pvp2:[A-Za-z0-9_-]+/[private invitation]/g' "$RUNNER_TEMP/p2p-install.log"; sudo docker ps -a; exit 1; }
+          sudo env DOCKER_CONFIG="$HOME/.docker" bash < ghcr-qualified/P2P-VPS-INSTALL.sh > "$RUNNER_TEMP/p2p-install.log" 2>&1 || { sed -E 's/pvp2:[A-Za-z0-9_-]+/[private invitation]/g' "$RUNNER_TEMP/p2p-install.log"; sudo docker ps -a; exit 1; }
           first=$(sudo sha256sum /opt/personal-vpn-p2p-lab/signal-state/server.crt)
           cid=$(sudo docker compose -f /opt/personal-vpn-p2p-lab/compose.signal.yaml ps -q signal)
-          sudo env DOCKER_CONFIG="$HOME/.docker" bash ghcr-qualified/P2P-VPS-INSTALL.sh > "$RUNNER_TEMP/p2p-reinstall.log" 2>&1 || { sed -E 's/pvp2:[A-Za-z0-9_-]+/[private invitation]/g' "$RUNNER_TEMP/p2p-reinstall.log"; exit 1; }
+          sudo env DOCKER_CONFIG="$HOME/.docker" bash < ghcr-qualified/P2P-VPS-INSTALL.sh > "$RUNNER_TEMP/p2p-reinstall.log" 2>&1 || { sed -E 's/pvp2:[A-Za-z0-9_-]+/[private invitation]/g' "$RUNNER_TEMP/p2p-reinstall.log"; exit 1; }
           test "$first" = "$(sudo sha256sum /opt/personal-vpn-p2p-lab/signal-state/server.crt)"
           test "$cid" = "$(sudo docker compose -f /opt/personal-vpn-p2p-lab/compose.signal.yaml ps -q signal)"
           test "$(sudo docker inspect "$cid" --format '{{.Image}}')" = "$(cat signaling-qualified/IMAGE-ID.txt)"

@@ -40,12 +40,12 @@ P2P_COMPOSE
 docker compose -f compose.signal.yaml.new config -q
 mv -f compose.signal.yaml.new compose.signal.yaml
 if ! test -f signal-state/server.key; then
-  docker compose -f compose.signal.yaml run --rm --no-deps signal init --endpoint https://45.77.179.227:9443 >/dev/null
+  docker compose -f compose.signal.yaml run --rm --no-deps --interactive=false signal init --endpoint https://45.77.179.227:9443 >/dev/null
 fi
 docker compose -f compose.signal.yaml up -d --no-build --pull never --wait --wait-timeout 90
 docker compose -f compose.signal.yaml ps
 echo 'Private owner enrollment follows (one use, 10 minutes). Paste only into Windows P2P Lab; do not post in chat.'
-docker compose -f compose.signal.yaml exec -T signal python /app/server.py owner-invite
+docker compose -f compose.signal.yaml exec -T --interactive=false signal python /app/server.py owner-invite
 echo 'Allow inbound TCP 9443 in the attached Vultr firewall and any enabled host firewall.'
 echo 'To get a fresh invitation: cd /opt/personal-vpn-p2p-lab && docker compose -f compose.signal.yaml exec signal python /app/server.py owner-invite'
 echo 'To stop this sidecar only: cd /opt/personal-vpn-p2p-lab && docker compose -f compose.signal.yaml down'
