@@ -81,7 +81,7 @@ public class MainActivity extends Activity {
             if(text==null||text.length()>131072)return;
             try{JSONObject request=new JSONObject(text);String id=request.getString("id"),op=request.getString("op");JSONObject args=request.optJSONObject("args");
                 if(!id.matches("[a-f0-9-]{36}"))return;
-                if(op.equals("scan")){runOnUiThread(()->{if(scanRpc!=null){reply(id,null,"camera.busy");return;}scanRpc=id;new IntentIntegrator(MainActivity.this).setDesiredBarcodeFormats(IntentIntegrator.QR_CODE_TYPES).setOrientationLocked(false).setBeepEnabled(false).setPrompt("Scan Personal VPN P2P Lab QR").initiateScan();});return;}
+                if(op.equals("scan")){runOnUiThread(()->{if(scanRpc!=null){reply(id,null,"camera.busy");return;}scanRpc=id;new IntentIntegrator(MainActivity.this).setDesiredBarcodeFormats(java.util.Collections.singletonList(com.google.zxing.BarcodeFormat.QR_CODE.name())).setOrientationLocked(false).setBeepEnabled(false).setPrompt("Scan Personal VPN P2P Lab QR").initiateScan();});return;}
                 rpc.execute(()->{try{Object value;
                     switch(op){case "status":value=controller.status();break;case "enroll":value=controller.enroll(args.getString("value"));break;case "api":value=controller.api(args.getString("method"),args.getString("path"),args.optJSONObject("body")!=null?args.getJSONObject("body"):new JSONObject());break;case "qr":value=Controller.qr(args.getString("value"));break;default:throw new java.io.IOException("native.operation");}
                     reply(id,value,null);

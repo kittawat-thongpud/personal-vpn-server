@@ -4,7 +4,7 @@ const $ = id => document.getElementById(id);
 const states = { idle:'พร้อมจับคู่', gathering:'กำลังค้นหาเส้นทาง…', waiting:'รออีกเครื่อง', connecting:'กำลังเชื่อมต่อ P2P…', connected:'เชื่อมต่อ P2P แล้ว', degraded:'สัญญาณขาด กำลังรอ…', failed:'เส้นทาง P2P ขัดข้อง · ดู Logs', closed:'หยุดแล้ว' };
 let receiver = false, busy = false, revision = -1, shownCode = '';
 const lab = new PeerLab(render); window.lab = lab;
-const bridge = new NativeBridge();let rooms,qrValue='';window.pvpRooms=null;
+const bridge = new NativeBridge();let rooms,qrValue='',controllerEditing=false;window.pvpRooms=null;
 const bytes = n => { const units = ['B','KiB','MiB']; let i = 0; while (n >= 1024 && i < 2) { n /= 1024; i++; } return `${n.toFixed(i ? 1 : 0)} ${units[i]}`; };
 function banner(text = '') { $('error').textContent = text; $('error').hidden = !text; }
 async function action(fn) {
@@ -26,7 +26,7 @@ function render() {
   $('setup').hidden = !!lab.pc; $('exchange').hidden = connected || (!lab.pc && !receiver);
   if(rooms){
     $('setup').hidden=true;$('exchange').hidden=true;$('automatic').hidden=false;
-    $('server-setup').hidden=rooms.status.configured;$('room-controls').hidden=!rooms.status.configured;
+    $('server-setup').hidden=rooms.status.configured&&!controllerEditing;$('room-controls').hidden=!rooms.status.configured;
     $('room-status').textContent=rooms.peerJoined?'จับคู่กับอีกเครื่องแล้ว':({setup:'ตั้งค่าเซิร์ฟเวอร์ครั้งแรก',ready:'พร้อมสร้างหรือเข้าห้อง',waiting_peer:'รออีกเครื่องเข้าห้อง',unavailable:'ติดต่อเซิร์ฟเวอร์จับคู่ไม่ได้'}[rooms.state]||'พร้อมจับคู่');
     $('room-code').textContent=rooms.room?.code||'—';$('room-view').hidden=!rooms.room;
     $('scan-room').hidden=!rooms.status.scanSupported;
@@ -91,8 +91,8 @@ const automaticStun=()=>$('auto-network').value==='stun'?$('stun').value:'';
 $('create-room').onclick=()=>action(()=>rooms.create(automaticStun()));
 $('join-room').onclick=()=>action(()=>rooms.join($('join-code').value.trim(),automaticStun()));
 $('retry-room').onclick=()=>action(()=>rooms.retry());
-$('enroll-controller').onclick=()=>action(async()=>{await rooms.enroll($('controller-invite').value.trim());$('controller-invite').value='';});
-$('show-controller').onclick=()=>{$('server-setup').hidden=!$('server-setup').hidden;};
+$('enroll-controller').onclick=()=>action(async()=>{await rooms.enroll($('controller-invite').value.trim());$('controller-invite').value='';controllerEditing=false;});
+$('show-controller').onclick=()=>{controllerEditing=!controllerEditing;render();};
 $('scan-room').onclick=()=>action(async()=>{const value=await bridge.call('scan');if(value){rooms.stun=automaticStun();await rooms.enroll(value);}});
 window.addEventListener('pagehide',()=>rooms?.close());
 if(bridge.available()){rooms=new Rooms(lab,bridge,render);window.pvpRooms=rooms;void rooms.initialize().catch(e=>banner(e.code||'native.unavailable'));}

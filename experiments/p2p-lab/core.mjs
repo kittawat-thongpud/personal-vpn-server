@@ -1,4 +1,4 @@
-// Isolated experiment: no VPN APIs, OS routes, relay, external signaling or storage.
+// Peer data engine only. Native pinned-HTTPS rendezvous is a separate module.
 export const LIMIT = Object.freeze({ signal: 65536, ttl: 600000, transfer: 1048576, chunk: 16384, records: 1000, logBytes: 1048576 });
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const hash = /^[a-f0-9]{64}$/;
@@ -366,7 +366,7 @@ export class PeerLab {
     } catch (e) { this.fail(e.code || 'transfer.send_failed'); }
   }
   report() {
-    return { format: 'personal-vpn-p2p-lab/1', generatedAt: new Date().toISOString(), phase: this.phase,
+    return { format: 'personal-vpn-p2p-lab/1', revision:'lab.2', generatedAt: new Date().toISOString(), phase: this.phase,
       environment: globalThis.navigator?.userAgent || 'unknown', routeProof: 'WebRTC candidates only; underlying VPN/mesh path is unverified',
       physicalBypassVerified: false, selectedPath: this.path || this.lastPath || null, roundTripMs: this.rtt === null ? null : Math.round(this.rtt),
       testBytesSent: this.totalUp, testBytesReceived: this.totalDown, results: this.results, diagnostics:this.diagnostics, signaling:this.signaling||null, logs: this.log.export() };

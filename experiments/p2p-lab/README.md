@@ -1,79 +1,91 @@
-# Personal VPN P2P Lab — isolated experiment
+# Personal VPN P2P Lab — lab.2
 
-This is a **separate test tool**, not a new stable VPN client release. It never
-installs an adapter, changes routes/proxy/DNS, addresses our VPS as a controller/relay, opens SSH/RDP
-listeners or implements Internet forwarding. The installed Client 0.7.1 stays
-unchanged. All APK/HTML packaging and browser/emulator qualification run in Actions.
+ตัวทดลองแยกสำหรับจับคู่เครื่องและทดสอบข้อมูล P2P ยังไม่มี group IP หรือ SSH/RDP
+forwarding ไม่ใช่การอัปเดต VPN หลัก Client 0.7.1 ไม่สร้าง adapter ไม่แก้ route,
+system proxy, DNS หรือ VPN ที่กำลังใช้อยู่ โค้ดอยู่ branch `codex/p2p-lab`
 
-## ทดลอง Windows ↔ Android
+## ติดตั้งจุดจับคู่บน VPS ครั้งเดียว
 
-1. Windows: เปิด `Personal-VPN-P2P-Lab.html` ด้วย Edge/Chrome รุ่นปัจจุบัน
-   Android 14 ขึ้นไป: ติดตั้ง `PersonalVPN-P2P-Lab.apk` และเปิด **Personal VPN P2P Lab**
-   เป็นอีกแอปหนึ่ง ไม่ทับ Personal VPN เดิม และไม่ขอสิทธิ์ VPN
-2. เริ่มด้วย Wi-Fi/LAN เดียวกันทั้งสองเครื่องและเลือก **LAN**
-   ไม่ต้องปิด VPN สำรองที่ใช้คุยกันอยู่ ระหว่างทดลองให้หน้าจอทั้งคู่เปิดไว้
-3. เครื่อง A กด **สร้างคำเชิญ** ส่งข้อความหรือไฟล์คำเชิญให้ B ผ่านช่องทางที่ไว้ใจ
-   B กด **รับคำเชิญ** วาง/อ่านไฟล์ แล้วกด **สร้างคำตอบ** ส่งคำตอบกลับให้ A
-   A วางคำตอบแล้วกด **เชื่อมต่อด้วยคำตอบ** ต้องทำภายใน 10 นาที
-4. เปรียบเทียบรหัสยืนยันให้ตรงกัน **บนทั้งสองเครื่อง** แล้วกดยืนยันทั้งคู่
-5. กด **ส่ง 1 MiB + ตรวจ SHA-256** บน A แล้วทำกลับจาก B ดู ping, อัตราข้อมูล
-   และผล `SHA-256 OK` จากนั้น **Logs → Export ผลทดสอบ** เก็บผลของทั้งสองเครื่อง
-   ไฟล์ผลลัพธ์ไม่ใส่ SDP, ICE password, IP/port หรือเนื้อหาข้อมูลทดสอบ
-6. เมื่อ LAN ใช้ได้ ค่อยทดลองคนละเครือข่าย โดยทั้งคู่เลือก **Internet / STUN**
-   ก่อนสร้างคู่ใหม่ ค่าเริ่มต้น STUN คือ `stun:stun.cloudflare.com:3478`
-   STUN ใช้ค้นหา endpoint เท่านั้น ไม่มี TURN/relay หรือ automatic Direct fallback
-   หากขึ้น `No direct path` แปลว่ารอบนี้หาเส้นทางใช้ไม่ได้ ไม่แก้ VPN เดิมให้อัตโนมัติ
+ใช้ `P2P-Signaling-VPS.tar.gz` ซึ่งมี image ที่ Actions สร้างให้แล้ว ไม่ build บน VPS
+หรือเครื่องจีน แตกใน `/opt/personal-vpn-p2p-lab` เท่านั้น แล้วรัน `bash install.sh`
+เปิด TCP 9443 ใน firewall ของ Vultr หากมี firewall group ผูกอยู่
 
-คำเชิญ/คำตอบมี ICE credentials ชั่วคราวและอาจมี IP ปลายทาง ส่งให้เครื่องที่ไว้ใจ
-เท่านั้น ไม่แนบไฟล์จับคู่ใน issue/log สาธารณะ ปุ่มหยุดจะปิด peer และล้างข้อความ
-จับคู่ในหน้าแอป; ไฟล์/clipboard ที่ผู้ใช้บันทึกไว้นอกแอปต้องจัดการแยกเอง
+ตัวนี้เป็น container แยก ไม่แตะ Compose/containers ของ `/opt/personal-vpn`
+และไม่ restart Hysteria/REALITY ใช้ HTTPS บน IP เดิม ใบรับรองและ private key
+แยกจาก VPN เดิม แอป pin ใบรับรองตรงกับคำเชิญ ไม่เพิ่มใบรับรองที่เชื่อถือทั้งระบบ
 
-## What the result proves
+VPS console จะแสดงคำเชิญ owner แบบใช้ได้ครั้งเดียว เริ่มด้วย `pvp2:`
+คัดลอกจาก console ไปวางใน Windows P2P Lab ครั้งแรกเท่านั้น อย่าส่งคำเชิญนี้ในแชต
+ถ้าหมดอายุ รันในโฟลเดอร์ sidecar:
 
-SHA-256 success proves a real encrypted WebRTC Data Channel transferred and
-verified 1 MiB in that direction. The identity comparison binds the session and
-both DTLS certificates. Reports distinguish actual application payload from
-all Internet/VPN traffic. Transfer goodput includes the peer's hash verification
-and acknowledgement; it is not a line-rate bandwidth benchmark.
+```bash
+docker compose -f compose.signal.yaml exec signal python /app/server.py owner-invite
+```
 
-Selected ICE candidates are inspected: relay candidates in configuration,
-remote signaling or selected stats are rejected. A stale succeeded/nominated
-pair is not treated as the selected path. There is no TURN configuration or
-external signaling endpoint, CDN, telemetry, storage, camera or microphone.
-The optional STUN provider can observe discovery metadata; peers learn usable
-endpoints. No-candidate/failed paths remain unavailable.
+## จับคู่ Windows ↔ Redmi
 
-**No TURN does not prove physical-network bypass.** Windows WebRTC can select
-ZeroTier/Tailscale interfaces, and Android's active VPN can capture the lab's
-sockets. The separate Android app deliberately has no VpnService/protect API.
-Its report always says `physicalBypassVerified: false`. An explicit Bypass rule
-for **Personal VPN P2P Lab** in the existing VPN may allow a useful next test;
-this still needs packet/path evidence before claiming native physical P2P.
-Do not globally disable the communication VPN or change host routes for this test.
+1. Windows: แตก ZIP x64 หรือ x86 แล้วเปิด `PersonalVPNP2PLab.exe`
+   ต้องมี .NET Framework 4.8 และ WebView2 Runtime (Windows 11 เครื่องนี้มีอยู่แล้ว)
+   วางคำเชิญ owner จาก VPS แล้วกดตั้งค่าจุดจับคู่ครั้งแรก
+2. Android 14+: ติดตั้ง `PersonalVPN-P2P-Lab.apk` เป็นแอปแยกจาก Personal VPN หลัก
+   ต้องถอนเฉพาะ P2P Lab lab.1 เดิมหนึ่งครั้ง เพราะรุ่นแรกใช้ signing key ชั่วคราว
+   lab.2 ใช้ signing key เฉพาะที่คงเดิมสำหรับอัปเดตรุ่นทดลองถัดไป
+3. Windows กดสร้างห้อง จะได้รหัส 8 หลักและ QR ให้ Redmi กดสแกน QR
+   QR จะตั้งค่าจุดจับคู่บนมือถือและเข้าห้องให้อัตโนมัติ ไม่ต้องส่ง offer/answer ไปมา
+   อุปกรณ์ที่ตั้งค่าจุดจับคู่ไว้แล้วสามารถกรอกรหัสห้องได้ด้วย
+4. รอจับคู่กับอีกเครื่องแล้ว จากนั้นดูสถานะเส้นทาง P2P แยกต่างหาก
+   เมื่อ P2P ต่อได้ ให้เปรียบเทียบรหัสยืนยันให้ตรงกันและยืนยันบนทั้งสองเครื่อง
+5. กดส่ง 1 MiB + ตรวจ SHA-256 บนแต่ละเครื่อง แล้ว Export ผลจาก Logs ทั้งคู่
+   เปิด VPN สำรองที่ใช้คุยกันไว้ได้ ไม่ต้องเปลี่ยน route หรือปิด firewall เพื่อทดลอง
 
-No automatic ICE restart/re-pairing after Wi-Fi/cellular handover is claimed.
-The lab reports disconnect/timeout and asks for a fresh exchange. Background
-survival/foreground service, group IPs, SSH/RDP port forwarding and production
-mesh integration are future work. This experiment alone cannot qualify China
-cross-border reachability or failure isolation inside the production native core.
+เลือก LAN สำหรับเครือข่ายที่อุปกรณ์คุยกันได้ หรือ Internet / STUN เพื่อค้นหา
+endpoint เพิ่ม STUN ค่าเริ่มต้นคือ `stun:stun.cloudflare.com:3478` ไม่ใช่ relay
+การจับคู่ผ่าน HTTPS อาจสำเร็จแม้ Wi-Fi กัน client-to-client หรือ VPN จับ UDP อยู่
+ดังนั้นจับคู่สำเร็จไม่ใช่หลักฐานว่า direct P2P สำเร็จ
 
-## Qualification and source
+## ขอบเขตและการวินิจฉัย
 
-`codex/p2p-lab` is an experimental branch; no stable tag, Latest marker or
-production snapshot is moved. The workflow publishes a short-lived **Actions
-artifact**, not a partial client release. The Android package is
-`dev.personalvpn.p2plab`; its version derives from `client/VERSION` plus `-lab.1`.
-The temporary APK uses a job-generated test signing key, not the production VPN
-identity. Uninstall the old lab before installing a later artifact if Android
-reports a signature mismatch; never uninstall the stable VPN for this reason.
+- รายงานเก็บจำนวน host/srflx/prflx, mDNS, IPv4/IPv6, สถานะ ICE และ candidate pairs,
+  จำนวน STUN requests/responses, error code และข้อมูลเครือข่ายแบบไม่ใส่ IP ปลายทาง
+  ไม่เก็บ SDP, ICE password, device token, คำเชิญหรือเนื้อหาข้อมูลทดสอบใน Export
+- Logs อยู่ใน RAM สูงสุด 1,000 รายการ/1 MiB, Clear ได้ ปิดเปิดแอปใหม่เริ่มใหม่
+- Credentials จุดจับคู่เก็บด้วย Android Keystore/Windows DPAPI เฉพาะแอป Lab
+  QR ใช้ ticket ชั่วคราวครั้งเดียว ไม่ใส่ credential VPN หลักหรือ token ระยะยาว
+- ไม่มี TURN หรือ data relay บน VPS ข้อมูลทดสอบใช้ DTLS ระหว่าง clients
+  Controller เห็น metadata ICE/SDP สำหรับจับคู่ แต่ไม่รับส่ง payload ทดสอบแทนเรา
+- no TURN ไม่ยืนยันการข้าม VPN: WebRTC อาจเลือก VPN/ZeroTier/Tailscale interface
+  แอป Android Lab ไม่เป็น VpnService และไม่สามารถ protect socket ใต้ VPN อื่นเอง
+  รายงานจึงคง `physicalBypassVerified: false` จนกว่าจะมีหลักฐานเส้นทางจริง
+- ถ้าจุดจับคู่หยุด ช่องทาง P2P ที่ต่อได้ต้องไม่ถูกปิดตาม ห้องหมดอายุใน 10 นาที
+  และหายเมื่อ controller restart ส่วน credential อุปกรณ์ยังเก็บไว้
+- การ reconnect/hand-over แบบ production, group IP, app forwarding,
+  persistent peer identity และการรวมเข้า VpnService เดียวยังเป็นงานขั้นถัดไป
+- HTML เดี่ยวคงไว้ตรวจ manual pairing/diagnostics โดยไม่มี native host
+  การจับคู่อัตโนมัติพร้อม pin ใช้ตัว Windows `.exe` และ Android APK
 
-CI checks input/relay rejection, bounded logs, identity binding, real separate
-Chromium peers with bidirectional payloads, stale cancellation, Android WebView
-peers and close behavior. Those local/emulated checks are recorded separately
-from the required real Windows ↔ Redmi / Wi-Fi ↔ cellular / cross-border trials.
+## Sidecar budget and rollback
 
-Sources: [WebRTC](https://www.w3.org/TR/webrtc/),
+Limits: 0.20 CPU, 64 MiB RAM, 64 PIDs, 2 MiB logs; 16 rooms / 2 peers per room,
+128 control messages / 256 KiB per room, 10-minute pairing lifetime. No arbitrary
+proxy destination or Internet forwarding. These caps do not establish measured
+VPS peak-load headroom; inspect real load alongside the working VPN after deployment.
+
+Rollback in `/opt/personal-vpn-p2p-lab` only:
+
+```bash
+docker compose -f compose.signal.yaml down
+```
+
+Keep `signal-state` to retain controller identity/devices. Do not change
+`/opt/personal-vpn`, its runtime or existing containers.
+
+All APK/EXE/image builds and packaging run in Actions. This is an experimental
+Actions artifact. No stable release, Latest marker or snapshot is replaced.
+See `client/P2P-LAB-VALIDATION.md` for exact CI and real-device limits.
+
+Primary references: [WebRTC](https://www.w3.org/TR/webrtc/),
 [stats](https://www.w3.org/TR/webrtc-stats/),
-[ICE](https://www.rfc-editor.org/info/rfc8445/),
 [Android VPN](https://developer.android.com/develop/connectivity/vpn),
-[Cloudflare STUN endpoint](https://developers.cloudflare.com/realtime/turn/).
+[local HTTPS assets](https://developer.android.com/develop/ui/views/layout/webapps/load-local-content),
+[WebView2](https://learn.microsoft.com/microsoft-edge/webview2/),
+[ZXing Android](https://github.com/journeyapps/zxing-android-embedded).

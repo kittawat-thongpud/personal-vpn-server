@@ -2,7 +2,7 @@
 set -euo pipefail
 test "$(id -u)" = 0 || { echo 'Run this installer in the VPS administrator console.'; exit 1; }
 cd "$(dirname "$0")"
-test "$(pwd -P)" != /opt/personal-vpn || { echo 'Use /opt/personal-vpn-p2p-lab, separate from the Internet VPN.'; exit 1; }
+test "$(pwd -P)" = /opt/personal-vpn-p2p-lab || { echo 'Use /opt/personal-vpn-p2p-lab, separate from the Internet VPN.'; exit 1; }
 test -f p2p-signal-image.tar.gz
 sha256sum -c SHA256SUMS.txt
 docker load -i p2p-signal-image.tar.gz

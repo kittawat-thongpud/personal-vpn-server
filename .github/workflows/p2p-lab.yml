@@ -182,6 +182,9 @@ jobs:
               'source': os.environ['SOURCE_SHA'], 'baseline': Path('client/VERSION').read_text().strip(),
               'kind': 'isolated experiment, not a stable client release',
               'chromiumPeers': 'Linux and Windows: bidirectional 1 MiB verified', 'android14WebViewPeers': 'bidirectional 1 MiB verified',
+              'automaticRooms': 'owned HTTPS controller, peer transfer survives controller outage',
+              'nativeClients': 'Windows x86/x64 and Android: TLS pinning, wrong-pin rejection, QR encoding/decoding',
+              'signalingSidecar': 'authenticated HTTPS container, 64 MiB / 0.20 CPU caps checked',
               'physicalDeviceTrial': 'pending', 'chinaNetworkTrial': 'pending', 'physicalBypassVerified': False,
               'vpsModified': False, 'productionVpnModified': False
           }, indent=2)+'\n')
