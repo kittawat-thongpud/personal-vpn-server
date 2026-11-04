@@ -92,6 +92,7 @@ $('create-room').onclick=()=>action(()=>rooms.create(automaticStun()));
 $('join-room').onclick=()=>action(()=>rooms.join($('join-code').value.trim(),automaticStun()));
 $('retry-room').onclick=()=>action(()=>rooms.retry());
 $('enroll-controller').onclick=()=>action(async()=>{await rooms.enroll($('controller-invite').value.trim());$('controller-invite').value='';});
+$('show-controller').onclick=()=>{$('server-setup').hidden=!$('server-setup').hidden;};
 $('scan-room').onclick=()=>action(async()=>{const value=await bridge.call('scan');if(value){rooms.stun=automaticStun();await rooms.enroll(value);}});
 window.addEventListener('pagehide',()=>rooms?.close());
 if(bridge.available()){rooms=new Rooms(lab,bridge,render);window.pvpRooms=rooms;void rooms.initialize().catch(e=>banner(e.code||'native.unavailable'));}

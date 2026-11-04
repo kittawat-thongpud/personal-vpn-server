@@ -15,7 +15,7 @@ test('owned HTTPS controller pairs two real browsers automatically and never car
   const ca=await readFile(join(state,'server.crt'));const agent=new https.Agent({ca,keepAlive:false});
   const server=spawn('python',[script,'serve','--state',state,'--port',String(port)],{stdio:'ignore'});
   const request=(method,path,body={},token='')=>new Promise((resolve,reject)=>{
-    const data=JSON.stringify(body);const req=https.request(url+path,{agent,method,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})}},res=>{let data='';res.on('data',b=>data+=b);res.on('end',()=>{const result=JSON.parse(data);if(res.statusCode>=300)reject({code:result.error});else resolve(result);});});
+    const data=JSON.stringify(body);const req=https.request(url+path,{agent,method,headers:{'Content-Type':'application/json','Content-Length':method==='POST'?Buffer.byteLength(data):0,...(token?{Authorization:`Bearer ${token}`}:{})}},res=>{let data='';res.on('data',b=>data+=b);res.on('end',()=>{const result=JSON.parse(data);if(res.statusCode>=300)reject({code:result.error});else resolve(result);});});
     req.on('error',reject);if(method==='POST')req.write(data);req.end();
   });
   const contexts=[];
