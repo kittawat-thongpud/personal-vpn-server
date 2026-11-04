@@ -27,7 +27,8 @@ public class PeerTest {
     private void waitFor(WebView view, String expression, String expected) throws Exception {
         long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(45); String actual = "";
         do { actual = js(view, expression); if (expected.equals(actual)) return; Thread.sleep(100); } while (System.nanoTime() < until);
-        fail("Expected " + expected + ", got " + actual);
+        String diagnostic = js(view,"JSON.stringify({ready:document.readyState,secure:window.isSecureContext,rtc:typeof RTCPeerConnection,engine:typeof window.lab,detail:document.getElementById('error')?.textContent,report:window.lab?.report()})");
+        fail("Expected " + expected + ", got " + actual + "; " + diagnostic);
     }
     private void command(WebView view, String body) throws Exception { js(view, "(()=>{" + body + ";return 'scheduled'})()"); }
     @Test public void androidWebViewsTransferWithoutClaimingVpnSlot() throws Exception {

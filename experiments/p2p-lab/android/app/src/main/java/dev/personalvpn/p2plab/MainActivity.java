@@ -16,6 +16,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
+import androidx.webkit.WebViewAssetLoader;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -48,17 +49,20 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(false); settings.setAllowContentAccess(false);
         settings.setDomStorageEnabled(false); settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setSupportMultipleWindows(false); settings.setJavaScriptCanOpenWindowsAutomatically(false);
+        final WebViewAssetLoader assets = new WebViewAssetLoader.Builder().addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this)).build();
         view.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView ignored, WebResourceRequest request) { return true; }
             @Override public WebResourceResponse shouldInterceptRequest(WebView ignored, WebResourceRequest request) {
+                if ("https".equals(request.getUrl().getScheme()) && "appassets.androidplatform.net".equals(request.getUrl().getHost()) && "/assets/Personal-VPN-P2P-Lab.html".equals(request.getUrl().getPath())) {
+                    WebResourceResponse bundled = assets.shouldInterceptRequest(request.getUrl());
+                    if (bundled != null) return bundled;
+                }
                 return new WebResourceResponse("text/plain", "utf-8", 403, "Blocked", java.util.Collections.emptyMap(), new ByteArrayInputStream(new byte[0]));
             }
         });
         view.setWebChromeClient(new WebChromeClient() { @Override public void onPermissionRequest(PermissionRequest request) { request.deny(); } });
         view.addJavascriptInterface(new FilesBridge(), "P2PLab");
-        try (InputStream stream = getAssets().open("Personal-VPN-P2P-Lab.html")) {
-            view.loadDataWithBaseURL("https://p2p-lab.invalid/", new String(stream.readAllBytes(), StandardCharsets.UTF_8), "text/html", "utf-8", null);
-        } catch (Exception error) { throw new IllegalStateException("Packaged lab is missing", error); }
+        view.loadUrl("https://appassets.androidplatform.net/assets/Personal-VPN-P2P-Lab.html");
         return view;
     }
     public WebView primaryView() { return primary; }

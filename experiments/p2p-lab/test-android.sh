@@ -21,7 +21,7 @@ fi
 df -h "$RUNNER_TEMP"
 sdkmanager 'platform-tools' 'emulator' 'system-images;android-34;google_apis;x86_64' >/dev/null
 sudo chmod 666 /dev/kvm
-trap 'timeout 10 "$adb_binary" logcat -d -t 500 > "$project/android-evidence/logcat.txt" 2>/dev/null || true; timeout 10 "$adb_binary" emu kill 2>/dev/null || true' EXIT
+trap 'timeout 10 "$adb_binary" logcat -d -t 5000 > "$project/android-evidence/logcat.txt" 2>/dev/null || true; timeout 10 "$adb_binary" emu kill 2>/dev/null || true' EXIT
 echo no | avdmanager create avd --force --name p2plab --path "$ANDROID_AVD_HOME/p2plab.avd" --package 'system-images;android-34;google_apis;x86_64' --device pixel_6
 printf 'avd.ini.encoding=UTF-8\npath=%s\ntarget=android-34\n' "$ANDROID_AVD_HOME/p2plab.avd" > "$ANDROID_AVD_HOME/p2plab.ini"
 emulator -avd p2plab -no-window -no-audio -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader_indirect -memory 2048 > "$project/android-evidence/emulator.txt" 2>&1 &
