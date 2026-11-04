@@ -1,0 +1,38 @@
+name: P2P lab experiment
+on:
+  push:
+    branches: ['codex/p2p-lab']
+    paths: ['experiments/p2p-lab/**', '.github/workflows/p2p-lab.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: p2p-lab-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: experiments/p2p-lab
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Build offline lab and qualify real browser peers
+        run: |
+          npm install --ignore-scripts --omit=optional
+          npm test
+          npm run build
+          npx playwright install --with-deps chromium
+          npm run browser-test
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: p2p-lab-browser-evidence
+          path: |
+            experiments/p2p-lab/dist/
+            experiments/p2p-lab/test-results/
+            experiments/p2p-lab/package-lock.json
+          retention-days: 7

@@ -1,0 +1,1 @@
+{"name":"personal-vpn-p2p-lab","private":true,"type":"module","scripts":{"test":"node --test core.test.mjs","build":"node build.mjs","browser-test":"playwright test"},"devDependencies":{"@playwright/test":"1.56.1"}}

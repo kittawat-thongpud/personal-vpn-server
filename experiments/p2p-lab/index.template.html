@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="{{CSP}}"><title>Personal VPN · P2P Lab</title><style>{{STYLE}}</style></head>
+<body><main>
+<header><span class="brand">PERSONAL VPN <b>P2P LAB</b></span><h1>เชื่อมต่อระหว่างเครื่อง</h1><p>ต้นแบบแยก · ไม่ใช้ VPS ของเรา · ไม่มี relay</p></header>
+<div id="error" role="alert" hidden></div>
+<section id="connect-page" class="page">
+ <div class="card status"><span id="state">พร้อมจับคู่</span><span class="pill" id="path">ยังไม่เชื่อมต่อ</span></div>
+ <div id="setup" class="card stack">
+  <label for="network">วิธีค้นหาเส้นทาง</label><select id="network"><option value="lan">LAN — ไม่ติดต่อบริการภายนอก</option><option value="stun">Internet — ใช้ STUN ช่วยค้นหา</option></select>
+  <div id="stun-box" hidden><label for="stun">STUN server</label><input id="stun" value="stun:stun.cloudflare.com:3478" autocomplete="off" spellcheck="false"><p>ผู้ให้บริการ STUN เห็น IP ต้นทาง แต่ไม่รับส่งข้อมูลทดสอบแทนเรา</p></div>
+  <div class="row"><button id="offer" class="primary">สร้างคำเชิญ</button><button id="join">รับคำเชิญ</button></div>
+ </div>
+ <div id="exchange" class="card stack" hidden>
+  <h2 id="exchange-title">จับคู่เครื่อง</h2>
+  <div id="out-box" hidden><label for="outgoing" id="out-label">ส่งข้อมูลนี้ให้อีกเครื่อง</label><textarea id="outgoing" rows="2" readonly spellcheck="false"></textarea><div class="row"><button id="copy">คัดลอก</button><button id="save-signal">บันทึกไฟล์</button></div></div>
+  <div id="in-box"><label for="incoming" id="in-label">วางคำเชิญจากอีกเครื่อง</label><textarea id="incoming" rows="3" maxlength="65536" spellcheck="false" autocomplete="off"></textarea><div class="row"><button id="read-signal">อ่านไฟล์</button><button id="apply" class="primary">สร้างคำตอบ</button></div><input id="file" type="file" accept="application/json,.json,text/plain" hidden></div>
+  <p>คำเชิญและคำตอบหมดอายุใน 10 นาที ส่งผ่านช่องทางที่ไว้ใจ เก็บหน้านี้เปิดไว้</p>
+ </div>
+ <div id="identity" class="card stack" hidden><h2>ยืนยันเครื่องปลายทาง</h2><p>เปรียบเทียบรหัสนี้ให้ตรงกันบนทั้งสองเครื่องก่อนเริ่มทดสอบ</p><code id="pair-code"></code><button id="confirm" class="primary">รหัสตรงกันทั้งสองเครื่อง</button><p id="ready"></p></div>
+ <div class="card metrics">
+  <div><span>ข้อมูลส่ง</span><strong id="up">0 B/s</strong><small id="up-total">0 B</small></div><div><span>ข้อมูลรับ</span><strong id="down">0 B/s</strong><small id="down-total">0 B</small></div>
+  <svg viewBox="0 0 300 48" preserveAspectRatio="none" aria-label="กราฟข้อมูลทดสอบ"><path d="M0 47H300" stroke="#29394f"/><polyline id="up-graph" fill="none" stroke="#17d9b2" stroke-width="2"/><polyline id="down-graph" fill="none" stroke="#6ba6ff" stroke-width="2"/></svg>
+  <div><span>Ping ไปยังอีกเครื่อง</span><strong id="rtt">—</strong></div><div><span>การรับส่งล่าสุด</span><strong id="result">ยังไม่ทดสอบ</strong></div>
+  <p class="wide">ไม่ใช้ TURN ≠ ยืนยันว่าข้าม VPN แล้ว<br>เบราว์เซอร์/แอปทดลองอาจยังออกผ่าน VPN หรือ mesh ที่เปิดอยู่</p>
+  <div class="row wide"><button id="transfer" class="primary" disabled>ส่ง 1 MiB + ตรวจ SHA-256</button><button id="stop">หยุด</button></div>
+ </div>
+</section>
+<section id="logs-page" class="page" hidden><div class="row"><button id="clear">Clear</button><button id="report">Export ผลทดสอบ</button></div><ol id="logs" class="card" aria-label="P2P backend logs"></ol></section>
+<footer><button id="connect-nav" aria-current="page">เชื่อมต่อ</button><button id="logs-nav">Logs</button></footer>
+</main><script>{{SCRIPT}}</script></body></html>
