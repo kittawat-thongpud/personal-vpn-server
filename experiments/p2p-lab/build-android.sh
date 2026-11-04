@@ -9,7 +9,10 @@ unzip -q "$archive" -d "$RUNNER_TEMP"
 mkdir -p "$project/android/app/src/main/assets"
 cp "$project/dist/Personal-VPN-P2P-Lab.html" "$project/android/app/src/main/assets/"
 export P2P_LAB_KEYSTORE="$RUNNER_TEMP/p2p-lab.p12"
-keytool -genkeypair -noprompt -keystore "$P2P_LAB_KEYSTORE" -storetype PKCS12 -storepass p2plab-test-only -alias p2plab -keypass p2plab-test-only -keyalg RSA -keysize 2048 -validity 30 -dname 'CN=Personal VPN P2P Lab Experiment'
+test -n "${P2P_LAB_KEYSTORE_B64:?Dedicated lab signing secret is required}"
+test -n "${P2P_LAB_KEYSTORE_PASSWORD:?Dedicated lab signing password is required}"
+printf '%s' "$P2P_LAB_KEYSTORE_B64" | base64 -d > "$P2P_LAB_KEYSTORE"
+chmod 600 "$P2P_LAB_KEYSTORE"
 cd "$project/android"
 "$RUNNER_TEMP/gradle-8.11.1/bin/gradle" --no-daemon :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease
 cp app/build/outputs/apk/release/app-release.apk "$project/dist/PersonalVPN-P2P-Lab.apk"

@@ -29,6 +29,7 @@ jobs:
         run: |
           npm ci --ignore-scripts --omit=optional
           npm test
+          python -m unittest discover -s signal-server -v
           npm run build
           npx playwright install --with-deps chromium
           npm run browser-test
@@ -66,6 +67,9 @@ jobs:
           name: p2p-lab-browser-evidence-ubuntu-24.04
           path: browser-input
       - name: Build separate foreground-only Android lab
+        env:
+          P2P_LAB_KEYSTORE_B64: ${{ secrets.P2P_LAB_KEYSTORE_B64 }}
+          P2P_LAB_KEYSTORE_PASSWORD: ${{ secrets.P2P_LAB_KEYSTORE_PASSWORD }}
         run: |
           mkdir -p experiments/p2p-lab/dist
           cp browser-input/dist/* experiments/p2p-lab/dist/
@@ -81,8 +85,64 @@ jobs:
             experiments/p2p-lab/android-evidence/
             experiments/p2p-lab/android/app/build/reports/
           retention-days: 7
+  windows-native:
+    needs: browser
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: p2p-lab-browser-evidence-ubuntu-24.04
+          path: browser-input
+      - name: Build x86/x64 native lab and verify HTTPS pinning and QR
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path experiments/p2p-lab/dist | Out-Null
+          Copy-Item browser-input/dist/* experiments/p2p-lab/dist/
+          ./experiments/p2p-lab/build-windows.ps1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: p2p-lab-windows-native
+          path: experiments/p2p-lab/windows-dist/
+          retention-days: 7
+  signal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Build isolated signaling image and check its bounded runtime
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s experiments/p2p-lab/signal-server -v
+          docker build -t personal-vpn/p2p-signal:lab.2 experiments/p2p-lab/signal-server
+          sudo install -d -m 750 -o 10001 -g 10001 "$RUNNER_TEMP/p2p-signal-state"
+          docker run --rm -v "$RUNNER_TEMP/p2p-signal-state:/var/lib/p2p-signal" personal-vpn/p2p-signal:lab.2 init --endpoint https://127.0.0.1:19443 >/dev/null
+          trap 'docker rm -f p2p-signal-ci >/dev/null 2>&1 || true' EXIT
+          docker run -d --name p2p-signal-ci --memory 64m --cpus .20 --pids-limit 64 --read-only --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:size=8m -p 127.0.0.1:19443:9443 -v "$RUNNER_TEMP/p2p-signal-state:/var/lib/p2p-signal" personal-vpn/p2p-signal:lab.2 >/dev/null
+          docker cp p2p-signal-ci:/var/lib/p2p-signal/server.crt "$RUNNER_TEMP/p2p-signal-public.crt"
+          curl --fail --retry 10 --retry-connrefused --retry-delay 1 --cacert "$RUNNER_TEMP/p2p-signal-public.crt" https://127.0.0.1:19443/health
+          mkdir -p experiments/p2p-lab/signal-vps
+          docker inspect p2p-signal-ci --format '{"memory":{{.HostConfig.Memory}},"nanoCpus":{{.HostConfig.NanoCpus}},"pids":{{.HostConfig.PidsLimit}}}' > experiments/p2p-lab/signal-vps/RUNTIME-LIMITS.json
+          docker image inspect personal-vpn/p2p-signal:lab.2 --format '{{.Id}}' > experiments/p2p-lab/signal-vps/IMAGE-ID.txt
+          docker compose -f experiments/p2p-lab/signal-server/compose.yaml config -q
+          docker save personal-vpn/p2p-signal:lab.2 | gzip -n > experiments/p2p-lab/signal-vps/p2p-signal-image.tar.gz
+          cp experiments/p2p-lab/signal-server/compose.yaml experiments/p2p-lab/signal-vps/compose.signal.yaml
+          cp experiments/p2p-lab/signal-server/install.sh experiments/p2p-lab/signal-server/README.md experiments/p2p-lab/signal-vps/
+          cd experiments/p2p-lab/signal-vps
+          sha256sum ./* > SHA256SUMS.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: p2p-lab-signaling-vps
+          path: experiments/p2p-lab/signal-vps/
+          retention-days: 7
   package:
-    needs: [browser, android]
+    needs: [browser, android, windows-native, signal]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -96,6 +156,14 @@ jobs:
         with:
           name: p2p-lab-browser-evidence-windows-2022
           path: windows-qualified
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: p2p-lab-windows-native
+          path: native-qualified
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: p2p-lab-signaling-vps
+          path: signaling-qualified
       - name: Package only qualified experiments without publishing a client release
         env:
           SOURCE_SHA: ${{ github.sha }}
@@ -103,6 +171,8 @@ jobs:
           mkdir p2p-lab
           cmp qualified/dist/Personal-VPN-P2P-Lab.html windows-qualified/dist/Personal-VPN-P2P-Lab.html
           cp qualified/dist/* p2p-lab/
+          cp native-qualified/PersonalVPN-P2P-Lab-*.zip p2p-lab/
+          tar -czf p2p-lab/P2P-Signaling-VPS.tar.gz -C signaling-qualified .
           cp qualified/android-evidence/verified-transfer.json p2p-lab/ANDROID-LOCAL-RESULT.json
           python3 - <<'PY'
           import json, os

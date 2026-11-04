@@ -34,3 +34,5 @@ client/android/local.properties
 # Isolated P2P lab dependencies and test evidence are built by Actions.
 experiments/p2p-lab/node_modules/
 experiments/p2p-lab/test-results/
+experiments/p2p-lab/windows-dist/
+experiments/p2p-lab/signal-vps/

@@ -67,6 +67,23 @@ export function selectedPath(stats) {
   return { local: a.candidateType, remote: b.candidateType, protocol: a.protocol || 'unknown', noTurn: true,
     physicalBypassVerified: false };
 }
+export function candidateSummary(sdp = '') {
+  const result = { total:0, host:0, srflx:0, prflx:0, relay:0, mdns:0, privateV4:0, publicV4:0, ipv6:0, udp:0, tcp:0 };
+  for (const line of sdp.split(/\r?\n/)) {
+    if (!line.startsWith('a=candidate:')) continue;
+    const f = line.slice(2).trim().split(/\s+/), type = f[f.indexOf('typ')+1], address = f[4] || '';
+    result.total++; if (['host','srflx','prflx','relay'].includes(type)) result[type]++;
+    if (/\.local$/i.test(address)) result.mdns++;
+    else if (address.includes(':')) result.ipv6++;
+    else if (/^\d+\.\d+\.\d+\.\d+$/.test(address)) {
+      const p = address.split('.').map(Number);
+      if (p[0]===10 || p[0]===127 || (p[0]===172&&p[1]>=16&&p[1]<=31) || (p[0]===192&&p[1]===168) || (p[0]===169&&p[1]===254)) result.privateV4++;
+      else result.publicV4++;
+    }
+    const protocol = (f[2]||'').toLowerCase(); if (protocol==='udp'||protocol==='tcp') result[protocol]++;
+  }
+  return result;
+}
 export async function pairingCode(local, remote) {
   const offer = local.kind === 'offer' ? local : remote, answer = local.kind === 'answer' ? local : remote;
   requireThat(offer.id === answer.id && offer.kind === 'offer' && answer.kind === 'answer', 'signal.session');
@@ -95,6 +112,7 @@ export class PeerLab {
     this.history = []; this.results = []; this.path = null; this.rtt = null; this.code = ''; this.confirmed = false;
     this.remoteReady = false; this.local = null; this.remote = null; this.signalText = ''; this.tx = null; this.rx = null;
     this.checkingStats = false; this.ping = null;
+    this.diagnostics = {}; this.onSignal = null; this.remoteCandidates = [];
   }
   emit() { this.changed(); }
   record(level, code, detail = '') { this.log.push(level, code, detail); this.emit(); }
@@ -120,8 +138,10 @@ export class PeerLab {
   }
   canTest() { return this.phase === 'connected' && this.channel?.readyState === 'open' && this.path?.noTurn && this.confirmed && this.remoteReady; }
   stop(phase = 'closed', reason = '') {
+    if (this.pc) this.snapshot(this.pc);
     this.abort?.abort(); for (const timer of this.timers) clearTimeout(timer); this.timers.clear();
     clearInterval(this.ticker); this.ticker = null;
+    clearInterval(this.diagnosticTicker); this.diagnosticTicker = null;
     const pc = this.pc; this.pc = null; const channel = this.channel; this.channel = null;
     this.tx?.reject(new LabError(reason || 'session.closed')); this.tx = null; this.rx = null; this.sending = false; this.ping = null;
     channel?.close(); pc?.close(); this.path = null; this.confirmed = false; this.remoteReady = false;
@@ -132,12 +152,27 @@ export class PeerLab {
   newPeer(stun, id = crypto.randomUUID(), expires = Date.now() + LIMIT.ttl) {
     const servers = iceServers(stun); this.stop('idle'); this.id = id; this.expires = expires;
     this.totalUp = 0; this.totalDown = 0; this.history = []; this.results = []; this.rtt = null; this.lastPath = null;
+    this.diagnostics = { discoveryErrors:[], pairs:[], network:this.nativeNetwork||null }; this.remoteCandidates = []; this.diagnosticSummary='';
     this.abort = new AbortController(); this.checkingStats = false;
     const pc = this.pc = new RTCPeerConnection({ iceServers: servers, iceTransportPolicy: 'all', iceCandidatePoolSize: 0 });
     this.record('INFO', 'peer.created', servers.length ? 'STUN discovery enabled; no TURN.' : 'LAN candidates only; no discovery service.');
     pc.addEventListener('datachannel', e => { if (this.pc === pc) this.bind(e.channel, pc); });
-    pc.addEventListener('icecandidate', e => { if (this.pc === pc && e.candidate?.type === 'relay') this.fail('path.relay_forbidden'); });
-    pc.addEventListener('icecandidateerror', () => { if (this.pc === pc) this.record('WARN', 'discovery.unavailable'); });
+    pc.addEventListener('icecandidate', e => {
+      if (this.pc !== pc) return;
+      if (e.candidate?.type === 'relay') { this.fail('path.relay_forbidden'); return; }
+      this.snapshot(pc);
+      if (this.local && this.onSignal) this.onSignal(e.candidate ? {kind:'candidate', session:this.id, candidate:e.candidate.toJSON()} : {kind:'complete',session:this.id});
+    });
+    pc.addEventListener('icecandidateerror', e => {
+      if (this.pc !== pc) return;
+      const text = (e.errorText||'').toLowerCase();
+      const reason = /lookup|resolve|dns/.test(text) ? 'lookup_failed' : /timed? ?out|timeout/.test(text) ? 'timeout' : 'unreachable';
+      const item = {code:Number(e.errorCode)||0,reason};
+      if (this.diagnostics.discoveryErrors.length < 8) this.diagnostics.discoveryErrors.push(item);
+      this.record('WARN', 'discovery.unavailable', `code=${item.code}; ${reason}`);
+    });
+    pc.addEventListener('iceconnectionstatechange', () => { if (this.pc===pc) { this.snapshot(pc); this.record('INFO','ice.state',pc.iceConnectionState); } });
+    this.diagnosticTicker = setInterval(() => void this.inspect(pc), 2000);
     pc.addEventListener('connectionstatechange', () => {
       if (this.pc !== pc) return;
       if (pc.connectionState === 'failed') this.fail('path.no_direct_path');
@@ -175,6 +210,7 @@ export class PeerLab {
   exportSignal(pc) {
     this.local = { v: 1, kind: pc.localDescription.type, id: this.id, expires: this.expires, sdp: pc.localDescription.sdp };
     this.signalText = JSON.stringify(this.local); decodeSignal(this.signalText);
+    this.snapshot(pc);
   }
   async accept(text) {
     const answer = decodeSignal(text); const pc = this.pc;
@@ -183,11 +219,40 @@ export class PeerLab {
     try {
       await this.step(pc.setRemoteDescription({ type: 'answer', sdp: answer.sdp }), pc); this.active(pc); this.remote = answer;
       this.code = await pairingCode(this.local, this.remote); this.active(pc); this.connectDeadline(pc); this.emit();
+      await this.flushCandidates(pc);
     } catch (e) { if (this.pc === pc) this.fail(e.code || 'peer.accept_failed'); throw e; }
   }
   connectDeadline(pc) {
     if (this.channel?.readyState !== 'open') this.state('connecting');
     this.later(() => { if (this.pc === pc && this.channel?.readyState !== 'open') this.fail('path.no_direct_path'); }, 45000);
+  }
+  snapshot(pc) {
+    this.diagnostics.ice = pc.iceConnectionState; this.diagnostics.gathering = pc.iceGatheringState;
+    this.diagnostics.connection = pc.connectionState;
+    this.diagnostics.local = candidateSummary(pc.localDescription?.sdp || '');
+    this.diagnostics.remote = candidateSummary(pc.remoteDescription?.sdp || '');
+    this.diagnostics.sctp = pc.sctp?.state || 'unavailable';
+  }
+  async inspect(pc) {
+    if (this.pc!==pc || this.inspecting===pc) return; this.inspecting=pc;
+    try {
+      const stats = await pc.getStats(); if (this.pc!==pc) return;
+      this.snapshot(pc);
+      this.diagnostics.pairs = [...stats.values()].filter(s=>s.type==='candidate-pair').slice(0,16).map(s=>({state:s.state,nominated:!!s.nominated,requestsSent:s.requestsSent||0,responsesReceived:s.responsesReceived||0,requestsReceived:s.requestsReceived||0,responsesSent:s.responsesSent||0}));
+      const summary=JSON.stringify({ice:this.diagnostics.ice,local:this.diagnostics.local,remote:this.diagnostics.remote,pairs:this.diagnostics.pairs.map(p=>({state:p.state,requests:p.requestsSent>0,responses:p.responsesReceived>0}))});
+      if(summary!==this.diagnosticSummary){this.diagnosticSummary=summary;this.record('INFO','ice.diagnostic',`local=${this.diagnostics.local.total} (mDNS=${this.diagnostics.local.mdns}, srflx=${this.diagnostics.local.srflx}); remote=${this.diagnostics.remote.total}; pairs=${this.diagnostics.pairs.length}; responses=${this.diagnostics.pairs.reduce((n,p)=>n+p.responsesReceived,0)}`);}
+    } catch { if(this.pc===pc)this.record('WARN','ice.stats_unavailable'); }
+    finally { if(this.inspecting===pc)this.inspecting=null; }
+  }
+  async addCandidate(message) {
+    if (!this.pc || message.session!==this.id) return;
+    requireThat(this.remoteCandidates.length<64,'candidate.limit');
+    this.remoteCandidates.push(message.kind==='complete'?null:message.candidate);
+    await this.flushCandidates(this.pc);
+  }
+  async flushCandidates(pc) {
+    if(!pc.remoteDescription)return;
+    while(this.remoteCandidates.length){const c=this.remoteCandidates.shift();if(c)requireThat(typeof c.candidate==='string'&&!/\btyp relay\b/i.test(c.candidate),'candidate.invalid');await this.step(pc.addIceCandidate(c),pc);this.active(pc);}
   }
   bind(channel, pc) {
     if (this.channel || channel.label !== 'Personal VPN P2P Lab' || channel.protocol !== 'pvp-lab/1' || !channel.ordered) {
@@ -304,6 +369,6 @@ export class PeerLab {
     return { format: 'personal-vpn-p2p-lab/1', generatedAt: new Date().toISOString(), phase: this.phase,
       environment: globalThis.navigator?.userAgent || 'unknown', routeProof: 'WebRTC candidates only; underlying VPN/mesh path is unverified',
       physicalBypassVerified: false, selectedPath: this.path || this.lastPath || null, roundTripMs: this.rtt === null ? null : Math.round(this.rtt),
-      testBytesSent: this.totalUp, testBytesReceived: this.totalDown, results: this.results, logs: this.log.export() };
+      testBytesSent: this.totalUp, testBytesReceived: this.totalDown, results: this.results, diagnostics:this.diagnostics, signaling:this.signaling||null, logs: this.log.export() };
   }
 }

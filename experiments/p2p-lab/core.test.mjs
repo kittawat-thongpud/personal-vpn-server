@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeSignal, iceServers, SessionLog, LIMIT, selectedPath, pairingCode, PeerLab } from './core.mjs';
+import { decodeSignal, iceServers, SessionLog, LIMIT, selectedPath, pairingCode, PeerLab, candidateSummary } from './core.mjs';
 const id = '12345678-1234-1234-1234-123456789012';
 const sdp = fp => `v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=fingerprint:sha-256 ${Array(32).fill(fp).join(':')}\r\n`;
 const signal = (kind='offer', fp='AB') => ({ v:1, id, expires:Date.now()+60000, kind, sdp:sdp(fp) });
@@ -45,4 +45,9 @@ test('stop settles negotiation even when the platform promise never resolves', a
   const pending = lab.step(new Promise(()=>{}),pc); lab.stop();
   await assert.rejects(pending, error=>error.code==='session.cancelled');
   assert.equal(lab.timers.size,0); assert.equal(lab.pc,null);
+});
+test('candidate diagnostics retain categories without addresses or credentials',()=>{
+  const value=candidateSummary('a=candidate:1 1 udp 1 abc-secret.local 42 typ host\r\na=candidate:2 1 udp 1 10.23.4.5 44 typ host\r\na=candidate:3 1 udp 1 203.0.113.4 55 typ srflx');
+  assert.equal(value.total,3);assert.equal(value.mdns,1);assert.equal(value.privateV4,1);assert.equal(value.srflx,1);
+  assert.doesNotMatch(JSON.stringify(value),/secret|10\.23|203\.0/);
 });

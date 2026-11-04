@@ -1,8 +1,10 @@
 import { PeerLab, LIMIT } from './core.mjs';
+import { NativeBridge, Rooms } from './rooms.mjs';
 const $ = id => document.getElementById(id);
-const states = { idle:'พร้อมจับคู่', gathering:'กำลังค้นหาเส้นทาง…', waiting:'รอคำตอบจากอีกเครื่อง', connecting:'กำลังเชื่อมต่อ…', connected:'เชื่อมต่อแล้ว', degraded:'สัญญาณขาด กำลังรอ…', failed:'เชื่อมต่อไม่ได้ / No direct path', closed:'หยุดแล้ว' };
+const states = { idle:'พร้อมจับคู่', gathering:'กำลังค้นหาเส้นทาง…', waiting:'รออีกเครื่อง', connecting:'กำลังเชื่อมต่อ P2P…', connected:'เชื่อมต่อ P2P แล้ว', degraded:'สัญญาณขาด กำลังรอ…', failed:'เส้นทาง P2P ขัดข้อง · ดู Logs', closed:'หยุดแล้ว' };
 let receiver = false, busy = false, revision = -1, shownCode = '';
 const lab = new PeerLab(render); window.lab = lab;
+const bridge = new NativeBridge();let rooms,qrValue='';window.pvpRooms=null;
 const bytes = n => { const units = ['B','KiB','MiB']; let i = 0; while (n >= 1024 && i < 2) { n /= 1024; i++; } return `${n.toFixed(i ? 1 : 0)} ${units[i]}`; };
 function banner(text = '') { $('error').textContent = text; $('error').hidden = !text; }
 async function action(fn) {
@@ -22,6 +24,16 @@ function render() {
   $('path').textContent = lab.path ? `${lab.path.local} ↔ ${lab.path.remote} · ${lab.path.protocol} · no TURN` : 'ยังไม่ยืนยันเส้นทาง';
   const connected = lab.phase === 'connected' || lab.phase === 'degraded';
   $('setup').hidden = !!lab.pc; $('exchange').hidden = connected || (!lab.pc && !receiver);
+  if(rooms){
+    $('setup').hidden=true;$('exchange').hidden=true;$('automatic').hidden=false;
+    $('server-setup').hidden=rooms.status.configured;$('room-controls').hidden=!rooms.status.configured;
+    $('room-status').textContent=rooms.peerJoined?'จับคู่กับอีกเครื่องแล้ว':({setup:'ตั้งค่าเซิร์ฟเวอร์ครั้งแรก',ready:'พร้อมสร้างหรือเข้าห้อง',waiting_peer:'รออีกเครื่องเข้าห้อง',unavailable:'ติดต่อเซิร์ฟเวอร์จับคู่ไม่ได้'}[rooms.state]||'พร้อมจับคู่');
+    $('room-code').textContent=rooms.room?.code||'—';$('room-view').hidden=!rooms.room;
+    $('scan-room').hidden=!rooms.status.scanSupported;
+    $('native-warning').hidden=!rooms.status.network?.vpnActive;
+    const invite=rooms.room?.invite||'';
+    if(invite!==qrValue){qrValue=invite;$('room-qr').hidden=true;if(invite)void bridge.call('qr',{value:invite}).then(png=>{if(qrValue===invite){$('room-qr').src=png;$('room-qr').hidden=false;}}).catch(()=>banner('qr.unavailable'));}
+  }
   $('out-box').hidden = !lab.signalText; $('outgoing').value = lab.signalText;
   $('in-box').hidden = !!lab.remote;
   $('in-label').textContent = receiver ? 'วางคำเชิญจากอีกเครื่อง' : 'วางคำตอบที่อีกเครื่องส่งกลับมา';
@@ -70,10 +82,18 @@ $('file').onchange = () => action(async () => {
 });
 $('confirm').onclick = () => action(() => lab.confirm());
 $('transfer').onclick = () => { void action(() => lab.transfer()); };
-$('stop').onclick = () => { receiver = false; lab.stop(); $('incoming').value = ''; render(); };
+$('stop').onclick = () => { rooms?.close();receiver = false; lab.stop(); $('incoming').value = ''; render(); };
 $('clear').onclick = () => { lab.log.clear(); render(); };
 $('report').onclick = () => download(JSON.stringify(lab.report(), null, 2), 'p2p-lab-result.json');
 $('connect-nav').onclick = () => page(false); $('logs-nav').onclick = () => page(true);
 window.addEventListener('pagehide', () => lab.stop());
+const automaticStun=()=>$('auto-network').value==='stun'?$('stun').value:'';
+$('create-room').onclick=()=>action(()=>rooms.create(automaticStun()));
+$('join-room').onclick=()=>action(()=>rooms.join($('join-code').value.trim(),automaticStun()));
+$('retry-room').onclick=()=>action(()=>rooms.retry());
+$('enroll-controller').onclick=()=>action(async()=>{await rooms.enroll($('controller-invite').value.trim());$('controller-invite').value='';});
+$('scan-room').onclick=()=>action(async()=>{const value=await bridge.call('scan');if(value){rooms.stun=automaticStun();await rooms.enroll(value);}});
+window.addEventListener('pagehide',()=>rooms?.close());
+if(bridge.available()){rooms=new Rooms(lab,bridge,render);window.pvpRooms=rooms;void rooms.initialize().catch(e=>banner(e.code||'native.unavailable'));}
 if (!globalThis.RTCPeerConnection || !globalThis.crypto?.subtle) { banner('WebRTC หรือ secure context ไม่พร้อมใช้งาน กรุณาใช้แอป P2P Lab บน Android หรือ Edge/Chrome รุ่นปัจจุบันบน Windows'); $('offer').disabled = true; $('join').disabled = true; }
 else render();

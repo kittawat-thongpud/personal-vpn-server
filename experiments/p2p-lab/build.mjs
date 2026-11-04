@@ -4,8 +4,9 @@ const root = new URL('./', import.meta.url);
 // HTML normalizes line endings before CSP hashing; make Windows checkouts match.
 const read = async name => (await readFile(new URL(name, root), 'utf8')).replace(/\r\n/g, '\n');
 const core = (await read('core.mjs')).replace(/^export /gm, '');
-const app = (await read('app.mjs')).replace(/^import .*;\r?\n/, '');
-const script = `'use strict';\n{\n${core}\n${app}\n}\n`;
+const rooms = (await read('rooms.mjs')).replace(/^export /gm, '');
+const app = (await read('app.mjs')).replace(/^import .*;\r?\n/gm, '');
+const script = `'use strict';\n{\n${core}\n${rooms}\n${app}\n}\n`;
 if (/<\/script/i.test(script)) throw Error('Unsafe inline script terminator');
 const style = await read('style.css');
 const digest = text => createHash('sha256').update(text).digest('base64');

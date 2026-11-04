@@ -1,0 +1,30 @@
+name: personal-vpn-p2p-lab
+services:
+  signal:
+    image: personal-vpn/p2p-signal:lab.2
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:9443:9443/tcp"
+    volumes:
+      - type: bind
+        source: ./signal-state
+        target: /var/lib/p2p-signal
+        bind:
+          create_host_path: false
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=8m"]
+    mem_limit: 64m
+    cpus: "0.20"
+    pids_limit: 64
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "2"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import ssl,urllib.request; urllib.request.urlopen('https://127.0.0.1:9443/health', context=ssl.create_default_context(cafile='/var/lib/p2p-signal/server.crt'), timeout=5).read()"]
+      interval: 30s
+      timeout: 8s
+      retries: 3

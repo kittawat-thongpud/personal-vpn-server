@@ -8,15 +8,15 @@ android {
     defaultConfig {
         applicationId = "dev.personalvpn.p2plab"
         minSdk = 34; targetSdk = 35
-        versionCode = versionParts[0] * 1000000 + versionParts[1] * 10000 + versionParts[2] * 100 + 1
-        versionName = "$baseVersion-lab.1"
+        versionCode = versionParts[0] * 1000000 + versionParts[1] * 10000 + versionParts[2] * 100 + 2
+        versionName = "$baseVersion-lab.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
         create("lab") {
             storeFile = file(System.getenv("P2P_LAB_KEYSTORE") ?: "missing-lab.p12")
-            storeType = "PKCS12"; storePassword = "p2plab-test-only"
-            keyAlias = "p2plab"; keyPassword = "p2plab-test-only"
+            storeType = "PKCS12"; storePassword = System.getenv("P2P_LAB_KEYSTORE_PASSWORD")
+            keyAlias = "p2plab"; keyPassword = System.getenv("P2P_LAB_KEYSTORE_PASSWORD")
         }
     }
     buildTypes { release { signingConfig = signingConfigs.getByName("lab"); isMinifyEnabled = false; isDebuggable = false } }
@@ -24,6 +24,7 @@ android {
 }
 dependencies {
     implementation("androidx.webkit:webkit:1.12.1")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }
