@@ -141,8 +141,86 @@ jobs:
           name: p2p-lab-signaling-vps
           path: experiments/p2p-lab/signal-vps/
           retention-days: 7
-  package:
+  registry:
     needs: [browser, android, windows-native, signal]
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: p2p-lab-signaling-vps
+          path: signaling-qualified
+      - name: Publish the qualified image to private GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_USER: ${{ github.actor }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          cd signaling-qualified
+          sha256sum -c SHA256SUMS.txt
+          docker load -i p2p-signal-image.tar.gz
+          test "$(docker image inspect personal-vpn/p2p-signal:lab.2 --format '{{.Id}}')" = "$(cat IMAGE-ID.txt)"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+          image=ghcr.io/kittawat-thongpud/personal-vpn-server/p2p-signal
+          immutable="$image:lab.2-${SOURCE_SHA:0:12}"
+          docker tag personal-vpn/p2p-signal:lab.2 "$immutable"
+          docker push "$immutable"
+          docker pull "$immutable"
+          ref=$(docker image inspect "$immutable" --format '{{index .RepoDigests 0}}')
+          test "${ref%@*}" = "$image"
+          mkdir -p ../ghcr-qualified
+          printf '%s\n' "$ref" > ../ghcr-qualified/IMAGE-REF.txt
+          # An unauthenticated pull must be rejected: a public package fails this gate.
+          mkdir -p "$RUNNER_TEMP/anonymous-docker"
+          if docker --config "$RUNNER_TEMP/anonymous-docker" manifest inspect "$ref" > /dev/null 2> "$RUNNER_TEMP/anonymous-ghcr.txt"; then
+            echo 'Unexpected anonymous image access. Private publication check failed.' >&2; exit 1
+          fi
+          if ! grep -Eiq 'unauthorized|denied|authentication required' "$RUNNER_TEMP/anonymous-ghcr.txt"; then
+            echo 'Anonymous privacy check was inconclusive.' >&2; exit 1
+          fi
+          docker tag "$immutable" "$image:lab.2"
+          docker push "$image:lab.2"
+          python3 - "$SOURCE_SHA" "$ref" <<'PY'
+          import json, sys
+          from pathlib import Path
+          Path('../ghcr-qualified/GHCR.json').write_text(json.dumps({
+              'source': sys.argv[1], 'image': sys.argv[2],
+              'privatePull': 'unauthenticated manifest access rejected',
+              'build': 'same image ID as the qualified signal artifact, no rebuild',
+          }, indent=2)+'\n')
+          PY
+      - name: Render and exercise the permanent digest-pinned installer
+        run: |
+          set -euo pipefail
+          python3 experiments/p2p-lab/signal-server/render_install.py "$(cat ghcr-qualified/IMAGE-REF.txt)" ghcr-qualified/P2P-VPS-INSTALL.sh
+          bash -n ghcr-qualified/P2P-VPS-INSTALL.sh
+          trap 'sudo docker compose -f /opt/personal-vpn-p2p-lab/compose.signal.yaml down || true' EXIT
+          # Run only on the disposable Actions VM. Suppress the private invitation.
+          sudo env DOCKER_CONFIG="$HOME/.docker" bash ghcr-qualified/P2P-VPS-INSTALL.sh > "$RUNNER_TEMP/p2p-install.log" 2>&1 || { sed -E 's/pvp2:[A-Za-z0-9_-]+/[private invitation]/g' "$RUNNER_TEMP/p2p-install.log"; sudo docker ps -a; exit 1; }
+          first=$(sudo sha256sum /opt/personal-vpn-p2p-lab/signal-state/server.crt)
+          cid=$(sudo docker compose -f /opt/personal-vpn-p2p-lab/compose.signal.yaml ps -q signal)
+          sudo env DOCKER_CONFIG="$HOME/.docker" bash ghcr-qualified/P2P-VPS-INSTALL.sh > "$RUNNER_TEMP/p2p-reinstall.log" 2>&1 || { sed -E 's/pvp2:[A-Za-z0-9_-]+/[private invitation]/g' "$RUNNER_TEMP/p2p-reinstall.log"; exit 1; }
+          test "$first" = "$(sudo sha256sum /opt/personal-vpn-p2p-lab/signal-state/server.crt)"
+          test "$cid" = "$(sudo docker compose -f /opt/personal-vpn-p2p-lab/compose.signal.yaml ps -q signal)"
+          test "$(sudo docker inspect "$cid" --format '{{.Image}}')" = "$(cat signaling-qualified/IMAGE-ID.txt)"
+          sudo curl --fail --cacert /opt/personal-vpn-p2p-lab/signal-state/server.crt https://127.0.0.1:9443/health
+          printf '%s\n' '{"freshInstall":"healthy","repeatInstall":"same container and controller certificate","image":"qualified image ID"}' > ghcr-qualified/INSTALL-RESULT.json
+          cd ghcr-qualified
+          sha256sum ./* > SHA256SUMS.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: p2p-lab-ghcr
+          path: ghcr-qualified/
+          retention-days: 7
+  package:
+    needs: [browser, android, windows-native, signal, registry]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -164,6 +242,10 @@ jobs:
         with:
           name: p2p-lab-signaling-vps
           path: signaling-qualified
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: p2p-lab-ghcr
+          path: ghcr-qualified
       - name: Package only qualified experiments without publishing a client release
         env:
           SOURCE_SHA: ${{ github.sha }}
@@ -172,7 +254,7 @@ jobs:
           cmp qualified/dist/Personal-VPN-P2P-Lab.html windows-qualified/dist/Personal-VPN-P2P-Lab.html
           cp qualified/dist/* p2p-lab/
           cp native-qualified/PersonalVPN-P2P-Lab-*.zip p2p-lab/
-          tar -czf p2p-lab/P2P-Signaling-VPS.tar.gz -C signaling-qualified .
+          cp ghcr-qualified/P2P-VPS-INSTALL.sh ghcr-qualified/IMAGE-REF.txt ghcr-qualified/GHCR.json ghcr-qualified/INSTALL-RESULT.json p2p-lab/
           cp qualified/android-evidence/verified-transfer.json p2p-lab/ANDROID-LOCAL-RESULT.json
           python3 - <<'PY'
           import json, os
@@ -185,6 +267,8 @@ jobs:
               'automaticRooms': 'owned HTTPS controller, peer transfer survives controller outage',
               'nativeClients': 'Windows x86/x64 and Android: TLS pinning, wrong-pin rejection, QR encoding/decoding',
               'signalingSidecar': 'authenticated HTTPS container, 64 MiB / 0.20 CPU caps checked',
+              'registry': json.loads(Path('ghcr-qualified/GHCR.json').read_text()),
+              'installer': json.loads(Path('ghcr-qualified/INSTALL-RESULT.json').read_text()),
               'physicalDeviceTrial': 'pending', 'chinaNetworkTrial': 'pending', 'physicalBypassVerified': False,
               'vpsModified': False, 'productionVpnModified': False
           }, indent=2)+'\n')

@@ -60,8 +60,9 @@ class Rooms(unittest.TestCase):
         with self.assertRaises(ApiError): self.call('POST', f'/v1/rooms/{code}/join', self.guest)
 
     def test_room_and_byte_limits_do_not_grow_without_bound(self):
-        self.call('POST', '/v1/rooms'); room = self.call('POST', '/v1/rooms')
-        with self.assertRaises(ApiError): self.call('POST', '/v1/rooms')
+        previous=self.call('POST', '/v1/rooms'); self.call('POST', '/v1/rooms'); room=self.call('POST', '/v1/rooms')
+        self.assertEqual(len(self.store.rooms),1)
+        with self.assertRaises(ApiError): self.call('POST', f"/v1/rooms/{previous['code']}/join", self.guest)
         self.store.rooms[room['code']]['bytes'] = MAX_ROOM_BYTES
         with self.assertRaises(ApiError): self.call('POST', f"/v1/rooms/{room['code']}/messages", data={'kind':'retry'})
 

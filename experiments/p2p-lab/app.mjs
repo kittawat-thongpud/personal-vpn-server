@@ -27,12 +27,13 @@ function render() {
   if(rooms){
     $('setup').hidden=true;$('exchange').hidden=true;$('automatic').hidden=false;
     $('server-setup').hidden=rooms.status.configured&&!controllerEditing;$('room-controls').hidden=!rooms.status.configured;
-    $('room-status').textContent=rooms.peerJoined?'จับคู่กับอีกเครื่องแล้ว':({setup:'ตั้งค่าเซิร์ฟเวอร์ครั้งแรก',ready:'พร้อมสร้างหรือเข้าห้อง',waiting_peer:'รออีกเครื่องเข้าห้อง',unavailable:'ติดต่อเซิร์ฟเวอร์จับคู่ไม่ได้'}[rooms.state]||'พร้อมจับคู่');
+    $('room-status').textContent=rooms.peerJoined?(rooms.state==='unavailable'?'จับคู่แล้ว · จุดจับคู่ไม่พร้อม':'จับคู่กับอีกเครื่องแล้ว'):({setup:'ตั้งค่าเซิร์ฟเวอร์ครั้งแรก',ready:'พร้อมสร้างหรือเข้าห้อง',waiting_peer:'รออีกเครื่องเข้าห้อง',unavailable:'ติดต่อเซิร์ฟเวอร์จับคู่ไม่ได้'}[rooms.state]||'พร้อมจับคู่');
     $('room-code').textContent=rooms.room?.code||'—';$('room-view').hidden=!rooms.room;
     $('scan-room').hidden=!rooms.status.scanSupported;
     $('native-warning').hidden=!rooms.status.network?.vpnActive;
     const invite=rooms.room?.invite||'';
-    if(invite!==qrValue){qrValue=invite;$('room-qr').hidden=true;if(invite)void bridge.call('qr',{value:invite}).then(png=>{if(qrValue===invite){$('room-qr').src=png;$('room-qr').hidden=false;}}).catch(()=>banner('qr.unavailable'));}
+    if(invite!==qrValue){qrValue=invite;$('room-qr').hidden=true;if(invite)void bridge.call('qr',{value:invite}).then(png=>{if(qrValue===invite){$('room-qr').src=png;$('room-qr').hidden=rooms.peerJoined;}}).catch(()=>banner('qr.unavailable'));}
+    if(rooms.peerJoined)$('room-qr').hidden=true;
   }
   $('out-box').hidden = !lab.signalText; $('outgoing').value = lab.signalText;
   $('in-box').hidden = !!lab.remote;
@@ -88,6 +89,7 @@ $('report').onclick = () => download(JSON.stringify(lab.report(), null, 2), 'p2p
 $('connect-nav').onclick = () => page(false); $('logs-nav').onclick = () => page(true);
 window.addEventListener('pagehide', () => lab.stop());
 const automaticStun=()=>$('auto-network').value==='stun'?$('stun').value:'';
+$('auto-network').onchange=()=>{if(rooms)rooms.stun=automaticStun();};
 $('create-room').onclick=()=>action(()=>rooms.create(automaticStun()));
 $('join-room').onclick=()=>action(()=>rooms.join($('join-code').value.trim(),automaticStun()));
 $('retry-room').onclick=()=>action(()=>rooms.retry());

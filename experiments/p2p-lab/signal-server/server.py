@@ -92,8 +92,16 @@ class Store:
 
     def create(self, device):
         self.prune()
+        # A restarted client must not be locked out by its abandoned pairing
+        # leases. Supersede only this device's old signaling room; never touch
+        # another device's room or an established peer data channel.
+        for code in [k for k, r in self.rooms.items() if r["owner"] == device]:
+            self.rooms[code]["expires"] = 0
+            del self.rooms[code]
+            self.db.execute("DELETE FROM invites WHERE room=?", (code,))
+        self.db.commit()
+        self.lock.notify_all()
         check(len(self.rooms) < MAX_ROOMS, 429, "room.limit")
-        check(sum(r["owner"] == device for r in self.rooms.values()) < 2, 429, "room.owner_limit")
         while True:
             code = f"{secrets.randbelow(100000000):08d}"
             if code not in self.rooms:
@@ -191,7 +199,7 @@ class Store:
                 raise ApiError(400, "poll.cursor") from None
             check(0 <= after <= room["seq"], 400, "poll.cursor")
             deadline = time.monotonic() + 8
-            while room["seq"] <= after and time.monotonic() < deadline:
+            while room["seq"] <= after and room["expires"] > time.time() and time.monotonic() < deadline:
                 self.lock.wait(min(1, deadline - time.monotonic()))
             check(room["expires"] > time.time(), 410, "room.expired")
             return {"cursor": room["seq"], "joined": room["guest"] is not None, "expires": room["expires"],

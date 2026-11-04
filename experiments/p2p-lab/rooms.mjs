@@ -29,10 +29,12 @@ export class Rooms {
   update(state) { this.state=state;this.lab.signaling={state,configured:this.status.configured,joined:this.peerJoined,role:this.room?.role||null};this.changed(); }
   async initialize() { this.status=await this.bridge.call('status');this.lab.nativeNetwork=this.status.network;this.update(this.status.configured?'ready':'setup'); }
   async enroll(value) {
-    const result=await this.bridge.call('enroll',{value});await this.initialize();
+    this.lab.record('INFO','signaling.enrolling');
+    let result;try{result=await this.bridge.call('enroll',{value});}catch(e){this.lab.record('WARN','signaling.enroll_failed',e.code||e.name||'failed');throw e;}
+    await this.initialize();this.lab.record('INFO','signaling.configured');
     if(result.room)await this.join(result.room);return result;
   }
-  api(method,path,body={}) { return this.bridge.call('api',{method,path,body}); }
+  async api(method,path,body={}) {try{return await this.bridge.call('api',{method,path,body});}catch(e){this.lab.record('WARN','signaling.request_failed',`${method}; ${e.code||e.name||'failed'}`);throw e;}}
   async create(stun) {
     this.close();this.stun=stun;this.room=await this.api('POST','/v1/rooms');this.cursor=0;this.peerJoined=false;this.stopPoll=false;
     this.update('waiting_peer');void this.poll(this.epoch);await this.startOffer();return this.room;
@@ -40,7 +42,7 @@ export class Rooms {
   async join(code,stun=this.stun||'') {
     if(!/^[0-9]{8}$/.test(code))throw{code:'room.code'};
     this.close();this.stun=stun;this.room=await this.api('POST',`/v1/rooms/${code}/join`);this.cursor=0;this.peerJoined=true;this.stopPoll=false;
-    this.update('paired');void this.poll(this.epoch);return this.room;
+    this.lab.record('INFO','signaling.joined');this.update('paired');void this.poll(this.epoch);return this.room;
   }
   connectSignals() {
     this.initialSent=false;this.candidates=[];

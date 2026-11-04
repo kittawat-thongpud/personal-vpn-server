@@ -6,9 +6,30 @@ system proxy, DNS หรือ VPN ที่กำลังใช้อยู่
 
 ## ติดตั้งจุดจับคู่บน VPS ครั้งเดียว
 
-ใช้ `P2P-Signaling-VPS.tar.gz` ซึ่งมี image ที่ Actions สร้างให้แล้ว ไม่ build บน VPS
-หรือเครื่องจีน แตกใน `/opt/personal-vpn-p2p-lab` เท่านั้น แล้วรัน `bash install.sh`
-เปิด TCP 9443 ใน firewall ของ Vultr หากมี firewall group ผูกอยู่
+Actions สร้างและทดสอบ image แล้วส่งขึ้น GHCR แบบ **Private** ตาม repo:
+`ghcr.io/kittawat-thongpud/personal-vpn-server/p2p-signal:lab.2`
+สคริปต์ `P2P-VPS-INSTALL.sh` ที่ได้จาก run เดียวกันจะ pull ด้วย digest ที่แน่นอน
+ไม่ build บน VPS หรือเครื่องจีน และไม่มีลิงก์ดาวน์โหลดที่หมดอายุอยู่ในสคริปต์
+
+1. สร้าง GitHub personal access token **classic** สิทธิ์ `read:packages`
+   สำหรับดึง image เท่านั้น กรอกที่ช่อง Password บน VPS ไม่ส่ง token ในแชต
+2. ใน VPS console รัน `docker login ghcr.io -u kittawat-thongpud` ครั้งแรก
+3. ใน PowerShell เครื่อง Windows รัน:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\Personal\Project\VPN\client\tools\prepare-p2p-vps.ps1" -Copy
+```
+
+4. วางสคริปต์จาก clipboard ใน VPS console สคริปต์จะติดตั้งใน
+   `/opt/personal-vpn-p2p-lab` และรอจน container healthy
+   รันซ้ำจะใช้ controller identity และ container เดิมถ้า image ไม่เปลี่ยน
+5. เปิด inbound TCP 9443 ใน firewall ของ Vultr และ host firewall ถ้าเปิดใช้อยู่
+
+helper ใช้ GitHub CLI ที่ login บน Windows อยู่แล้วดาวน์โหลดเฉพาะสคริปต์และ
+metadata ขนาดเล็ก ตรวจ checksum กับ source ของ run ที่ผ่านทุก gate
+เก็บสำเนาสคริปต์ไว้ `.cache/p2p-lab2-vps-install.txt` ใช้สำเนานี้ซ้ำได้
+ไม่มี GitHub token ในสคริปต์ ไม่ต้องนำ token ของ Windows ไปไว้บน VPS
+Image รุ่นที่ใช้จริงระบุใน `IMAGE-REF.txt`; tag `lab.2` ใช้ชี้รุ่นทดลองปัจจุบัน
 
 ตัวนี้เป็น container แยก ไม่แตะ Compose/containers ของ `/opt/personal-vpn`
 และไม่ restart Hysteria/REALITY ใช้ HTTPS บน IP เดิม ใบรับรองและ private key
@@ -66,7 +87,9 @@ endpoint เพิ่ม STUN ค่าเริ่มต้นคือ `stun:s
 ## Sidecar budget and rollback
 
 Limits: 0.20 CPU, 64 MiB RAM, 64 PIDs, 2 MiB logs; 16 rooms / 2 peers per room,
-128 control messages / 256 KiB per room, 10-minute pairing lifetime. No arbitrary
+128 control messages / 256 KiB per room, 10-minute pairing lifetime; one active
+pairing room per owner device. Creating a new room replaces that device's previous
+signaling lease, without closing an established peer channel. No arbitrary
 proxy destination or Internet forwarding. These caps do not establish measured
 VPS peak-load headroom; inspect real load alongside the working VPN after deployment.
 
@@ -88,4 +111,5 @@ Primary references: [WebRTC](https://www.w3.org/TR/webrtc/),
 [Android VPN](https://developer.android.com/develop/connectivity/vpn),
 [local HTTPS assets](https://developer.android.com/develop/ui/views/layout/webapps/load-local-content),
 [WebView2](https://learn.microsoft.com/microsoft-edge/webview2/),
-[ZXing Android](https://github.com/journeyapps/zxing-android-embedded).
+[ZXing Android](https://github.com/journeyapps/zxing-android-embedded),
+[GHCR private authentication](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
