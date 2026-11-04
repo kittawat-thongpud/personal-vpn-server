@@ -102,6 +102,22 @@ export class PeerLab {
   later(fn, ms) { const id = setTimeout(() => { this.timers.delete(id); fn(); }, ms); this.timers.add(id); return id; }
   cancel(id) { clearTimeout(id); this.timers.delete(id); }
   active(pc) { requireThat(pc === this.pc && !this.abort.signal.aborted, 'session.cancelled'); }
+  step(promise, pc) {
+    // Chromium may leave an in-flight createOffer unresolved if close() races it.
+    // Cancellation/deadlines must settle our operation independently of the browser.
+    const signal = this.abort.signal; this.active(pc);
+    return new Promise((resolve, reject) => {
+      const finish = (value, error) => {
+        this.cancel(timer); signal.removeEventListener('abort', abort);
+        if (error) reject(error); else resolve(value);
+      };
+      const abort = () => finish(null, new LabError('session.cancelled'));
+      const timer = this.later(() => finish(null, new LabError('peer.operation_timeout')), 20000);
+      signal.addEventListener('abort', abort, {once:true});
+      Promise.resolve(promise).then(value => finish(value), error => finish(null, error));
+      if (signal.aborted) abort();
+    });
+  }
   canTest() { return this.phase === 'connected' && this.channel?.readyState === 'open' && this.path?.noTurn && this.confirmed && this.remoteReady; }
   stop(phase = 'closed', reason = '') {
     this.abort?.abort(); for (const timer of this.timers) clearTimeout(timer); this.timers.clear();
@@ -136,7 +152,8 @@ export class PeerLab {
     const pc = this.newPeer(stun); this.state('gathering');
     try {
       this.bind(pc.createDataChannel('Personal VPN P2P Lab', { ordered: true, protocol: 'pvp-lab/1' }), pc);
-      await pc.setLocalDescription(await pc.createOffer());
+      const description = await this.step(pc.createOffer(), pc); this.active(pc);
+      await this.step(pc.setLocalDescription(description), pc); this.active(pc);
       const complete = await gather(pc, this.abort.signal); this.active(pc);
       this.exportSignal(pc); if (!complete) this.record('WARN', 'discovery.partial', 'Only gathered candidates were included.');
       this.state('waiting'); return this.signalText;
@@ -146,8 +163,9 @@ export class PeerLab {
     const offer = decodeSignal(text); requireThat(offer.kind === 'offer', 'signal.expected_offer');
     const pc = this.newPeer(stun, offer.id, offer.expires); this.remote = offer; this.state('gathering');
     try {
-      await pc.setRemoteDescription({ type: 'offer', sdp: offer.sdp });
-      await pc.setLocalDescription(await pc.createAnswer());
+      await this.step(pc.setRemoteDescription({ type: 'offer', sdp: offer.sdp }), pc); this.active(pc);
+      const description = await this.step(pc.createAnswer(), pc); this.active(pc);
+      await this.step(pc.setLocalDescription(description), pc); this.active(pc);
       const complete = await gather(pc, this.abort.signal); this.active(pc); this.exportSignal(pc);
       this.code = await pairingCode(this.local, this.remote); this.active(pc);
       if (!complete) this.record('WARN', 'discovery.partial', 'Only gathered candidates were included.');
@@ -163,7 +181,7 @@ export class PeerLab {
     requireThat(pc && this.local?.kind === 'offer' && !this.remote, 'signal.not_waiting');
     requireThat(answer.kind === 'answer' && answer.id === this.id && answer.expires <= this.expires, 'signal.session');
     try {
-      await pc.setRemoteDescription({ type: 'answer', sdp: answer.sdp }); this.active(pc); this.remote = answer;
+      await this.step(pc.setRemoteDescription({ type: 'answer', sdp: answer.sdp }), pc); this.active(pc); this.remote = answer;
       this.code = await pairingCode(this.local, this.remote); this.active(pc); this.connectDeadline(pc); this.emit();
     } catch (e) { if (this.pc === pc) this.fail(e.code || 'peer.accept_failed'); throw e; }
   }

@@ -36,3 +36,75 @@ jobs:
             experiments/p2p-lab/test-results/
             experiments/p2p-lab/package-lock.json
           retention-days: 7
+  android:
+    needs: browser
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          packages: platform-tools
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: p2p-lab-browser-evidence
+          path: browser-input
+      - name: Build separate foreground-only Android lab
+        run: |
+          mkdir -p experiments/p2p-lab/dist
+          cp browser-input/dist/* experiments/p2p-lab/dist/
+          bash experiments/p2p-lab/build-android.sh
+      - name: Qualify real Android 14 WebView data channels
+        run: bash experiments/p2p-lab/test-android.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: p2p-lab-android-evidence
+          path: |
+            experiments/p2p-lab/dist/
+            experiments/p2p-lab/android-evidence/
+            experiments/p2p-lab/android/app/build/reports/
+          retention-days: 7
+  package:
+    needs: [browser, android]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: p2p-lab-android-evidence
+          path: qualified
+      - name: Package only qualified experiments without publishing a client release
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          mkdir p2p-lab
+          cp qualified/dist/* p2p-lab/
+          cp qualified/android-evidence/verified-transfer.json p2p-lab/ANDROID-LOCAL-RESULT.json
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          p = Path('p2p-lab')
+          (p/'QUALIFICATION.json').write_text(json.dumps({
+              'source': os.environ['SOURCE_SHA'], 'baseline': Path('client/VERSION').read_text().strip(),
+              'kind': 'isolated experiment, not a stable client release',
+              'chromiumPeers': 'bidirectional 1 MiB verified', 'android14WebViewPeers': 'bidirectional 1 MiB verified',
+              'physicalDeviceTrial': 'pending', 'chinaNetworkTrial': 'pending', 'physicalBypassVerified': False,
+              'vpsModified': False, 'productionVpnModified': False
+          }, indent=2)+'\n')
+          PY
+          cd p2p-lab
+          sha256sum ./* > SHA256SUMS.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: personal-vpn-p2p-lab-qualified
+          path: p2p-lab/
+          retention-days: 7

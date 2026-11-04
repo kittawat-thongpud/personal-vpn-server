@@ -1,0 +1,59 @@
+package dev.personalvpn.p2plab;
+
+import android.content.Intent;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.webkit.WebView;
+import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.platform.app.InstrumentationRegistry;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import org.json.JSONObject;
+import org.json.JSONTokener;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import static org.junit.Assert.*;
+
+@RunWith(AndroidJUnit4.class)
+public class PeerTest {
+    private final android.app.Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
+    private String js(WebView view, String expression) throws Exception {
+        CountDownLatch done = new CountDownLatch(1); AtomicReference<String> result = new AtomicReference<>();
+        instrumentation.runOnMainSync(() -> view.evaluateJavascript("String(" + expression + ")", value -> { result.set(value); done.countDown(); }));
+        assertTrue("JS callback timed out", done.await(10, TimeUnit.SECONDS));
+        Object decoded = new JSONTokener(result.get()).nextValue(); return String.valueOf(decoded);
+    }
+    private void waitFor(WebView view, String expression, String expected) throws Exception {
+        long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(45); String actual = "";
+        do { actual = js(view, expression); if (expected.equals(actual)) return; Thread.sleep(100); } while (System.nanoTime() < until);
+        fail("Expected " + expected + ", got " + actual);
+    }
+    private void command(WebView view, String body) throws Exception { js(view, "(()=>{" + body + ";return 'scheduled'})()"); }
+    @Test public void androidWebViewsTransferWithoutClaimingVpnSlot() throws Exception {
+        PackageInfo info = instrumentation.getTargetContext().getPackageManager().getPackageInfo("dev.personalvpn.p2plab", PackageManager.GET_SERVICES);
+        assertTrue("Lab must not register a VPN/background service", info.services == null || info.services.length == 0);
+        MainActivity activity = (MainActivity) instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        WebView a = activity.primaryView(); AtomicReference<WebView> second = new AtomicReference<>();
+        instrumentation.runOnMainSync(() -> second.set(activity.addTestPeer())); WebView b = second.get();
+        try {
+            waitFor(a, "typeof window.lab", "object"); waitFor(b, "typeof window.lab", "object");
+            command(a,"window.op='pending';lab.offer().then(()=>window.op='ok').catch(e=>window.op=e.code||e.name)"); waitFor(a,"window.op","ok");
+            String offer = js(a,"lab.signalText");
+            command(b,"window.op='pending';lab.answer(" + JSONObject.quote(offer) + ").then(()=>window.op='ok').catch(e=>window.op=e.code||e.name)"); waitFor(b,"window.op","ok");
+            String answer = js(b,"lab.signalText");
+            command(a,"window.op='pending';lab.accept(" + JSONObject.quote(answer) + ").then(()=>window.op='ok').catch(e=>window.op=e.code||e.name)"); waitFor(a,"window.op","ok");
+            waitFor(a,"Boolean(lab.path && lab.code)","true"); waitFor(b,"Boolean(lab.path && lab.code)","true");
+            assertEquals(js(a,"lab.code"), js(b,"lab.code")); assertEquals("false",js(a,"lab.canTest()"));
+            command(a,"lab.confirm()"); command(b,"lab.confirm()"); waitFor(a,"lab.canTest()","true"); waitFor(b,"lab.canTest()","true");
+            command(a,"window.op='pending';lab.transfer().then(()=>window.op='ok').catch(e=>window.op=e.code||e.name)"); waitFor(a,"window.op","ok");
+            command(b,"window.op='pending';lab.transfer().then(()=>window.op='ok').catch(e=>window.op=e.code||e.name)"); waitFor(b,"window.op","ok");
+            assertEquals("1048576",js(a,"lab.totalUp")); assertEquals("1048576",js(a,"lab.totalDown"));
+            assertEquals("true",js(a,"lab.path.noTurn")); assertEquals("false",js(a,"lab.report().physicalBypassVerified"));
+            String report = js(a,"JSON.stringify(lab.report())");
+            assertFalse(report.contains("a=ice-pwd")); assertFalse(report.contains("a=fingerprint"));
+            try (java.io.OutputStream output = activity.openFileOutput("android-result.json",0)) { output.write(report.getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
+            command(a,"lab.stop()"); waitFor(b,"lab.phase","failed"); assertEquals("0",js(a,"lab.timers.size")); assertEquals("null",js(a,"lab.pc"));
+        } finally { instrumentation.runOnMainSync(activity::finish); }
+    }
+}

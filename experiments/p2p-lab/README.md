@@ -8,7 +8,7 @@ unchanged. All APK/HTML packaging and browser/emulator qualification run in Acti
 ## ทดลอง Windows ↔ Android
 
 1. Windows: เปิด `Personal-VPN-P2P-Lab.html` ด้วย Edge/Chrome รุ่นปัจจุบัน
-   Android: ติดตั้ง `PersonalVPN-P2P-Lab.apk` และเปิด **Personal VPN P2P Lab**
+   Android 14 ขึ้นไป: ติดตั้ง `PersonalVPN-P2P-Lab.apk` และเปิด **Personal VPN P2P Lab**
    เป็นอีกแอปหนึ่ง ไม่ทับ Personal VPN เดิม และไม่ขอสิทธิ์ VPN
 2. เริ่มด้วย Wi-Fi/LAN เดียวกันทั้งสองเครื่องและเลือก **LAN**
    ไม่ต้องปิด VPN สำรองที่ใช้คุยกันอยู่ ระหว่างทดลองให้หน้าจอทั้งคู่เปิดไว้
