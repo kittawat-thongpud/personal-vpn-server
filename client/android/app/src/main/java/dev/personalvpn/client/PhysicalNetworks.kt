@@ -36,7 +36,7 @@ internal class PhysicalNetworks(private val changed: (List<PhysicalNetwork>) -> 
             val caps = entry.caps ?: return@mapNotNull null
             val links = entry.links ?: return@mapNotNull null
             if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) || links.interfaceName.isNullOrBlank()) return@mapNotNull null
-            val path = "${entry.network}/${links.interfaceName}/${links.linkAddresses.map { it.toString() }.sorted()}/${links.routes.map { it.toString() }.sorted()}/${links.dnsServers.map { it.hostAddress }.sorted()}/${links.mtu}"
+            val path = "${entry.network}/${links.interfaceName}/${links.linkAddresses.map { it.toString() }.sorted()}/${links.routes.map { it.toString() }.sorted()}/${links.dnsServers.mapNotNull { it.hostAddress }.sorted()}/${links.mtu}"
             PhysicalNetwork(entry.network, caps, links, NetworkChoice(entry.network.toString(), path,
                 caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED), !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED),
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI), !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)))

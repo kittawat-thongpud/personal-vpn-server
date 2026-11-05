@@ -30,7 +30,9 @@ class TunnelService : VpnService() {
         fun command(context: android.content.Context, action: String) { ContextCompat.startForegroundService(context, Intent(context, TunnelService::class.java).setAction(action)) }
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val lifecycle = Mutex()
+    private val lifecycle = Repository.serviceLifecycle
+    private var serviceGeneration = -1L
+    private val ownsSession get() = Repository.serviceGeneration.get() == serviceGeneration
     private val control = Any()
     private var worker: Job? = null
     private var ticker: Job? = null
@@ -56,7 +58,7 @@ class TunnelService : VpnService() {
         override fun defaultInterface() = this@TunnelService.defaultInterface()
     }
     override fun onCreate() {
-        super.onCreate(); Surfaces.channels(this)
+        super.onCreate(); serviceGeneration = Repository.serviceGeneration.incrementAndGet(); Surfaces.channels(this)
         cm.registerNetworkCallback(NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build(), monitor)
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -65,7 +67,10 @@ class TunnelService : VpnService() {
         val notification = Surfaces.notification(this)
         if (Build.VERSION.SDK_INT >= 34) startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED) else startForeground(1, notification)
         if (intent?.action == DISCONNECT) {
-            if (isAlwaysOn) { Repository.log("WARN", "disconnect.managed", "Always-on is managed in Android VPN settings."); return START_STICKY }
+            if (isAlwaysOn) {
+                Repository.log("WARN", "disconnect.managed", "Always-on is managed in Android VPN settings.")
+                mutateState { it.copy(detail = "Always-on is managed in Android VPN settings.") }; Surfaces.refresh(this); return START_STICKY
+            }
             desired = false; cancelPending(); worker?.cancel()
             worker = scope.launch { lifecycle.withLock {
                 closeCore(); closeCapture(); update("Disconnected", false, false)
@@ -77,7 +82,7 @@ class TunnelService : VpnService() {
         if (desired && worker?.isActive == true && intent?.action != RECONNECT && Repository.state.value.status != "Error") return START_STICKY
         if (!desired && tun == null) {
             baseUp = 0; baseDown = 0; trafficEpoch++
-            Repository.state.update { it.copy(exitIp = "—", appliedConfig = "", uploadRate = 0, downloadRate = 0, uploaded = 0, downloaded = 0, history = emptyList()) }
+            mutateState { it.copy(exitIp = "—", appliedConfig = "", uploadRate = 0, downloadRate = 0, uploaded = 0, downloaded = 0, history = emptyList()) }
         }
         desired = true; cancelPending(); worker?.cancel()
         worker = scope.launch { lifecycle.withLock {
@@ -140,7 +145,7 @@ class TunnelService : VpnService() {
                                 core = Personalvpn.start(noBackupFilesDir.absolutePath, content, platform)
                                 currentCoroutineContext().ensureActive(); checkEpoch(epoch)
                                 appliedPath = physical.choice.path
-                                Repository.state.update { it.copy(appliedConfig = config.fingerprint(), profileName = config.selectedProfile().name, protocol = config.protocol) }
+                                mutateState { it.copy(appliedConfig = config.fingerprint(), profileName = config.selectedProfile().name, protocol = config.protocol) }
                                 Repository.log("INFO", "core.started", "${config.protocol}; generation=${epoch.generation}")
                             }
                             phase = "health"
@@ -214,7 +219,7 @@ class TunnelService : VpnService() {
                 // Commit the result atomically with the generation check.
                 synchronized(control) {
                     checkEpoch(epoch)
-                    Repository.state.update { it.copy(status = "Connected", active = true, busy = false, exitIp = verifiedExit, detail = config.protocol) }
+                    mutateState { it.copy(status = "Connected", active = true, busy = false, exitIp = verifiedExit, detail = config.protocol) }
                 }
                 Surfaces.refresh(this)
             } else {
@@ -257,7 +262,7 @@ class TunnelService : VpnService() {
         }
     }
     private fun applyUnderlying(epoch: NetworkEpoch) {
-        if (tun == null) return
+        if (tun == null || !ownsSession) return
         val networks = epoch.physical?.let { arrayOf(it.network) } ?: emptyArray()
         runCatching { check(setUnderlyingNetworks(networks)) }.onFailure { Repository.log("WARN", "network.metadata_failed", it.javaClass.simpleName) }
     }
@@ -272,13 +277,17 @@ class TunnelService : VpnService() {
     @Synchronized private fun closeCapture() {
         val previous = tun; tun = null
         runCatching { previous?.close() }.onFailure { Repository.log("WARN", "capture.close_failed", it.javaClass.simpleName) }
-        runCatching { setUnderlyingNetworks(null) }
+        if (ownsSession) runCatching { setUnderlyingNetworks(null) }
         if (previous != null) Repository.log("INFO", "capture.released")
     }
     private fun update(status: String, active: Boolean, busy: Boolean, detail: String = "") {
+        if (!ownsSession) return
         if (status != Repository.state.value.status) Repository.log("INFO", "state.${status.lowercase().replace(' ', '_')}", detail)
-        Repository.state.update { it.copy(status = status, active = active, busy = busy, detail = detail, exitIp = if (status == "Connected") it.exitIp else "—", uploadRate = if (active) it.uploadRate else 0, downloadRate = if (active) it.downloadRate else 0) }
+        mutateState { it.copy(status = status, active = active, busy = busy, detail = detail, exitIp = if (status == "Connected") it.exitIp else "—", uploadRate = if (active) it.uploadRate else 0, downloadRate = if (active) it.downloadRate else 0) }
         Surfaces.refresh(this)
+    }
+    private fun mutateState(transform: (TunnelState) -> TunnelState) {
+        Repository.state.update { if (ownsSession) transform(it) else it }
     }
     private suspend fun streamTraffic() {
         var lastUp = 0L; var lastDown = 0L; var lastTime = SystemClock.elapsedRealtime(); var sessionEpoch = trafficEpoch
@@ -289,7 +298,7 @@ class TunnelService : VpnService() {
             val up = baseUp + (current?.upload() ?: 0); val down = baseDown + (current?.download() ?: 0)
             val now = SystemClock.elapsedRealtime(); val elapsed = maxOf(1, now - lastTime)
             val upRate = maxOf(0, up - lastUp) * 1000 / elapsed; val downRate = maxOf(0, down - lastDown) * 1000 / elapsed
-            Repository.state.update { old -> old.copy(uploadRate = if (old.active) upRate else 0, downloadRate = if (old.active) downRate else 0, uploaded = maxOf(old.uploaded, up), downloaded = maxOf(old.downloaded, down), history = (old.history + (upRate to downRate)).takeLast(60)) }
+            mutateState { old -> old.copy(uploadRate = if (old.active) upRate else 0, downloadRate = if (old.active) downRate else 0, uploaded = maxOf(old.uploaded, up), downloaded = maxOf(old.downloaded, down), history = (old.history + (upRate to downRate)).takeLast(60)) }
             if (desired) Surfaces.rate(this)
             lastUp = maxOf(lastUp, up); lastDown = maxOf(lastDown, down); lastTime = now
         }
@@ -337,7 +346,7 @@ class TunnelService : VpnService() {
     override fun onDestroy() {
         destroyed = true; desired = false; cancelPending(); worker?.cancel(); ticker?.cancel()
         runCatching { cm.unregisterNetworkCallback(monitor) }
-        scope.launch { lifecycle.withLock { closeCore(); closeCapture(); update("Disconnected", false, false) }; scope.cancel() }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) { lifecycle.withLock { closeCore(); closeCapture(); update("Disconnected", false, false) }; scope.cancel() }
         super.onDestroy()
     }
 }

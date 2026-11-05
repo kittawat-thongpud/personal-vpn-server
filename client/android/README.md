@@ -43,12 +43,22 @@ be enabled with Tunnel as the default. Saving rules marks a live VPN connection
 for Apply & reconnect, preserving the existing connection until confirmed.
 
 The foreground VPN service continues when the app UI is hidden. All entry points
-share its connection controller. It observes physical Wi-Fi/cellular changes,
-protects outbound sockets from recursion, and keeps the TUN descriptor across
-transport retries. No automatic Direct fallback. Existing TCP/QUIC flows can
-break during a handover. Normal Disconnect closes capture; Android's VPN
+share its supervised connection controller. It uses physical-network snapshots,
+cancels DNS/HTTPS work from old network generations, protects outbound sockets
+from recursion, and keeps the TUN descriptor across transport retries. Network
+restoration wakes recovery automatically; unexpected worker completion is retried.
+Profile/authentication errors require correcting the profile/clock and Reconnect.
+No automatic Direct or protocol fallback. Existing TCP/QUIC flows can break
+during a handover. Normal Disconnect closes capture; Android's VPN
 Always-on / Block connections without VPN controls are managed in system settings.
 There is no claim that the app can resist Force stop or every OEM power policy.
+
+Connected still requires authenticated outbound HTTPS and an independent request
+through OS capture. Primary and secondary health targets are tried before a
+verification cycle fails. One failed cycle keeps the core and capture; repeated
+failures restart the transport with bounded backoff. Probes are cancellable and
+do not block byte-counter reads. Reconnecting/Waiting/Error clear the verified
+exit-IP display so an old result cannot imply the new network is connected.
 
 Notification: quiet updates targeting once a second, tunnel upload/download rates,
 session totals, Reconnect and Disconnect. Android may throttle or hide notifications;

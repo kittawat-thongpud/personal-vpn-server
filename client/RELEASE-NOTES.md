@@ -1,26 +1,37 @@
-Client 0.7.1 fixes Android REALITY interoperability with modern Xray servers.
+Client 0.7.2 improves Android VPN recovery after network loss and Wi-Fi/cellular changes.
 
-The pinned sing-box client's REALITY handshake removed the browser's hybrid
-X25519MLKEM768 key share. Xray 26.9.8 and newer reject that ClientHello, producing
-"reality verification failed" even when the same profile works with an Xray
-client. The Android backport retains the original browser key shares and uses
-the corresponding X25519 authentication key. Server credentials and TLS
-verification remain required; there is no automatic Direct fallback.
+The service supervises recovery workers and binds attempts to a network generation.
+Physical-network callbacks use their supplied snapshots, endpoint DNS is cancellable,
+and results from an old network cannot mark the current connection Connected.
+Network restoration wakes recovery without a user Reconnect command. Real path
+changes replace the transport once while retaining the original Android TUN.
 
-Qualification now uses official Xray 26.10.31, the same version as the VPS,
-instead of sing-box at both ends of the REALITY emulator fixture. Native checks
-reproduce the unpatched failure, verify repeated HTTPS with the corrected
-handshake and reject an incorrect short ID. Android TUN capture and App rules
-are exercised against the Xray fixture too.
+HTTPS probes are cancellable and no longer hold the lock used by traffic counters
+or core lifetime control. Initial authentication and separate OS-captured HTTPS
+must still agree. A failed primary check tries an independent secondary endpoint;
+one failed verification cycle retains the core, and consecutive failures trigger
+bounded retries. Profile/authentication errors remain visible for user action.
+There is no automatic Direct or protocol fallback and certificate checks remain.
 
-Backend logs identify the failure stage and a safe error category rather than
-only "proxyerror". Retry backoff ignores stale network callbacks while a genuine
-Wi-Fi/cellular change can still wake recovery. Logs remain session-only and
-bounded; credentials and raw native error messages are not logged.
+The native captured-path probe uses ordinary, unprotected OS sockets, including
+DNS through the TUN, independently of the selected outbound. Native tests cover
+probe cancellation over real QUIC/TLS, responsive counters during blocked probes,
+and safe concurrent close. Android tests exercise health-target outages, repeated
+verification failure, network loss/restoration and retained capture, alongside
+the existing protocol, separate-UID policy, TLS, UI and cleanup checks.
 
-This shared stable Latest release includes the signed Android APK and Windows
-x86/x64 installers and portable ZIPs. Windows functionality is unchanged and
-requalified under the same client version. Builds and packaging run in GitHub
-Actions. Physical Redmi use, radio handover and OEM battery policy still need
-device acceptance; emulator qualification is recorded separately. Update the
-existing APK to preserve profiles and rules. No VPS reinstallation is required.
+Logs remain backend-only, session-memory-only and limited to 1,000 records / 1 MiB.
+Network events identify generation and transport type without credentials, local
+addresses, browsing destinations or raw native errors.
+
+This shared stable release includes Android and Windows x86/x64 installers under
+one version. Windows runtime behavior is unchanged and requalified. No VPS update
+or profile regeneration is required. Install over the existing APK to retain
+profiles and rules. Physical Redmi radio transitions, China-network performance
+and OEM power management remain separate device acceptance checks; no throughput
+gain or preservation of existing TCP sessions across a radio change is promised.
+
+Builds, signing and publication run in GitHub Actions. Qualified binary handoff
+uses run-and-source-scoped caches with checksum verification; optional emulator
+report uploads cannot override the actual test result. Source snapshots and
+published installers remain preserved. P2P development is paused.

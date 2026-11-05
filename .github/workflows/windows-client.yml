@@ -131,11 +131,14 @@ jobs:
           $assets = Get-ChildItem dist -File | Where-Object { $_.Name -like 'PersonalVPN-*' }
           $lines = foreach ($asset in $assets) { ((Get-FileHash $asset.FullName).Hash.ToLowerInvariant() + '  ' + $asset.Name) }
           $lines | Set-Content "dist/SHA256SUMS-${{ matrix.arch }}.txt" -Encoding ascii
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - name: Stage qualified installers for the shared publisher
+        shell: pwsh
+        run: |
+          $stage = 'client-distribution/windows-${{ matrix.arch }}'
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item dist/PersonalVPN-*.exe,dist/PersonalVPN-*.zip,dist/SHA256SUMS-*.txt $stage
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
-          name: windows-${{ matrix.arch }}
-          path: |
-            dist/PersonalVPN-*.exe
-            dist/PersonalVPN-*.zip
-            dist/SHA256SUMS-*.txt
-          retention-days: 7
+          path: client-distribution/windows-${{ matrix.arch }}
+          key: client-dist-${{ github.run_id }}-${{ github.sha }}-windows-${{ matrix.arch }}
+          enableCrossOsArchive: true

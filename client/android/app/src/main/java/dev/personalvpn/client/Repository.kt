@@ -58,6 +58,8 @@ class EventRing {
 }
 data class TunnelState(val status: String = "Disconnected", val active: Boolean = false, val busy: Boolean = false, val exitIp: String = "—", val detail: String = "", val appliedConfig: String = "", val profileName: String = "", val protocol: String = "", val uploadRate: Long = 0, val downloadRate: Long = 0, val uploaded: Long = 0, val downloaded: Long = 0, val history: List<Pair<Long, Long>> = emptyList())
 object Repository {
+    internal val serviceGeneration = java.util.concurrent.atomic.AtomicLong()
+    internal val serviceLifecycle = kotlinx.coroutines.sync.Mutex()
     lateinit var controlToken: String; private set
     // Enabled only by the isolated instrumentation APK with generated fixtures.
     // There is no UI or external command that enables raw exception details.

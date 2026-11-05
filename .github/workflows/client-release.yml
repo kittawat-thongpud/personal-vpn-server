@@ -76,15 +76,27 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
-          pattern: windows-*
-          path: client-bundle
-          merge-multiple: true
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+          path: client-distribution/windows-x86
+          key: client-dist-${{ github.run_id }}-${{ github.sha }}-windows-x86
+          enableCrossOsArchive: true
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
-          name: android-release
-          path: client-bundle
+          path: client-distribution/windows-x64
+          key: client-dist-${{ github.run_id }}-${{ github.sha }}-windows-x64
+          enableCrossOsArchive: true
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: client-distribution/android-release
+          key: client-dist-${{ github.run_id }}-${{ github.sha }}-android-release
+          fail-on-cache-miss: true
+      - name: Collect this run's qualified platform outputs
+        run: |
+          mkdir client-bundle
+          cp client-distribution/windows-x86/* client-distribution/windows-x64/* client-distribution/android-release/* client-bundle/
       - name: Verify every platform, preserve source branches and publish one release
         env:
           GH_TOKEN: ${{ github.token }}

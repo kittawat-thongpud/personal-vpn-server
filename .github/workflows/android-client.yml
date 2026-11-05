@@ -62,18 +62,17 @@ jobs:
         if: steps.native-cache.outputs.cache-hit != 'true'
         run: bash client/android/build-native.sh
       - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        with:
+          path: client/android/app/libs/
+          key: android-aar-v1-${{ hashFiles('client/android/native/**', 'client/android/test-fixture/**', 'client/android/build-native.sh') }}
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         if: always() && !cancelled() && steps.native-cache.outputs.cache-hit != 'true'
         with:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
           key: android-go-${{ runner.os }}-${{ hashFiles('client/android/native/**', 'client/android/build-native.sh') }}
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always() && !cancelled()
-        with:
-          name: android-native
-          path: client/android/app/libs/
-          retention-days: 7
   app:
     if: ${{ !inputs.native_only }}
     needs: native
@@ -85,10 +84,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
-          name: android-native
-          path: client/android/app/libs
+          path: client/android/app/libs/
+          key: android-aar-v1-${{ hashFiles('client/android/native/**', 'client/android/test-fixture/**', 'client/android/build-native.sh') }}
+          fail-on-cache-miss: true
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
         with:
           packages: platform-tools
@@ -130,17 +130,17 @@ jobs:
           test "$actual" = "$expected"
           "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging client/android/app/build/outputs/apk/release/app-release.apk | grep -F "versionName='$CLIENT_VERSION'"
           unzip -l client/android/app/build/outputs/apk/release/app-release.apk | grep -E 'lib/(arm64-v8a|x86_64)/libpvn.so'
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
+      - name: Stage checked app and companion packages without signing secrets
+        run: |
+          mkdir -p client-distribution/android-app/app/build/outputs client-distribution/android-app/probe/build/outputs/apk
+          cp -r client/android/app/build/outputs/apk client-distribution/android-app/app/build/outputs/
+          cp -r client/android/app/build/reports client/android/app/build/test-results client-distribution/android-app/app/build/
+          cp client/android/app/build/signature.txt client-distribution/android-app/app/build/
+          cp -r client/android/probe/build/outputs/apk/debug client-distribution/android-app/probe/build/outputs/apk/
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
-          name: android-app
-          path: |
-            client/android/app/build/outputs/apk/
-            client/android/app/build/reports/
-            client/android/app/build/test-results/
-            client/android/app/build/signature.txt
-            client/android/probe/build/outputs/apk/debug/
-          retention-days: 7
+          path: client-distribution/android-app
+          key: client-dist-${{ github.run_id }}-${{ github.sha }}-android-app
   emulator:
     if: ${{ !inputs.native_only }}
     needs: app
@@ -155,52 +155,55 @@ jobs:
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
         with:
           packages: platform-tools
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
-          name: android-native
-          path: client/android/app/libs
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+          path: client/android/app/libs/
+          key: android-aar-v1-${{ hashFiles('client/android/native/**', 'client/android/test-fixture/**', 'client/android/build-native.sh') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
-          name: android-app
-          path: android-artifact
+          path: client-distribution/android-app
+          key: client-dist-${{ github.run_id }}-${{ github.sha }}-android-app
+          fail-on-cache-miss: true
       - name: Restore test APK paths
         run: |
           mkdir -p client/android/app/build client/android/probe/build
-          cp -r android-artifact/app/build/* client/android/app/build/
-          cp -r android-artifact/probe/build/* client/android/probe/build/
+          cp -r client-distribution/android-app/app/build/* client/android/app/build/
+          cp -r client-distribution/android-app/probe/build/* client/android/probe/build/
           # These are job-local duplicate inputs, not release assets or caches.
-          test "$(realpath android-artifact)" = "$GITHUB_WORKSPACE/android-artifact"
-          rm -rf -- "$GITHUB_WORKSPACE/android-artifact"
+          test "$(realpath client-distribution/android-app)" = "$GITHUB_WORKSPACE/client-distribution/android-app"
+          rm -rf -- "$GITHUB_WORKSPACE/client-distribution/android-app"
       - name: Verify real Android 14 capture and application policy
         run: bash client/android/test-emulator.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
+        continue-on-error: true
         with:
           name: android-emulator-results
           path: |
             client/android/app/build/emulator/
             ${{ runner.temp }}/fixture.log
             ${{ runner.temp }}/emulator.log
-          retention-days: 7
+          retention-days: 1
   package:
     if: ${{ !inputs.native_only }}
     needs: [app, emulator]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
-          name: android-app
-          path: android-artifact
+          path: client-distribution/android-app
+          key: client-dist-${{ github.run_id }}-${{ github.sha }}-android-app
+          fail-on-cache-miss: true
       - name: Package qualified Android installer for the shared release
         run: |
-          mkdir android-release
-          cp android-artifact/app/build/outputs/apk/release/app-release.apk "android-release/PersonalVPN-Android-${CLIENT_VERSION}.apk"
-          cp android-artifact/app/build/signature.txt android-release/ANDROID-SIGNATURE.txt
-          cd android-release
+          mkdir -p client-distribution/android-release
+          cp client-distribution/android-app/app/build/outputs/apk/release/app-release.apk "client-distribution/android-release/PersonalVPN-Android-${CLIENT_VERSION}.apk"
+          cp client-distribution/android-app/app/build/signature.txt client-distribution/android-release/ANDROID-SIGNATURE.txt
+          cd client-distribution/android-release
           sha256sum ./* > SHA256SUMS-android.txt
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
-          name: android-release
-          path: android-release/
-          retention-days: 7
+          path: client-distribution/android-release
+          key: client-dist-${{ github.run_id }}-${{ github.sha }}-android-release
