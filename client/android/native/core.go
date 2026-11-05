@@ -2,6 +2,7 @@
 package personalvpn
 
 import (
+ "context"
  "encoding/json"
  "errors"
  "sync"
@@ -15,19 +16,37 @@ type Platform interface {
  Interfaces() string
  DefaultInterface() string
 }
-type Core struct { instance *libbox.PersonalInstance; platform *mobilePlatform; mu sync.Mutex }
+type coreInstance interface {
+ Close();CancelPending();VerifyAtContext(context.Context,string,string)(string,error);VerifyCapturedAtContext(context.Context,string,string)(string,error)
+ Upload()int64;Download()int64
+}
+type Core struct { instance coreInstance; platform *mobilePlatform; mu sync.Mutex; probes sync.WaitGroup; pending map[uint64]context.CancelFunc; nextProbe uint64; closeDone chan struct{} }
 func Start(root, config string, platform Platform) (*Core,error) {
  p := &mobilePlatform{callback:platform}
  instance, err := libbox.PersonalStart(root, config, p)
  if err != nil { return nil,err }
- return &Core{instance:instance,platform:p},nil
+ return &Core{instance:instance,platform:p,closeDone:make(chan struct{})},nil
 }
-func (c *Core) Close() { c.mu.Lock(); defer c.mu.Unlock(); if c.instance!=nil { c.instance.Close(); c.instance=nil } }
-func (c *Core) Verify() (string,error) { c.mu.Lock(); defer c.mu.Unlock(); if c.instance==nil { return "",errors.New("closed") }; return c.instance.Verify() }
-func (c *Core) VerifyAt(address, certificate string) (string,error) { c.mu.Lock(); defer c.mu.Unlock(); if c.instance==nil { return "",errors.New("closed") }; return c.instance.VerifyAt(address,certificate) }
+func (c *Core) Close() {
+ c.mu.Lock();instance:=c.instance
+ if instance==nil { done:=c.closeDone;c.mu.Unlock();if done!=nil{<-done};return }
+ c.instance=nil;if c.closeDone==nil{c.closeDone=make(chan struct{})};done:=c.closeDone
+ pending:=c.cancellationsLocked();c.mu.Unlock();for _,cancel:=range pending{cancel()}
+ instance.CancelPending();c.probes.Wait();instance.Close();close(done)
+}
+func (c *Core) cancellationsLocked() []context.CancelFunc { pending:=make([]context.CancelFunc,0,len(c.pending));for _,cancel:=range c.pending{pending=append(pending,cancel)};return pending }
+func (c *Core) CancelPending() { c.mu.Lock();pending:=c.cancellationsLocked();c.mu.Unlock();for _,cancel:=range pending{cancel()} }
+func (c *Core) Verify() (string,error) { return c.VerifyAt("https://api.ipify.org/", "") }
+func (c *Core) beginProbe() (coreInstance,context.Context,func(),error) {
+ c.mu.Lock();defer c.mu.Unlock();if c.instance==nil{return nil,nil,nil,errors.New("closed")}
+ ctx,cancel:=context.WithCancel(context.Background());if c.pending==nil{c.pending=make(map[uint64]context.CancelFunc)};c.nextProbe++;id:=c.nextProbe;c.pending[id]=cancel;c.probes.Add(1)
+ done:=func(){cancel();c.mu.Lock();delete(c.pending,id);c.mu.Unlock();c.probes.Done()};return c.instance,ctx,done,nil
+}
+func (c *Core) VerifyAt(address, certificate string) (string,error) { instance,ctx,done,err:=c.beginProbe();if err!=nil{return "",err};defer done();return instance.VerifyAtContext(ctx,address,certificate) }
+func (c *Core) VerifyCapturedAt(address, certificate string) (string,error) { instance,ctx,done,err:=c.beginProbe();if err!=nil{return "",err};defer done();return instance.VerifyCapturedAtContext(ctx,address,certificate) }
 func (c *Core) Upload() int64 { c.mu.Lock(); defer c.mu.Unlock(); if c.instance==nil { return 0 }; return c.instance.Upload() }
 func (c *Core) Download() int64 { c.mu.Lock(); defer c.mu.Unlock(); if c.instance==nil { return 0 }; return c.instance.Download() }
-func (c *Core) NetworkChanged() { c.mu.Lock(); defer c.mu.Unlock(); if c.instance!=nil { c.platform.update(); c.instance.ResetNetwork() } }
+func (c *Core) NetworkChanged() { c.mu.Lock(); defer c.mu.Unlock(); if c.instance!=nil { c.platform.update() } }
 func Check(config string) error { return libbox.CheckConfig(config) }
 type stringsIterator struct { values []string; index int }
 func (i *stringsIterator) Len() int32 { return int32(len(i.values)-i.index) }

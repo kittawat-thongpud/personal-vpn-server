@@ -39,7 +39,7 @@ func main() {
  // REALITY's test target is a real, controlled TLS 1.3 endpoint. Avoid an
  // unrelated public CDN's routing, availability and anti-bot policy in CI.
  targetListener,err:=net.Listen("tcp","0.0.0.0:18445");if err!=nil{panic(err)}
- target:=&http.Server{TLSConfig:&tls.Config{MinVersion:tls.VersionTLS13,Certificates:[]tls.Certificate{{Certificate:[][]byte{der},PrivateKey:key}}},Handler:http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){log.Printf("fixture HTTP %s %s %s",r.Method,r.URL.Path,r.Proto);if r.URL.Path=="/ip" {w.Write([]byte("198.18.0.1"))} else {w.WriteHeader(204)}})}
+ target:=&http.Server{TLSConfig:&tls.Config{MinVersion:tls.VersionTLS13,Certificates:[]tls.Certificate{{Certificate:[][]byte{der},PrivateKey:key}}},Handler:http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){log.Printf("fixture HTTP %s %s %s",r.Method,r.URL.Path,r.Proto);if r.URL.Path=="/ip" {w.Write([]byte("198.18.0.1"))} else if r.URL.Path=="/fail" {w.WriteHeader(503)} else {w.WriteHeader(204)}})}
  go target.ServeTLS(targetListener,"","")
  defer target.Close()
  reality,_:=ecdh.X25519().GenerateKey(rand.Reader)

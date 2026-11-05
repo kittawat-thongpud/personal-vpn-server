@@ -27,7 +27,8 @@ func TestPersonalHealthHysteriaRepeated(t *testing.T) {
  keyDER,_:=x509.MarshalECPrivateKey(key)
  certPEM:=string(pem.EncodeToMemory(&pem.Block{Type:"CERTIFICATE",Bytes:der}));keyPEM:=string(pem.EncodeToMemory(&pem.Block{Type:"EC PRIVATE KEY",Bytes:keyDER}))
  listener,err:=net.Listen("tcp","127.0.0.1:0");if err!=nil{t.Fatal(err)}
- target:=&http.Server{TLSConfig:&tls.Config{MinVersion:tls.VersionTLS13,Certificates:[]tls.Certificate{{Certificate:[][]byte{der},PrivateKey:key}}},Handler:http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){w.Write([]byte("198.18.0.1"))})}
+ entered:=make(chan struct{},1)
+ target:=&http.Server{TLSConfig:&tls.Config{MinVersion:tls.VersionTLS13,Certificates:[]tls.Certificate{{Certificate:[][]byte{der},PrivateKey:key}}},Handler:http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){if r.URL.Path=="/slow"{w.Write([]byte("198"));w.(http.Flusher).Flush();entered<-struct{}{};<-r.Context().Done();return};w.Write([]byte("198.18.0.1"))})}
  go target.ServeTLS(listener,"","");t.Cleanup(func(){target.Close()})
  udp,err:=net.ListenPacket("udp","127.0.0.1:0");if err!=nil{t.Fatal(err)};port:=udp.LocalAddr().(*net.UDPAddr).Port;udp.Close()
  start:=func(config map[string]any)*box.Box{t.Helper();ctx:=baseContext(nil);raw,_:=json.Marshal(config);options,err:=parseConfig(ctx,string(raw));if err!=nil{t.Fatal(err)};instance,err:=box.New(box.Options{Context:ctx,Options:options});if err!=nil{t.Fatal(err)};if err=instance.Start();err!=nil{t.Fatal(err)};t.Cleanup(func(){instance.Close()});return instance}
@@ -36,4 +37,9 @@ func TestPersonalHealthHysteriaRepeated(t *testing.T) {
  client:=start(map[string]any{"log":map[string]any{"disabled":true},"outbounds":[]any{map[string]any{"type":"hysteria2","tag":"tunnel","server":"127.0.0.1","server_port":port,"password":"fixture","tls":map[string]any{"enabled":true,"server_name":"127.0.0.1","certificate_sha256":[]string{base64.StdEncoding.EncodeToString(digest[:])}}}}})
  core:=&PersonalInstance{box:client}
  for i:=0;i<8;i++{result,err:=core.VerifyAt("https://"+listener.Addr().String()+"/ip",certPEM);if err!=nil{t.Fatalf("health %d: %v",i,err)};if result!="198.18.0.1"{t.Fatalf("unexpected authenticated response: %q",result)}}
+ pending:=make(chan error,1);go func(){_,err:=core.VerifyAt("https://"+listener.Addr().String()+"/slow",certPEM);pending<-err}()
+ select{case <-entered:case <-time.After(3*time.Second):t.Fatal("slow TLS body did not enter")}
+ core.CancelPending()
+ select{case err:=<-pending:if err==nil{t.Fatal("cancelled probe succeeded")};case <-time.After(time.Second):t.Fatal("probe cancellation waited for HTTP timeout")}
+ if _,err:=core.VerifyAt("https://"+listener.Addr().String()+"/ip",certPEM);err!=nil{t.Fatalf("cancel damaged the reusable QUIC core: %v",err)}
 }

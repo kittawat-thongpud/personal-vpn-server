@@ -19,6 +19,7 @@ cp "$project/native/health_test.go" experimental/libbox/personal_health_test.go
 cp "$project/native/reality_test.go" experimental/libbox/personal_reality_test.go
 mkdir -p experimental/personalvpn
 cp "$project/native/core.go" experimental/personalvpn/core.go
+cp "$project/native/core_test.go" experimental/personalvpn/core_test.go
 gofmt -w experimental/personalvpn experimental/libbox/personal*.go
 # First reproduce the failure with the unmodified upstream handshake.
 PERSONAL_EXPECT_REALITY_REJECT=true go test -ldflags='-checklinkname=0' -tags 'with_gvisor,with_quic,with_utls' ./experimental/libbox -run '^TestPersonalRealityXray$' -count=1 -timeout=90s
@@ -30,7 +31,8 @@ gofmt -w option/tls.go common/tls/std_client.go common/tls/reality_client.go
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags='-s -w -checklinkname=0' -tags 'with_quic,with_utls' -o "$project/app/libs/reality-probe.exe" ./cmd/sing-box
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o "$project/app/libs/health-probe.exe" "$project/native/tools/health-probe/main.go"
 go install github.com/sagernet/gomobile/cmd/gomobile github.com/sagernet/gomobile/cmd/gobind
-go test -tags 'with_gvisor,with_quic,with_utls' ./experimental/personalvpn ./common/tls
+go test -race -ldflags='-checklinkname=0' -tags 'with_gvisor,with_quic,with_utls' ./experimental/personalvpn
+go test -tags 'with_gvisor,with_quic,with_utls' ./common/tls
 go test -ldflags='-checklinkname=0' -tags 'with_gvisor,with_quic,with_utls' ./experimental/libbox -run '^TestPersonal(HealthHysteriaRepeated|RealityXray)$' -count=1 -timeout=90s
 mkdir -p cmd/personal-fixture
 cp "$project/test-fixture/main.go" cmd/personal-fixture/main.go

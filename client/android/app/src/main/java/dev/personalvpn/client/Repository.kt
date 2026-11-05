@@ -63,6 +63,7 @@ object Repository {
     // There is no UI or external command that enables raw exception details.
     @Volatile internal var instrumentedDiagnostics = false
     @Volatile internal var instrumentedCertificate: String? = null
+    @Volatile internal var instrumentedHealthFailure = 0
     lateinit var context: Context; private lateinit var store: SecureStore
     private val settings = MutableStateFlow(Config()); val config = settings.asStateFlow()
     val state = MutableStateFlow(TunnelState())

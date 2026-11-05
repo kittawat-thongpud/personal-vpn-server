@@ -58,7 +58,7 @@ adb shell appops set dev.personalvpn.client ACTIVATE_VPN allow
 adb shell pm grant dev.personalvpn.client android.permission.POST_NOTIFICATIONS
 fixture=$(base64 -w 0 "$RUNNER_TEMP/fixture.json")
 mkdir -p "$project/app/build/emulator"
-timeout 300 "$adb_binary" shell am instrument -w -r -e fixture "$fixture" dev.personalvpn.client.test/androidx.test.runner.AndroidJUnitRunner | tee "$project/app/build/emulator/result.txt"
+timeout 480 "$adb_binary" shell am instrument -w -r -e fixture "$fixture" dev.personalvpn.client.test/androidx.test.runner.AndroidJUnitRunner | tee "$project/app/build/emulator/result.txt"
 grep -Eq '^OK \([0-9]+ tests?\)' "$project/app/build/emulator/result.txt"
 adb exec-out run-as dev.personalvpn.client cat files/app-tunnel.png > "$project/app/build/emulator/app-tunnel.png"
 adb shell am start -W -n dev.personalvpn.client/.MainActivity

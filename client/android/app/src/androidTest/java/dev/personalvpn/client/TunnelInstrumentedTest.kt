@@ -21,7 +21,7 @@ import java.net.NetworkInterface
 @RunWith(AndroidJUnit4::class)
 class TunnelInstrumentedTest {
     @Before fun enableFixtureDiagnostics() { Repository.instrumentedDiagnostics = true; Repository.instrumentedCertificate = fixture().getString("ca") }
-    @After fun disableFixtureDiagnostics() { Repository.instrumentedDiagnostics = false; Repository.instrumentedCertificate = null }
+    @After fun disableFixtureDiagnostics() { Repository.instrumentedHealthFailure = 0; Repository.instrumentedDiagnostics = false; Repository.instrumentedCertificate = null }
     private fun fixture() = JSONObject(String(java.util.Base64.getDecoder().decode(InstrumentationRegistry.getArguments().getString("fixture")!!)))
     private val context: Context get() = ApplicationProvider.getApplicationContext()
     private fun waitFor(reason: String, seconds: Int = 90, check: () -> Boolean) {
@@ -73,6 +73,7 @@ class TunnelInstrumentedTest {
         val profile = Profile(name = "CI fixture", reality = fixture.getJSONObject("reality").toString(), hysteria = fixture.getJSONObject("hysteria").toString())
         var config = Config(listOf(profile), profile.id)
         var firstName: String? = null
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         try {
             for (protocol in listOf("Hysteria 2", "REALITY")) {
                 config = config.copy(protocol = protocol, apps = Policy(), sites = Policy(Action.Tunnel))
@@ -84,6 +85,38 @@ class TunnelInstrumentedTest {
                 val name = captureName(); assertNotNull(name)
                 if (firstName == null) firstName = name else assertEquals("Transport changes must retain TUN", firstName, name)
                 assertTrue("External application HTTPS capture", probe())
+                // Make only the first real HTTPS target fail. Fallback must
+                // preserve the same core and independently prove OS capture.
+                val stopped = Repository.logs.value.count { it.code == "core.stopped" }
+                val fallbacks = Repository.logs.value.count { it.code == "health.fallback_verified" }
+                Repository.instrumentedHealthFailure = 1
+                waitFor("Fallback health target", 40) { Repository.logs.value.count { it.code == "health.fallback_verified" } > fallbacks && Repository.state.value.status == "Connected" }
+                assertEquals("An endpoint outage must not restart the core", stopped, Repository.logs.value.count { it.code == "core.stopped" })
+                Repository.instrumentedHealthFailure = 0
+                if (protocol == "Hysteria 2") {
+                    Repository.instrumentedHealthFailure = 2
+                    waitFor("Repeated failure enters degraded before restarting", 40) { Repository.state.value.status == "Degraded" }
+                    assertEquals("First complete health failure retains core", stopped, Repository.logs.value.count { it.code == "core.stopped" })
+                    waitFor("Consecutive failure restarts transport", 30) { Repository.logs.value.count { it.code == "core.stopped" } > stopped }
+                    Repository.instrumentedHealthFailure = 0
+                    waitFor("Automatic recovery without a user command") { Repository.state.value.status == "Connected" }
+                    assertEquals(firstName, captureName())
+                }
+                // Actual emulator connectivity loss/restoration, no user
+                // Reconnect command, with the capture descriptor retained.
+                device.executeShellCommand("svc wifi disable")
+                device.executeShellCommand("svc data disable")
+                waitFor("Physical network loss", 25) { Repository.state.value.status == "Waiting for network" }
+                assertEquals("Capture must remain during upstream loss", firstName, captureName())
+                device.executeShellCommand("svc data enable")
+                waitFor("Automatic recovery after physical network restoration") { Repository.state.value.status == "Connected" && Repository.state.value.detail == protocol }
+                assertEquals("Network recovery must reuse capture", firstName, captureName())
+                assertTrue("Companion traffic after recovery", probe())
+                val transitions = Repository.logs.value.count { it.code == "network.changed" }
+                device.executeShellCommand("svc wifi enable")
+                device.executeShellCommand("svc data disable")
+                waitFor("Automatic recovery back to Wi-Fi") { Repository.logs.value.count { it.code == "network.changed" } > transitions && Repository.state.value.status == "Connected" }
+                assertEquals(firstName, captureName())
                 waitFor("Live tunnel counters", 10) { Repository.state.value.uploaded > 0 && Repository.state.value.downloaded > 0 }
                 if (protocol == "Hysteria 2") {
                     assertTrue("UDP forwarding", probe(udp = true))
@@ -108,6 +141,7 @@ class TunnelInstrumentedTest {
             assertTrue("Explicit App Bypass must use a working protected Direct socket", probe())
             assertEquals(firstName, captureName())
         } finally {
+            device.executeShellCommand("svc data enable"); device.executeShellCommand("svc wifi enable")
             // Bring the app foreground before sending our widget capability:
             // a test process in background has no user-tap BAL privilege.
             UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).executeShellCommand("am start -W -n dev.personalvpn.client/.MainActivity")
