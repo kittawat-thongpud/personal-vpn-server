@@ -13,13 +13,14 @@ import java.util.concurrent.Executor
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
+internal data class PhysicalLink(val interfaceName: String, val addresses: List<String>, val dns: List<String>, val routes: List<String>, val mtu: Int)
 internal data class PhysicalNetwork(val network: Network, val capabilities: NetworkCapabilities,
-    val links: LinkProperties, val choice: NetworkChoice)
+    val links: PhysicalLink, val choice: NetworkChoice)
 internal data class NetworkEpoch(val generation: Long = 0, val physical: PhysicalNetwork? = null)
 
 // Callback-provided snapshots avoid racing repeated synchronous CM queries.
 internal class PhysicalNetworks(private val changed: (List<PhysicalNetwork>) -> Unit) : ConnectivityManager.NetworkCallback() {
-    private data class Entry(val network: Network, var caps: NetworkCapabilities? = null, var links: LinkProperties? = null)
+    private data class Entry(val network: Network, var caps: NetworkCapabilities? = null, var links: PhysicalLink? = null)
     private val entries = mutableMapOf<Network, Entry>()
     @Synchronized override fun onAvailable(network: Network) { entries.getOrPut(network) { Entry(network) } }
     @Synchronized override fun onLost(network: Network) { entries.remove(network); publish() }
@@ -29,14 +30,15 @@ internal class PhysicalNetworks(private val changed: (List<PhysicalNetwork>) -> 
     }
     @Synchronized override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
         val entry = entries[network] ?: return
-        entry.links = LinkProperties(linkProperties); publish()
+        entry.links = PhysicalLink(linkProperties.interfaceName.orEmpty(), linkProperties.linkAddresses.map { it.toString() }, linkProperties.dnsServers.mapNotNull { it.hostAddress }, linkProperties.routes.map { it.toString() }, linkProperties.mtu)
+        publish()
     }
     private fun publish() {
         changed(entries.values.mapNotNull { entry ->
             val caps = entry.caps ?: return@mapNotNull null
             val links = entry.links ?: return@mapNotNull null
-            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) || links.interfaceName.isNullOrBlank()) return@mapNotNull null
-            val path = "${entry.network}/${links.interfaceName}/${links.linkAddresses.map { it.toString() }.sorted()}/${links.routes.map { it.toString() }.sorted()}/${links.dnsServers.mapNotNull { it.hostAddress }.sorted()}/${links.mtu}"
+            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) || links.interfaceName.isBlank()) return@mapNotNull null
+            val path = "${entry.network}/${links.interfaceName}/${links.addresses.sorted()}/${links.routes.sorted()}/${links.dns.sorted()}/${links.mtu}"
             PhysicalNetwork(entry.network, caps, links, NetworkChoice(entry.network.toString(), path,
                 caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED), !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED),
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI), !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)))

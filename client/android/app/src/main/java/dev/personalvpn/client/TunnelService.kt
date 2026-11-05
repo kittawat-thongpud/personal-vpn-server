@@ -339,9 +339,9 @@ class TunnelService : VpnService() {
     private fun interfaces(): String {
         val entries = JSONArray()
         for (physical in physicalNetworks) {
-            val links = physical.links; val name = links.interfaceName ?: continue
+            val links = physical.links; val name = links.interfaceName
             val nic = runCatching { NetworkInterface.getByName(name) }.getOrNull() ?: continue
-            entries.put(JSONObject().put("index", nic.index).put("name", name).put("mtu", nic.mtu).put("addresses", JSONArray(links.linkAddresses.map { it.toString() })).put("dns", JSONArray(links.dnsServers.map { it.hostAddress })).put("type", if (physical.choice.wifi) 0 else 1).put("metered", physical.choice.metered))
+            entries.put(JSONObject().put("index", nic.index).put("name", name).put("mtu", nic.mtu).put("addresses", JSONArray(links.addresses)).put("dns", JSONArray(links.dns)).put("type", if (physical.choice.wifi) 0 else 1).put("metered", physical.choice.metered))
         }
         return entries.toString()
     }
