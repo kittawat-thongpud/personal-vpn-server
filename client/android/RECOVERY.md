@@ -52,6 +52,23 @@ Physical Redmi Wi-Fi/cellular, captive portal, prolonged screen-off and OEM
 process-kill behavior still need real-device acceptance. There is no claim of a
 measured throughput improvement or a fix for YouTube/ChatGPT partial failures.
 
+## Physical-device acceptance
+
+Install the signed 0.7.2 APK over the existing app to retain profiles and rules.
+Keep the Windows connection available while testing the phone. For each protocol:
+
+1. Connect, confirm the VPS exit IP and send traffic from another app.
+2. Change Wi-Fi to mobile data and back without pressing Reconnect. Confirm the
+   status leaves Waiting/Reconnecting and fresh traffic works on both networks.
+3. Remove both upstreams for 10-30 seconds and restore one. The desired session
+   must recover automatically; an old exit-IP result must not imply Connected.
+4. Repeat with the screen off. Record any OEM battery restriction separately.
+5. Disconnect deliberately, then change networks: the app must stay disconnected.
+
+If recovery stalls, export the final backend logs before pressing Reconnect or
+exiting the process. Include the Home status, protocol and approximate handover
+time. Logs are session-memory-only, so process exit removes that evidence.
+
 Android contracts: [network callbacks](https://developer.android.com/develop/connectivity/network-ops/reading-network-state),
 [cancellable DNS](https://developer.android.com/reference/android/net/DnsResolver),
 [underlying networks](https://developer.android.com/reference/android/net/VpnService#setUnderlyingNetworks(android.net.Network[])).

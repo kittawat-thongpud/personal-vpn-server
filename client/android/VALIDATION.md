@@ -1,6 +1,17 @@
 # Android validation
 
-The shared **0.7.1** correction uses modern Xray for REALITY qualification and
+The shared **0.7.2** release adds supervised recovery, network generations,
+cancellable DNS/HTTPS probes and multi-target health hysteresis. Android 14
+instrumentation passed `OK (4 tests)` in 160.830 s, including actual emulator
+network loss, cellular restoration and return to Wi-Fi without a manual
+Reconnect, retaining the same TUN for both protocols. JVM tests, lint, native
+race/cancellation/protocol tests and Windows x86/x64 qualification passed too.
+The APK retains the existing signing identity and profiles can be kept by
+installing over the previous app. Physical Redmi acceptance remains pending.
+Downloaded APK SHA-256:
+`3da4202995cfed3b4514c312e42ac0c8bd14b7ac804bb856f7eb8dd3f550013d`.
+
+The **0.7.1** correction uses modern Xray for REALITY qualification and
 fixes the hybrid ClientHello compatibility gap found after 0.7.0. See
 [shared qualification](../VALIDATION.md) for native regression, live VPS evidence
 and the all-platform release gates. The installed-app multiselection UI remains.

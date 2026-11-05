@@ -1,3 +1,76 @@
+# Client 0.7.2 Android recovery — 2026-11-06
+
+Qualified source: `225a4579d94961763f9e2c4c2d40e5d87883adc4`.
+[Unified qualification and publication](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/42079196341)
+completed successfully. The shared
+[Client 0.7.2 release](https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/client-v0.7.2)
+is stable, non-draft and Latest, with all 12 assets: signed Android APK,
+Windows x86/x64 installers and portable ZIPs, previews, guides, checksums,
+signature and source manifest. `base/client-v0.7.2`, `release/client-v0.7.2`
+and the tag resolve to the qualified source; `legacy/client-v0.7.1` preserves
+the preceding source without moving its release or installers.
+
+All 12 published assets were downloaded independently. All 11 entries in the
+release checksum list and every source-manifest size/hash matched. The APK's
+arm64/x86_64 ELF headers and both Windows application PE architectures matched
+their package labels; the APK signing report matches the pinned certificate.
+APK SHA-256:
+`3da4202995cfed3b4514c312e42ac0c8bd14b7ac804bb856f7eb8dd3f550013d`.
+
+The Android recovery worker is supervised while the desired session is active.
+Network generation checks discard stale results; actual path changes replace
+the transport once while retaining TUN. Probe cancellation and native lifetime
+control are separate from byte-counter reads. Authentication/pin failures stay
+visible and retry slowly or on a new network. Deliberate Disconnect and consent
+revocation stop recovery. Invalid configuration requires user correction.
+
+## Completed qualification
+
+- Android JVM tests and lint passed. APK versionName `0.7.2`, versionCode `70200`,
+  arm64-v8a/x86_64 libraries and the unchanged signing certificate were checked.
+- The native library is reused only with an exact recipe/source hash. Its
+  [native qualification](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/42076439785/job/127417854729)
+  passed real repeated QUIC/TLS requests, cancellation during a stalled response
+  body, certificate pin acceptance/rejection, and patched REALITY against
+  official Xray. Wrong REALITY credentials remain rejected. Go race-detector
+  tests cover responsive counters during blocked probes and concurrent Close
+  cancelling/joining probes before releasing the instance.
+- Android 14 emulator instrumentation reported `OK (4 tests)` in **160.830 s**.
+  A primary HTTPS target outage retained the core for both protocols. Repeated
+  complete verification failures on Hysteria 2 entered Degraded before transport
+  retry and recovered without a user command.
+- For both Hysteria 2 and REALITY, actual emulator Wi-Fi/data loss entered
+  Waiting, restoring cellular recovered independently captured HTTPS from a
+  separate UID, and returning to Wi-Fi recovered automatically. No Reconnect
+  command was issued for these network transitions. The same TUN name/index
+  remained throughout, including protocol and policy changes.
+- Existing separate-UID HTTPS/UDP, App Block, explicit App-over-Site precedence,
+  Bypass, counters, normal Disconnect cleanup, encrypted storage, installed-app
+  multiselection and Home layout checks all passed. UI cases start with an
+  explicit foreground launch independently of the companion/widget tasks.
+- Windows x86/x64 application, driver integrity/install, Proxy restoration,
+  real TUN capture/policy/UDP/crash cleanup, Home/tray layout and installer
+  upgrade checks all passed on isolated Actions runners. Windows runtime
+  sources are unchanged; the shared package version is updated.
+- Eight release-safeguard unit tests and actionlint passed. Platform handoffs
+  use exact run/source cache keys, fail on a missing handoff and verify every
+  installer's checksum before publication. Optional emulator report storage
+  cannot turn a failed instrumentation test into a passing release gate.
+
+The stronger captured-path check exposed a missing DNS-port exception in the
+CI-only Xray fixture. Only its controlled DNS target was allowed; production
+VPS policy was not relaxed. Keeping the emulator awake and explicitly launching
+each UI case isolates the longer recovery test from foreground-task state.
+The full checks above passed together after these harness corrections.
+
+VPS configuration, production DNS/MTU/stack, profiles, app-rule semantics and
+P2P code are unchanged. No local binary build or live host network change was
+used for this release. Physical Redmi Wi-Fi/cellular, screen-off, captive portal
+and OEM process management still require acceptance; see
+[recovery acceptance steps](android/RECOVERY.md#physical-device-acceptance).
+This does not establish a throughput gain or fix the reported YouTube/ChatGPT
+partial-service failures.
+
 # Client 0.7.1 REALITY correction — 2026-11-03
 
 Release source: `31cd4b97919bcc8d64d0a83f5525be2fff9f33e3`.

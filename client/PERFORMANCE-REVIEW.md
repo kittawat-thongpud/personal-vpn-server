@@ -1,5 +1,10 @@
 # VPN stability and performance survey
 
+สถานะอัปเดต 2026-11-06: ดำเนินงาน Android recovery/health check ระยะแรกแล้วใน
+Client 0.7.2 ดู [implementation](android/RECOVERY.md) และ
+[ผล qualification](VALIDATION.md) รายงานด้านล่างเป็นหลักฐานจาก baseline 0.7.1
+ขณะทำ survey; การวัด throughput และการปรับ Windows/VPS ยังเป็นงานถัดไป
+
 วันที่: 2026-11-05 (Asia/Shanghai)
 
 ฐานที่ตรวจ: Client 0.7.1, main `82944ff853b7947e905cdb69be86330853009f4a`
@@ -265,4 +270,5 @@ baseline dependencies ที่ใช้ ไม่มีเหตุให้เ
 
 ลำดับ implementation ที่เสนอ: A1–A5 ก่อน → W1/W2 → DNS/compatibility และ
 การวัด under-load → เลือก TUN/data-plane/server tuning ตามคอขวดที่พบ
-งานนี้ยังไม่เริ่มแก้ runtime หรือสร้าง installer ใหม่
+ข้อความและหมายเลขบรรทัดข้างต้นอ้างถึงช่วง survey ก่อนเริ่มแก้ runtime;
+สถานะ implementation ล่าสุดอยู่ในลิงก์ต้นรายงาน
