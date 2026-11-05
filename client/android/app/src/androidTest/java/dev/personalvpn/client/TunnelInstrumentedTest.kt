@@ -1,6 +1,7 @@
 package dev.personalvpn.client
 
 import android.content.Context
+import android.content.Intent
 import android.net.VpnService
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.core.app.ActivityScenario
@@ -24,6 +25,19 @@ class TunnelInstrumentedTest {
     @After fun disableFixtureDiagnostics() { Repository.instrumentedHealthFailure = 0; Repository.instrumentedDiagnostics = false; Repository.instrumentedCertificate = null }
     private fun fixture() = JSONObject(String(java.util.Base64.getDecoder().decode(InstrumentationRegistry.getArguments().getString("fixture")!!)))
     private val context: Context get() = ApplicationProvider.getApplicationContext()
+    private fun launchHome(): ActivityScenario<MainActivity> {
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        device.wakeUp(); device.pressHome()
+        // Network tests launch a separate-UID companion and widget capability.
+        // A UI case must start with its own fresh Activity task, irrespective of
+        // which task those integration checks left in the foreground.
+        return ActivityScenario.launch(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+    }
+    private fun uiHierarchy(): String = runCatching {
+        val output = java.io.ByteArrayOutputStream()
+        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).dumpWindowHierarchy(output)
+        output.toString("UTF-8")
+    }.getOrDefault("UI hierarchy unavailable")
     private fun waitFor(reason: String, seconds: Int = 90, check: () -> Boolean) {
         val until = System.currentTimeMillis() + seconds * 1000L
         while (System.currentTimeMillis() < until) { if (check()) return; Thread.sleep(300) }
@@ -45,9 +59,11 @@ class TunnelInstrumentedTest {
         val ids = listOf("dev.personalvpn.probe", "dev.personalvpn.client.test")
         Repository.save(original.copy(apps = Policy(Action.Tunnel)))
         try {
-            ActivityScenario.launch(MainActivity::class.java).use {
+            launchHome().use {
                 val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-                device.wait(Until.findObject(By.text("Settings")), 15000).click()
+                val settings = device.wait(Until.findObject(By.text("Settings")), 15000)
+                    ?: error("Settings missing after fresh launch; ${uiHierarchy()}")
+                settings.click()
                 device.wait(Until.findObject(By.text("App Tunnel")), 15000).click()
                 device.wait(Until.findObject(By.clazz("android.widget.EditText")), 15000).text = "dev.personalvpn"
                 fun selectBoth() { ids.forEach { id -> device.wait(Until.findObject(By.desc("Select app $id")), 20000).click() } }
@@ -169,9 +185,9 @@ class TunnelInstrumentedTest {
         } finally { store.save(original) }
     }
     @Test fun homeControlsFitInsideTheScreen() {
-        ActivityScenario.launch(MainActivity::class.java).use {
+        launchHome().use {
             val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-            assertTrue(device.wait(Until.hasObject(By.text("Connect")), 15000))
+            if (!device.wait(Until.hasObject(By.text("Connect")), 15000)) error("Connect missing after fresh launch; ${uiHierarchy()}")
             val connect = device.findObject(By.text("Connect")).visibleBounds
             assertTrue(connect.top >= 0 && connect.bottom <= device.displayHeight)
             assertTrue(device.hasObject(By.text("Settings")))
