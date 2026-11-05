@@ -24,6 +24,7 @@ class RecoveryTest {
         val wifi = NetworkChoice("wifi", "wifi/path", false, false, true, false)
         val mobile = NetworkChoice("mobile", "mobile/path", true, false, false, true)
         assertEquals(mobile, chooseNetwork(listOf(wifi, mobile), wifi.id))
+        assertEquals(wifi, chooseNetwork(listOf(wifi, mobile.copy(suspended = true)), mobile.id))
         assertEquals(wifi.generationKey, wifi.copy(metered = true).generationKey)
         assertNotEquals(wifi.generationKey, wifi.copy(path = "wifi/new-address").generationKey)
         assertNotEquals(wifi.generationKey, wifi.copy(validated = true).generationKey)

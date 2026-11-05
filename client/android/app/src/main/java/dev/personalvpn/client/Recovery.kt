@@ -36,7 +36,7 @@ internal suspend fun superviseRecovery(desired: () -> Boolean, run: suspend () -
 internal data class NetworkChoice(val id: String, val path: String, val validated: Boolean,
     val suspended: Boolean, val wifi: Boolean, val metered: Boolean) {
     val generationKey get() = "$path/$validated/$suspended"
-    val score get() = (if (validated) 100 else 0) + (if (!suspended) 20 else 0) + (if (wifi) 2 else 1)
+    val score get() = (if (!suspended) 1000 else 0) + (if (validated) 100 else 0) + (if (wifi) 2 else 1)
 }
 internal fun chooseNetwork(values: List<NetworkChoice>, current: String?): NetworkChoice? =
     values.sortedWith(compareByDescending<NetworkChoice> { it.score }.thenByDescending { it.id == current }.thenBy { it.id }).firstOrNull()
