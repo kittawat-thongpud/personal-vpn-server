@@ -56,6 +56,7 @@ func main() {
  // address restrictions must not silently blackhole these CI-only targets.
  xrayConfig["outbounds"]=[]any{map[string]any{"protocol":"freedom","settings":map[string]any{"finalRules":[]any{
   map[string]any{"action":"allow","network":"tcp","ip":[]string{"198.18.0.1/32"},"port":18445},
+  map[string]any{"action":"allow","network":"udp","ip":[]string{"198.18.0.1/32"},"port":15353},
   map[string]any{"action":"allow","network":"udp","ip":[]string{"198.18.0.1/32"},"port":19000},
  }}}}
  xrayBytes,_:=json.Marshal(xrayConfig);xrayPath:=filepath.Join(filepath.Dir(os.Args[1]),"fixture-xray.json");if err=os.WriteFile(xrayPath,xrayBytes,0600);err!=nil{panic(err)};defer os.Remove(xrayPath)

@@ -11,7 +11,7 @@ adb() { timeout 90 "$adb_binary" "$@"; }
 mkdir -p "$ANDROID_AVD_HOME"
 # The emulator needs only its two Linux gateways and debug/test APKs. Free the
 # redundant native build inputs/Windows probes and release APK in this job's
-# checkout. The signed release is retained in the immutable app artifact.
+# checkout. The signed release is retained in the source-scoped app cache.
 rm -f -- "$project/app/libs/personalvpn.aar" "$project/app/libs/reality-probe.exe" "$project/app/libs/health-probe.exe" "$project/app/build/outputs/apk/release/app-release.apk"
 df -h "$RUNNER_TEMP"
 sdkmanager 'platform-tools' 'emulator' 'system-images;android-34;google_apis;x86_64' >/dev/null
@@ -51,6 +51,11 @@ test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1
 adb shell settings put global window_animation_scale 0
 adb shell settings put global transition_animation_scale 0
 adb shell settings put global animator_duration_scale 0
+# Network-recovery scenarios outlast the emulator's screen timeout. Keep the
+# isolated UI-test device awake; screen-off recovery is separate acceptance.
+adb shell svc power stayon true
+adb shell input keyevent KEYCODE_WAKEUP
+adb shell wm dismiss-keyguard
 adb install -r "$project/app/build/outputs/apk/debug/app-debug.apk"
 adb install -r "$project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
 adb install -r "$project/probe/build/outputs/apk/debug/probe-debug.apk"

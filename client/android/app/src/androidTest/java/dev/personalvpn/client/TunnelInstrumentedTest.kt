@@ -92,6 +92,7 @@ class TunnelInstrumentedTest {
                 Repository.instrumentedHealthFailure = 1
                 waitFor("Fallback health target", 40) { Repository.logs.value.count { it.code == "health.fallback_verified" } > fallbacks && Repository.state.value.status == "Connected" }
                 assertEquals("An endpoint outage must not restart the core", stopped, Repository.logs.value.count { it.code == "core.stopped" })
+                println("Recovery verified: $protocol primary-target outage retained the core")
                 Repository.instrumentedHealthFailure = 0
                 if (protocol == "Hysteria 2") {
                     Repository.instrumentedHealthFailure = 2
@@ -101,6 +102,7 @@ class TunnelInstrumentedTest {
                     Repository.instrumentedHealthFailure = 0
                     waitFor("Automatic recovery without a user command") { Repository.state.value.status == "Connected" }
                     assertEquals(firstName, captureName())
+                    println("Recovery verified: consecutive health failures recovered without a user command")
                 }
                 // Actual emulator connectivity loss/restoration, no user
                 // Reconnect command, with the capture descriptor retained.
@@ -112,11 +114,13 @@ class TunnelInstrumentedTest {
                 waitFor("Automatic recovery after physical network restoration") { Repository.state.value.status == "Connected" && Repository.state.value.detail == protocol }
                 assertEquals("Network recovery must reuse capture", firstName, captureName())
                 assertTrue("Companion traffic after recovery", probe())
+                println("Recovery verified: $protocol network loss to cellular restored separate-UID HTTPS and retained TUN")
                 val transitions = Repository.logs.value.count { it.code == "network.changed" }
                 device.executeShellCommand("svc wifi enable")
                 device.executeShellCommand("svc data disable")
                 waitFor("Automatic recovery back to Wi-Fi") { Repository.logs.value.count { it.code == "network.changed" } > transitions && Repository.state.value.status == "Connected" }
                 assertEquals(firstName, captureName())
+                println("Recovery verified: $protocol return to Wi-Fi retained TUN")
                 waitFor("Live tunnel counters", 10) { Repository.state.value.uploaded > 0 && Repository.state.value.downloaded > 0 }
                 if (protocol == "Hysteria 2") {
                     assertTrue("UDP forwarding", probe(udp = true))
