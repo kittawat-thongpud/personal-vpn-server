@@ -88,7 +88,7 @@ class TunnelService : VpnService() {
         worker = scope.launch { lifecycle.withLock {
             val config = Repository.config.value
             strictApps = config.apps.mode != Action.Disabled
-            try {
+            while (currentCoroutineContext().isActive && desired && !destroyed) { try {
                 try { EngineConfig.validate(config) } catch (_: Exception) { throw SessionBlocked("configuration") }
                 superviseRecovery({ desired && !destroyed }, { runSession(config) }, { attempt, error ->
                     Repository.log("ERROR", "worker.restarting", "Attempt $attempt; reason=${Repository.cause(error)}; capture retained.")
@@ -96,11 +96,18 @@ class TunnelService : VpnService() {
                 }, { attempt -> delay(backoff(attempt)) })
             } catch (cancel: CancellationException) { throw cancel }
             catch (blocked: SessionBlocked) {
-                Repository.log("ERROR", "backend.action_required", blocked.category)
-                update("Error", tun != null, false, "${blocked.category}: check profile, clock and backend logs; then Reconnect.")
-                // Remain owned and visible until a user command cancels this session.
-                awaitCancellation()
+                if (blocked.category == "configuration") {
+                    Repository.log("ERROR", "backend.action_required", blocked.category)
+                    update("Error", tun != null, false, "Check profile and backend logs; then Reconnect.")
+                    awaitCancellation()
+                }
+                val failedGeneration = blocked.networkGeneration ?: networkEpoch.generation
+                if (networkEpoch.generation != failedGeneration) continue
+                Repository.log("WARN", "backend.authentication_wait", "${blocked.category}; retry in 30s or after a network change; capture retained.")
+                update("Error", tun != null, false, "${blocked.category}: check profile/clock; retry in 30s or after network change.")
+                awaitNetworkChange(wake, 30000) { networkEpoch.generation != failedGeneration }
             } finally { withContext(NonCancellable) { closeCore() } }
+            }
         } }
         if (ticker?.isActive != true) ticker = scope.launch { streamTraffic() }
         return START_STICKY
@@ -206,7 +213,7 @@ class TunnelService : VpnService() {
                     lastFailure = error
                     val reason = Repository.cause(error)
                     Repository.log("WARN", "health.target_failed", "${target.label}; generation=${epoch.generation}; reason=$reason")
-                    if (reason in setOf("certificate_pin", "reality_authentication", "authentication")) throw SessionBlocked(reason)
+                    if (reason in setOf("certificate_pin", "reality_authentication", "authentication")) throw SessionBlocked(reason, epoch.generation)
                 }
             }
             checkEpoch(epoch)

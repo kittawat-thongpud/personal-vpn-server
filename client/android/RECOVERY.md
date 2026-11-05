@@ -6,8 +6,10 @@ production DNS resolver selection are unchanged. P2P development is paused.
 
 - One desired session has a supervised recovery worker. An unexpected exception,
   return or child cancellation is retried. Intentional Stop, consent revocation
-  and service destruction cancel ownership; fatal configuration/authentication
-  enters a visible action-required state instead of a tight retry loop.
+  and service destruction cancel ownership. Invalid configuration enters an
+  action-required state. Authentication/pin failures retry after 30 seconds or a
+  new network, so a transient failure cannot permanently stop recovery; incorrect
+  credentials/clock still need correction. There is no tight authentication loop.
 - Physical network candidates come from copied callback capabilities and link
   properties. Lost networks cannot be resurrected by late property callbacks.
   A validated usable network outranks stale Wi-Fi. Address/route/DNS/MTU and

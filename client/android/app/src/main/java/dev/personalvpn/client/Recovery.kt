@@ -10,7 +10,7 @@ internal suspend fun awaitNetworkChange(events: ReceiveChannel<Unit>, timeoutMs:
     withTimeoutOrNull(timeoutMs) { while (!changed()) events.receive() }
 }
 
-internal class SessionBlocked(val category: String) : Exception(category)
+internal class SessionBlocked(val category: String, val networkGeneration: Long? = null) : Exception(category)
 internal class StaleNetwork : CancellationException("Network generation changed")
 
 // The owner cancels this supervisor on Disconnect/revoke. Unexpected worker

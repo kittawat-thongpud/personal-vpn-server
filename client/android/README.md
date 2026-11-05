@@ -47,7 +47,9 @@ share its supervised connection controller. It uses physical-network snapshots,
 cancels DNS/HTTPS work from old network generations, protects outbound sockets
 from recursion, and keeps the TUN descriptor across transport retries. Network
 restoration wakes recovery automatically; unexpected worker completion is retried.
-Profile/authentication errors require correcting the profile/clock and Reconnect.
+Invalid configuration requires correcting the profile and Reconnect. Authentication
+or pin failures remain visible, retry slowly, and wake on a new network; incorrect
+credentials or an incorrect clock still need correction.
 No automatic Direct or protocol fallback. Existing TCP/QUIC flows can break
 during a handover. Normal Disconnect closes capture; Android's VPN
 Always-on / Block connections without VPN controls are managed in system settings.
