@@ -95,6 +95,9 @@ jobs:
           Get-Content $report
           if ($p.ExitCode -ne 0) { throw 'TUN integration failed' }
       - name: Build Windows installer
+        # Compilation is independent of UI input tests. Keep its diagnostics
+        # available on failed qualifications; release still requires all gates.
+        if: ${{ !cancelled() }}
         shell: pwsh
         run: |
           $compiler = Get-ChildItem 'C:/Program Files (x86)/Inno Setup*/ISCC.exe' | Select-Object -First 1

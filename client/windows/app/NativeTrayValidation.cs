@@ -17,7 +17,9 @@ internal static class NativeTrayValidation
         using var outside = new Forms.Form { ShowInTaskbar = false, StartPosition = Forms.FormStartPosition.Manual,
             Bounds = new Rectangle(area.Right - 200, area.Bottom - 150, 180, 110), Text = "Isolated tray test" };
         outside.Show();
-        ShowWindow(outside.Handle, 5); // Override the CI launcher's initial SW_HIDE.
+        // SetWindowPos is not overridden by STARTF_USESHOWWINDOW/SW_HIDE from
+        // the headless launcher's startup info (the first ShowWindow can be).
+        if (!SetWindowPos(outside.Handle, new IntPtr(-1), 0, 0, 0, 0, 0x53)) throw new Win32Exception();
         var watch = Stopwatch.StartNew();
         using var timer = new Forms.Timer { Interval = 40 };
         int phase = 0; Exception? failure = null;
@@ -58,7 +60,10 @@ internal static class NativeTrayValidation
             // The genuine right-click supplies foreground activation, as a
             // shell tray callback does. Calling TrackPopupMenu from a hidden
             // background test process is not an equivalent interaction.
-            if (!SetCursorPos(outside.Bounds.X + 50, outside.Bounds.Y + 65)) throw new Win32Exception();
+            Point origin = outside.PointToScreen(new Point(40, 30));
+            if (!SetCursorPos(origin.X, origin.Y)) throw new Win32Exception();
+            if (GetAncestor(WindowFromPoint(origin), 2) != outside.Handle)
+                throw new InvalidOperationException("The input desktop did not expose the isolated test window; visible=" + IsWindowVisible(outside.Handle));
             Send(Mouse(8), Mouse(0x10));
             var deadline = Stopwatch.StartNew();
             while (opened == null && failure == null && deadline.ElapsedMilliseconds < 5000) { Forms.Application.DoEvents(); Thread.Sleep(10); }
@@ -84,6 +89,9 @@ internal static class NativeTrayValidation
     [DllImport("user32.dll", SetLastError = true)] private static extern uint SendInput(uint count, Input[] events, int size);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] private static extern bool GetGUIThreadInfo(uint id, ref GuiInfo info);
-    [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr window, int command);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
+    [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window, uint flags);
     [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
 }
