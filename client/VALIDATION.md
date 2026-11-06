@@ -1,3 +1,34 @@
+# Client 0.7.3 Windows installation and Shell — 2026-11-06
+
+Qualified source: `df9f4d339ddaa41a50fcfd5c1b77872a5f763467`.
+[Unified qualification and publication](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/42154976011)
+completed successfully. [Client 0.7.3](https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/client-v0.7.3)
+is stable, non-draft and Latest with all 12 assets. The tag and
+`base/client-v0.7.3` / `release/client-v0.7.3` point to the qualified source;
+`legacy/client-v0.7.2` preserves its original qualified source.
+
+Windows x86/x64 builds and all driver, Proxy, native TUN, policy, UDP, crash
+cleanup, layout and installer gates passed. Versioned migration, an in-place
+reinstall, encrypted settings, both legacy shortcut names, icon extraction and
+the running service's stable executable path were checked. See the
+[Windows evidence and limits](windows/VALIDATION.md).
+
+Android JVM tests, lint, signing/ABI checks and Android 14 instrumentation passed.
+Instrumentation reported `OK (4 tests)` in **188.667 s**, including both protocols,
+Wi-Fi/cellular recovery, separate-UID HTTPS/UDP and policy/UI checks. Android
+production networking is unchanged from 0.7.2. An earlier attempt failed its
+one-datagram UDP assertion and a subsequent UI lookup; that attempt was not
+published. The final unchanged Android sources passed together on the run above.
+The final SDK preparation and emulator boot took about 13 minutes before tests;
+that preparation delay was verified from the live Actions log.
+
+All 11 published checksum entries matched GitHub's asset digests; manifest
+hashes/sizes and the six selected downloaded files were checked independently.
+The x64 installer was downloaded and verified locally. No local build was used.
+Actual Windows 11 Explorer tray interaction and development-host installation
+remain pending a safe connection handover. No host routes, proxy settings or
+running VPN sessions were changed during qualification.
+
 # Client 0.7.2 Android recovery — 2026-11-06
 
 Qualified source: `225a4579d94961763f9e2c4c2d40e5d87883adc4`.

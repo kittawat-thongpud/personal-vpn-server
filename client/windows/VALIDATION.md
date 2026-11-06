@@ -1,5 +1,44 @@
 # Installed Windows preview validation
 
+## 0.7.3 stable installation and native menus — 2026-11-06
+
+- Qualified source `df9f4d339ddaa41a50fcfd5c1b77872a5f763467`;
+  [unified Actions run](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/42154976011)
+  completed successfully. The
+  [Client 0.7.3 release](https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/client-v0.7.3)
+  is stable, non-draft and Latest, including Windows x86/x64 and Android.
+- Both Windows matrices passed application/architecture checks, signed driver
+  installation, Proxy restoration, real TUN capture, executable policy, UDP,
+  crash cleanup, layout and native HMENU definition/command checks.
+- Actual Setup migration from published 0.7.2 and same-version reinstall passed
+  while idle GUIs were running. Both ended at `C:\Program Files\PersonalVPN`
+  with a single uninstall identity, a running service at the stable executable,
+  byte-identical encrypted settings and valid large/small Windows icon extraction.
+  Owned old files were retired and an unowned legacy file survived.
+- Both old user shortcut names were tested. The canonical `Personal VPN.lnk`
+  points to the stable executable/standalone ICO; recognized `PersonalVPN.lnk`
+  links were consolidated. The x64 setup log confirms the Program Files alias
+  correction. A read-only check on the development host independently showed
+  its 0.7.1 link resolving to Program Files in a 64-bit Shell COM client and
+  Program Files (x86) in a 32-bit client. No shortcut was changed by that check.
+- All four final installer bootstraps succeeded on attempt 1. A previous x86
+  reinstall hit device-readiness failure. Setup now records native device/SCM
+  errors and can retry once only if the service stopped after its deadline.
+  The bounded recovery branch was not fault-injected in this qualification;
+  the previous failure's exact cause was not established by its generic log.
+- Taskbar lifecycle checks passed. Actual mouse input was unavailable on both
+  Actions desktops and explicitly reported as **not passed**. Windows 11 tray
+  overflow interaction still requires physical desktop acceptance; native menu
+  definition checks do not establish that Explorer behavior.
+- The downloaded x64 Setup SHA-256 matched the release checksum and GitHub asset
+  digest: `22c901d79f2d4f0f5727747c8fb007566465eb53badb6c45b422de04b523c4a6`.
+  All 11 checksum entries matched GitHub asset digests; the eight platform
+  files also matched the source manifest.
+  Large non-selected packages were not downloaded again locally.
+- The active development-host VPN has not been replaced yet. Installation and
+  actual tray checks await a working backup connection and normal exit of the
+  old active TUN client. See [Shell acceptance](SHELL-INSTALL.md).
+
 ## 0.6.3 tray opening and dismissal — 2026-11-03
 
 - Runtime source `320c27a`; x86/x64 builds, native TUN regression checks and
