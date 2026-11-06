@@ -261,7 +261,7 @@ begin
   if AdapterPreparationFailed then Result := 1 else Result := 0;
 end;
 procedure CurStepChanged(CurStep: TSetupStep);
-var ResultCode: Integer;
+var ResultCode: Integer; Report: AnsiString;
 begin
   if CurStep = ssPostInstall then
   begin
@@ -271,7 +271,9 @@ begin
       '--install-adapter --report "' + ExpandConstant('{app}\driver-install.json') + '"',
       ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
       RaiseException('Could not prepare the signed Wintun driver.');
-    if ResultCode <> 0 then RaiseException('Wintun installation failed. Run the setup as Administrator.');
+    if LoadStringFromFile(ExpandConstant('{app}\driver-install.json'), Report) then
+      Log('Adapter preparation: ' + Copy(String(Report), 1, 2048));
+    if ResultCode <> 0 then RaiseException('The Personal VPN adapter service did not become ready. See the setup log and retry Setup.');
     AdapterPreparationFailed := False;
     Exec(ExpandConstant('{app}\PersonalVPN.exe'), '--refresh-shortcuts', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;

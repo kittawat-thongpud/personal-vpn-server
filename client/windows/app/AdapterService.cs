@@ -14,6 +14,8 @@ public static class AdapterService
 {
     public const string ServiceName = "PersonalVPNAdapter";
     public const string AdapterName = "PersonalVPN";
+    internal static int BootstrapAttempts { get; private set; }
+    internal static string? BootstrapRecovery { get; private set; }
     public static Guid RequestedId => new(MD5.HashData(Encoding.UTF8.GetBytes("wintun" + AdapterName)));
     private static readonly ManualResetEvent stop = new(false);
     private static readonly MainCallback main = ServiceMain;
@@ -66,6 +68,7 @@ public static class AdapterService
     }
     public static uint InstallAndStart()
     {
+        BootstrapAttempts = 1; BootstrapRecovery = null;
         if (!WintunAdapter.IsAdministrator) throw new InvalidOperationException("Administrator required to install the adapter service.");
         IntPtr manager = OpenSCManager(null, null, 3);
         if (manager == IntPtr.Zero) throw new Win32Exception();
@@ -93,9 +96,18 @@ public static class AdapterService
                 if (!ChangeServiceConfig(service, 0xffffffff, 2, 0xffffffff, path, null, IntPtr.Zero, null, null, null, null)) throw new Win32Exception();
             }
             Start(service);
+            try { using var adapter = WaitReady(service); return adapter.DriverVersion; }
+            catch (AdapterReadinessException error) when (QueryServiceStatus(service, out var status) && status.State == 1)
+            {
+                // Device removal can finish after the old service process has
+                // exited. Retry one failed bootstrap only after its full first
+                // readiness deadline, never restart a running capture service.
+                BootstrapAttempts = 2; BootstrapRecovery = error.Message;
+                Thread.Sleep(500); Start(service);
+                using var adapter = WaitReady(service); return adapter.DriverVersion;
+            }
         }
         finally { if (service != IntPtr.Zero) CloseServiceHandle(service); CloseServiceHandle(manager); }
-        using var adapter = WaitReady(); return adapter.DriverVersion;
     }
     public static void StopForUpgrade()
     {
@@ -177,14 +189,19 @@ public static class AdapterService
     {
         if (!StartService(service, 0, IntPtr.Zero) && Marshal.GetLastWin32Error() != 1056) throw new Win32Exception();
     }
-    private static WintunAdapter WaitReady()
+    private sealed class AdapterReadinessException(string message) : InvalidOperationException(message);
+    private static WintunAdapter WaitReady(IntPtr service = default)
     {
+        int lastCode = 0;
         for (int i = 0; i < 450; i++)
         {
             try { return new WintunAdapter(AdapterName, RequestedId, openExisting: true); }
-            catch (Win32Exception) { Thread.Sleep(100); }
+            catch (Win32Exception error) { lastCode = error.NativeErrorCode; Thread.Sleep(100); }
         }
-        throw new InvalidOperationException("The persistent adapter service did not prepare its device.");
+        string detail = " Last device error: " + lastCode + ".";
+        if (service != IntPtr.Zero && QueryServiceStatus(service, out var status))
+            detail += " Service state: " + status.State + "; exit: " + status.Exit + "; service exit: " + status.SpecificExit + ".";
+        throw new AdapterReadinessException("The persistent adapter service did not prepare its device." + detail);
     }
     [StructLayout(LayoutKind.Sequential)] private struct ProcessStatus { public Status Status; public uint Pid, Flags; }
     public static uint ProcessId

@@ -34,7 +34,7 @@ public static class Program
         if (arguments.Contains("--tun-guard")) return TunLease.Watch(Option(arguments, "--tun-guard")!);
         if (arguments.Contains("--install-adapter"))
         {
-            try { uint version = AdapterService.InstallAndStart(); return Tests.Report(arguments, new { result = "PASS", driverVersion = version, routeChanges = false }, 0); }
+            try { uint version = AdapterService.InstallAndStart(); return Tests.Report(arguments, new { result = "PASS", driverVersion = version, bootstrapAttempts = AdapterService.BootstrapAttempts, bootstrapRecovery = AdapterService.BootstrapRecovery, routeChanges = false }, 0); }
             catch (Exception exception) { return Tests.Report(arguments, new { result = "FAIL", error = exception.GetType().Name, reason = exception.Message, nativeCode = (exception as System.ComponentModel.Win32Exception)?.NativeErrorCode }, 1); }
         }
         if (arguments.Contains("--proxy-guard"))
