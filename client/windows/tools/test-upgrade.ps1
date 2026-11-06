@@ -42,9 +42,15 @@ function VerifyInstalled {
     $commonLink = Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) 'Personal VPN.lnk'
     foreach ($path in @($commonLink,$userLink)) {
         $link = $shell.CreateShortcut($path)
-        if ($link.TargetPath -ne $exe -or $link.WorkingDirectory -ne $root) { throw 'Shortcut points to an old installation' }
-        if ($link.IconLocation -ne ((Join-Path $root 'Assets/personal-vpn.ico')+',0')) { throw 'Shortcut icon is not a stable standalone ICO' }
-        if (-not (Test-Path -LiteralPath ($link.IconLocation -replace ',0$',''))) { throw 'Shortcut icon missing' }
+        Write-Output "Shortcut $path -> $($link.TargetPath); working=$($link.WorkingDirectory); icon=$($link.IconLocation)"
+        # Shell link APIs may preserve a directory's trailing slash or quote an
+        # icon path containing spaces. Compare paths, not their display syntax.
+        if ([IO.Path]::GetFullPath($link.TargetPath).TrimEnd('\') -ne $exe -or
+            [IO.Path]::GetFullPath($link.WorkingDirectory).TrimEnd('\') -ne $root) { throw 'Shortcut points to an old installation' }
+        if ($link.IconLocation -notmatch '^(?<path>.+),\s*(?<index>-?\d+)$' -or $Matches.index -ne '0') { throw 'Shortcut icon index is invalid' }
+        $iconPath = [IO.Path]::GetFullPath($Matches.path.Trim('"'))
+        if ($iconPath -ne (Join-Path $root 'Assets/personal-vpn.ico')) { throw 'Shortcut icon is not a stable standalone ICO' }
+        if (-not (Test-Path -LiteralPath $iconPath)) { throw 'Shortcut icon missing' }
     }
     $key = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{5A4D9679-160C-4DAA-A3E8-06409432D512}_is1'
     if ($key.DisplayVersion -ne $Version -or $key.InstallLocation.TrimEnd('\') -ne $root) { throw 'Stable uninstall registration mismatch' }
