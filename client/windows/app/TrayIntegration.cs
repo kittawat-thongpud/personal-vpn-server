@@ -15,18 +15,20 @@ public sealed partial class MainWindow
 {
     private TrayHost? tray;
     private EventWaitHandle? showRequest;
+    private EventWaitHandle? exitRequest;
     private bool quitInProgress, hideNoticeShown;
     private void InitializeTray()
     {
         Icon = BitmapFrame.Create(new Uri("pack://application:,,,/PersonalVPN;component/Assets/personal-vpn.ico", UriKind.Absolute));
-        ShowInTaskbar = false;
+        ShowInTaskbar = true;
         if (previewOnly) return;
         showRequest = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
+        exitRequest = new EventWaitHandle(false, EventResetMode.AutoReset, ExitEventName);
         tray = new TrayHost(TraySnapshot, TrayAction, exception => { RestoreFromTray(); ShowError(exception); });
-        StateChanged += (_, _) => { if (WindowState == WindowState.Minimized) HideToTray(); };
-        Closed += (_, _) => { tray?.Dispose(); showRequest?.Dispose(); };
+        Closed += (_, _) => { tray?.Dispose(); showRequest?.Dispose(); exitRequest?.Dispose(); };
     }
     internal static string ShowEventName => @"Local\PersonalVPN-Show-" + Environment.UserName;
+    internal static string ExitEventName => @"Local\PersonalVPN-Exit-" + Environment.UserName;
     internal static bool NotifyExistingWindow()
     {
         try { using var signal = EventWaitHandle.OpenExisting(ShowEventName); return signal.Set(); }
@@ -43,12 +45,14 @@ public sealed partial class MainWindow
     private void RestoreFromTray()
     {
         if (quitInProgress) return;
+        ShowInTaskbar = true;
         Show(); if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
         Activate(); Refresh();
     }
     private void HideToTray()
     {
-        Hide(); if (!hideNoticeShown && !previewOnly) { hideNoticeShown = true; tray?.ExplainHidden(); }
+        Hide(); ShowInTaskbar = false;
+        if (!hideNoticeShown && !previewOnly) { hideNoticeShown = true; tray?.ExplainHidden(); }
     }
     private async Task ToggleConnection()
     {
@@ -101,13 +105,21 @@ public sealed partial class MainWindow
     internal bool HiddenCloseForTest()
     {
         if (!previewOnly) throw new InvalidOperationException("Preview only.");
-        int count = backend.Log.Snapshot().Length; Close(); bool hidden = !IsVisible && !exiting;
-        Show(); return hidden && !ShowInTaskbar && count == backend.Log.Snapshot().Length;
+        int count = backend.Log.Snapshot().Length;
+        ShowInTaskbar = true; Close();
+        bool hidden = !IsVisible && !ShowInTaskbar && !exiting;
+        RestoreFromTray();
+        bool restored = IsVisible && ShowInTaskbar;
+        WindowState = WindowState.Minimized;
+        bool minimized = IsVisible && ShowInTaskbar;
+        WindowState = WindowState.Normal;
+        ShowInTaskbar = false; // Keep the isolated offscreen preview out of CI's taskbar.
+        return hidden && restored && minimized && count == backend.Log.Snapshot().Length;
     }
     private async Task QuitApplication()
     {
         if (quitInProgress) return; quitInProgress = true; IsEnabled = false; timer.Stop(); tray?.Update();
         try { await backend.DisposeAsync(); }
-        finally { exiting = true; tray?.Dispose(); showRequest?.Dispose(); Close(); }
+        finally { exiting = true; tray?.Dispose(); showRequest?.Dispose(); exitRequest?.Dispose(); Close(); }
     }
 }

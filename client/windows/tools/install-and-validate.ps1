@@ -13,9 +13,9 @@ $settingsFile=Join-Path $env:LOCALAPPDATA 'PersonalVPN/settings.dpapi'
 $before=(Get-FileHash -LiteralPath $settingsFile).Hash
 $summary=[ordered]@{ installed=$false; settingsUnchanged=$false; tunActivated=$false }
 try {
-    $base=if ($Architecture -eq 'x86' -and $env:PROCESSOR_ARCHITECTURE -eq 'AMD64') { $env:ProgramFiles + ' (x86)' } else { $env:ProgramFiles }
+    $base=if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }
     $clientVersion=[IO.File]::ReadAllText((Join-Path $PSScriptRoot '../../VERSION')).Trim()
-    $installed=Join-Path $base ("PersonalVPN/" + $clientVersion + '-' + $Architecture)
+    $installed=Join-Path $base 'PersonalVPN'
     $setupLog=Join-Path $ReportDirectory 'setup.log'
     $setup=Start-Process -FilePath $InstallerPath -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/DIR="'+$installed+'"'),('/LOG="'+$setupLog+'"')) -PassThru -Wait -WindowStyle Hidden
     $summary.setupExitCode=$setup.ExitCode
@@ -26,10 +26,10 @@ try {
     if ($driver.result -ne 'PASS') { throw 'Driver installation did not pass.' }
     $summary.installed=$true; $summary.executable=$executable; $summary.driver=$driver
     # Migrate only this app's old per-user shortcuts; the installer also creates
-    # common shortcuts. Keep the connected old process running.
+    # common shortcuts. Setup closes/reconciles the previous instance first.
     $shell=New-Object -ComObject WScript.Shell
     foreach ($link in @((Join-Path ([Environment]::GetFolderPath('Desktop')) 'Personal VPN.lnk'),(Join-Path ([Environment]::GetFolderPath('Programs')) 'Personal VPN.lnk'))) {
-        $shortcut=$shell.CreateShortcut($link); $shortcut.TargetPath=$executable; $shortcut.WorkingDirectory=$installed; $shortcut.IconLocation=$executable+',0'; $shortcut.Save()
+        $shortcut=$shell.CreateShortcut($link); $shortcut.TargetPath=$executable; $shortcut.WorkingDirectory=$installed; $shortcut.IconLocation=(Join-Path $installed 'Assets/personal-vpn.ico')+',0'; $shortcut.Save()
     }
     function Invoke-ClientCheck([string]$Name,[string[]]$Arguments) {
         $report=Join-Path $ReportDirectory ($Name+'.json')

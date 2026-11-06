@@ -14,9 +14,20 @@ if (-not $isAdministrator) {
     exit 0
 }
 $architecture = if (Test-Path -LiteralPath (Join-Path $source 'architecture-x86.txt')) { 'x86' } else { 'x64' }
-$destination = Join-Path $env:ProgramFiles ("PersonalVPN/$version-$architecture")
+$programRoot = if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }
+$destination = [IO.Path]::GetFullPath((Join-Path $programRoot 'PersonalVPN'))
+$installationMutex = [Threading.Mutex]::new($false, 'Global\PersonalVPN-Setup')
+$locked = $false
+try {
+try { $locked = $installationMutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $locked = $true }
+if (-not $locked) { throw 'Another Personal VPN Setup is running.' }
+$prepare = Start-Process -FilePath (Join-Path $source 'PersonalVPN.exe') -ArgumentList @('--prepare-upgrade') -WindowStyle Hidden -PassThru -Wait
+if ($prepare.ExitCode -ne 0) { throw 'Disconnect and exit the older Personal VPN from its tray menu, then retry installation.' }
 New-Item -ItemType Directory -Force -Path $destination | Out-Null
-Get-ChildItem -LiteralPath $source | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $destination -Recurse -Force }
+if ($source -ne $destination) { Get-ChildItem -LiteralPath $source | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $destination -Recurse -Force } }
+$staleMarker = Join-Path $destination ('architecture-' + $(if ($architecture -eq 'x86') { 'x64' } else { 'x86' }) + '.txt')
+if ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($staleMarker)) -ne $destination) { throw 'Invalid architecture marker path.' }
+if (Test-Path -LiteralPath $staleMarker) { Remove-Item -LiteralPath $staleMarker -Force }
 $executable = Join-Path $destination 'PersonalVPN.exe'
 $report = Join-Path $destination 'driver-install.json'
 $driverInstall = Start-Process -FilePath $executable -ArgumentList @('--install-adapter','--report',('"' + $report + '"')) -WindowStyle Hidden -PassThru -Wait
@@ -26,10 +37,13 @@ foreach ($shortcutPath in @((Join-Path ([Environment]::GetFolderPath('Desktop'))
     $shortcut = $shell.CreateShortcut($shortcutPath)
     $shortcut.TargetPath = $executable
     $shortcut.WorkingDirectory = $destination
-    $shortcut.IconLocation = $executable + ',0'
+    $shortcut.IconLocation = (Join-Path $destination 'Assets/personal-vpn.ico') + ',0'
     $shortcut.Description = 'Personal VPN - Administrator'
     $shortcut.Save()
 }
+$refresh = Start-Process -FilePath $executable -ArgumentList @('--refresh-shortcuts') -WindowStyle Hidden -PassThru -Wait
+if ($refresh.ExitCode -ne 0) { throw 'Shortcut cache refresh failed.' }
+} finally { if ($locked) { $installationMutex.ReleaseMutex() }; $installationMutex.Dispose() }
 Write-Output "Installed: $executable"
 Write-Output 'The app requires Administrator. TUN routing starts only after confirmed mode selection and Connect.'
 if (-not $NoLaunch) {

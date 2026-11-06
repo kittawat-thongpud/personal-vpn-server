@@ -1,37 +1,34 @@
-Client 0.7.2 improves Android VPN recovery after network loss and Wi-Fi/cellular changes.
+Client 0.7.3 fixes Windows installation, shortcut icons and taskbar/tray interaction.
 
-The service supervises recovery workers and binds attempts to a network generation.
-Physical-network callbacks use their supplied snapshots, endpoint DNS is cancellable,
-and results from an old network cannot mark the current connection Connected.
-Network restoration wakes recovery without a user Reconnect command. Real path
-changes replace the transport once while retaining the original Android TUN.
+Windows Setup now uses one stable Program Files\PersonalVPN directory and one
+uninstall identity for x86/x64. Updates and reinstalls replace the existing
+application. Registered legacy and version-named packages are retired through
+their own uninstall logs; unowned files are retained. Profiles and rules remain
+in current-user DPAPI storage. Restart Manager closes an existing GUI before
+replacement, then maintenance recovers only abandoned Personal VPN leases and
+stops its adapter service. No installer force-kills another VPN.
 
-HTTPS probes are cancellable and no longer hold the lock used by traffic counters
-or core lifetime control. Initial authentication and separate OS-captured HTTPS
-must still agree. A failed primary check tries an independent secondary endpoint;
-one failed verification cycle retains the core, and consecutive failures trigger
-bounded retries. Profile/authentication errors remain visible for user action.
-There is no automatic Direct or protocol fallback and certificate checks remain.
+Desktop and Start-menu shortcuts point to a standalone multi-size ICO at a
+stable path and share the application's AppUserModelID. Existing shadowing
+per-user shortcuts are repaired and their shell cache entries refreshed.
 
-The native captured-path probe uses ordinary, unprotected OS sockets, including
-DNS through the TUN, independently of the selected outbound. Native tests cover
-probe cancellation over real QUIC/TLS, responsive counters during blocked probes,
-and safe concurrent close. Android tests exercise health-target outages, repeated
-verification failure, network loss/restoration and retained capture, alongside
-the existing protocol, separate-UID policy, TLS, UI and cleanup checks.
+An open app appears in the taskbar and Alt+Tab. Minimize retains its taskbar
+button; X hides the window to tray. Left-click/Open restores it without starting
+a second instance. Disconnect & exit still restores owned network settings.
 
-Logs remain backend-only, session-memory-only and limited to 1,000 records / 1 MiB.
-Network events identify generation and transport type without credentials, local
-addresses, browsing destinations or raw native errors.
+Right-click uses a native Windows HMENU with foreground ownership, standard
+menu tracking and the documented WM_NULL handoff after dismissal. One request
+opens the menu; pointer movement alone does not dismiss it. Outside click,
+Escape and a selected action dismiss normally. Menus follow Windows styling;
+Explorer controls the notification overflow panel. No focus-loss/MouseLeave
+cancellation overrides or custom global input hooks are used.
 
-This shared stable release includes Android and Windows x86/x64 installers under
-one version. Windows runtime behavior is unchanged and requalified. No VPS update
-or profile regeneration is required. Install over the existing APK to retain
-profiles and rules. Physical Redmi radio transitions, China-network performance
-and OEM power management remain separate device acceptance checks; no throughput
-gain or preservation of existing TCP sessions across a radio change is promised.
+Qualification requires real native popup input tests, visible/hidden taskbar
+lifecycle checks, migration from the published 0.7.2 installer, an in-place
+reinstall while an idle GUI is running, byte-identical encrypted settings,
+shortcut/icon extraction and the full existing Proxy/TUN/driver/cleanup suite.
 
-Builds, signing and publication run in GitHub Actions. Qualified binary handoff
-uses run-and-source-scoped caches with checksum verification; optional emulator
-report uploads cannot override the actual test result. Source snapshots and
-published installers remain preserved. P2P development is paused.
+The shared release includes Android APK and Windows x86/x64 setup/portable
+packages built in GitHub Actions. Android networking remains the qualified
+0.7.2 recovery implementation and is requalified under the shared version.
+VPS configuration and protocol credentials do not change. P2P remains paused.

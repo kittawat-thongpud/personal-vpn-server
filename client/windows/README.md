@@ -5,13 +5,26 @@ Windows 10 build 19041 or later is required. Setup and the application require A
 .NET runtime, architecture-matched Xray / Hysteria / sing-box, and signed Wintun.
 No local compilation or separate driver download is needed. Setup prepares the
 driver and an automatic Windows service that holds one reusable adapter without installing tunnel routes. The ZIP also includes an elevated
-install.ps1. Disconnect an active TUN session before upgrading its adapter service.
+install.ps1. Setup uses one stable `Program Files\PersonalVPN` directory and one
+uninstall identity across versions and architectures. Reinstalling updates the
+same directory. Registered legacy/versioned installations are retired through
+their own uninstall logs; unowned files and current-user DPAPI settings survive.
+Setup closes the previous application with Windows Restart Manager, recovers
+only abandoned Personal VPN leases and stops its service before replacing files.
+It never force-kills another VPN. If an old app cannot close, exit it from its tray
+and retry Setup. Prefer Setup for automatic legacy cleanup; ZIP installation also
+uses the stable directory, but an older running GUI can require a manual exit.
 
 Home has server profiles, Proxy / TUN, the VPN protocol selector and live traffic.
-X and Minimize hide to tray. Left-click the tray icon or reopen the shortcut to
+An open window appears in the taskbar and Alt+Tab; Minimize keeps its taskbar
+button. X hides to tray. Left-click the tray icon or reopen the shortcut to
 restore the window. Disconnect & exit restores owned proxy settings and releases
-capture routes / DNS while retaining the adapter. The menu stays open when the shell tray panel loses focus,
-and closes on outside click, Esc or selection.
+capture routes / DNS while retaining the adapter. A single right-click opens a
+native Windows context menu. Pointer movement alone does not dismiss it; outside
+click, Esc or a selected action does. Explorer owns its overflow panel and the
+app does not force that panel open/closed. Menus follow the native Windows theme.
+Shortcuts use a standalone multi-size ICO at a stable path and a matching stable
+AppUserModelID; only the app's shortcut entries are refreshed in the shell cache.
 
 Import a vpnctl Windows export folder containing xray.json / hysteria.json.
 Only connection fields are imported. Credentials / settings stay in current-user

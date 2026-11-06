@@ -19,6 +19,7 @@ public sealed class TrayHost : IDisposable
 {
     private readonly Forms.NotifyIcon icon;
     private readonly Forms.ContextMenuStrip menu = new();
+    private readonly NativeTrayMenu popup = new();
     private readonly Func<TrayState> state;
     private readonly Func<string, Task> action;
     private readonly Action<Exception> error;
@@ -33,21 +34,14 @@ public sealed class TrayHost : IDisposable
             ?? throw new InvalidOperationException("Application tray icon is missing.");
         using var source = new Icon(stream, new Size(32, 32));
         foreach (string color in new[] { "#8395B2", "#16C8A0", "#F1C77A" }) icons[color] = Badge(source, ColorTranslator.FromHtml(color));
-        menu.Renderer = new Forms.ToolStripProfessionalRenderer(new TrayColors());
-        menu.BackColor = ColorTranslator.FromHtml("#152338"); menu.ForeColor = ColorTranslator.FromHtml("#ECF2FF");
-        menu.ShowImageMargin = false; menu.ShowCheckMargin = true; menu.Font = new Font("Segoe UI", 10);
-        menu.Opening += (_, args) =>
+        // Keep ToolStrip items only as the action model. Never show its custom
+        // popup over Explorer's notification overflow panel.
+        icon = new Forms.NotifyIcon { Icon = icons["#8395B2"], Text = "Personal VPN" };
+        icon.MouseUp += async (_, e) =>
         {
-            Rebuild();
-            // WinForms initializes Cancel from the item count BEFORE Opening.
-            // The first request starts empty, so populating alone needs two clicks.
-            args.Cancel = menu.Items.Count == 0;
+            if (e.Button == Forms.MouseButtons.Right) await OpenMenu(Forms.Cursor.Position);
+            else if (e.Button == Forms.MouseButtons.Left && !popup.Tracking) await Dispatch("open");
         };
-        // Keep the shell's normal dismissal: hover alone does not close a menu,
-        // but a click in another application can arrive as AppFocusChange.
-        // Canceling that reason leaves the popup stuck above other windows.
-        icon = new Forms.NotifyIcon { Icon = icons["#8395B2"], Text = "Personal VPN", ContextMenuStrip = menu };
-        icon.MouseUp += async (_, e) => { if (e.Button == Forms.MouseButtons.Left) await Dispatch("open"); };
         icon.BalloonTipClicked += async (_, _) => await Dispatch("open");
         Update(); icon.Visible = visible;
     }
@@ -98,6 +92,14 @@ public sealed class TrayHost : IDisposable
         menu.Items.Add(new Forms.ToolStripSeparator()); menu.Items.Add(Item("exit", "Disconnect & exit"));
     }
     internal Forms.ContextMenuStrip MenuForTest => menu;
+    internal NativeTrayMenu PopupForTest => popup;
+    internal async Task OpenMenu(Point point)
+    {
+        if (disposed || popup.Tracking) return;
+        Rebuild();
+        string? command = popup.Show(menu.Items, point);
+        if (command != null) await Dispatch(command);
+    }
     public void Update()
     {
         if (disposed) return; var s = state();
@@ -110,7 +112,7 @@ public sealed class TrayHost : IDisposable
     public void ExplainHidden() => icon.ShowBalloonTip(3500, "Personal VPN is in the tray", "The VPN keeps running. Use Disconnect & exit from this menu to quit.", Forms.ToolTipIcon.Info);
     public void Dispose()
     {
-        if (disposed) return; disposed = true; icon.Visible = false; icon.Dispose(); menu.Dispose(); foreach (var image in icons.Values) image.Dispose();
+        if (disposed) return; disposed = true; popup.Dispose(); icon.Visible = false; icon.Dispose(); menu.Dispose(); foreach (var image in icons.Values) image.Dispose();
     }
     private sealed class TrayColors : Forms.ProfessionalColorTable
     {

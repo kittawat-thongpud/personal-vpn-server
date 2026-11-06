@@ -97,6 +97,21 @@ public static class AdapterService
         finally { if (service != IntPtr.Zero) CloseServiceHandle(service); CloseServiceHandle(manager); }
         using var adapter = WaitReady(); return adapter.DriverVersion;
     }
+    public static void StopForUpgrade()
+    {
+        foreach (var nic in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+            if (nic.Name == AdapterName && System.Linq.Enumerable.Any(nic.GetIPProperties().UnicastAddresses, x => x.Address.ToString() == "172.28.255.1"))
+                throw new InvalidOperationException("Disconnect the active Personal VPN TUN session before updating its service.");
+        IntPtr manager = OpenSCManager(null, null, 1);
+        if (manager == IntPtr.Zero) throw new Win32Exception();
+        IntPtr service = OpenService(manager, ServiceName, 0x24);
+        try
+        {
+            if (service == IntPtr.Zero) { if (Marshal.GetLastWin32Error() != 1060) throw new Win32Exception(); return; }
+            StopService(service);
+        }
+        finally { if (service != IntPtr.Zero) CloseServiceHandle(service); CloseServiceHandle(manager); }
+    }
     private static void StopService(IntPtr service)
     {
         uint previousPid = 0;

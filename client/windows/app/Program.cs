@@ -22,6 +22,13 @@ public static class Program
     [STAThread]
     public static int Main(string[] arguments)
     {
+        ShellIdentity.Initialize();
+        if (arguments.Contains("--refresh-shortcuts")) { ShellIdentity.RefreshShortcuts(); return 0; }
+        if (arguments.Contains("--prepare-upgrade"))
+        {
+            try { UpgradePreparation.Prepare(); return Tests.Report(arguments, new { result = "PASS", ownedRecoveryOnly = true }, 0); }
+            catch (Exception error) { return Tests.Report(arguments, new { result = "FAIL", reason = error.Message }, 1); }
+        }
         if (arguments.Contains("--uninstall-adapter")) { AdapterService.Uninstall(); return 0; }
         if (arguments.Contains("--adapter-service")) return AdapterService.Run();
         if (arguments.Contains("--tun-guard")) return TunLease.Watch(Option(arguments, "--tun-guard")!);
@@ -45,6 +52,14 @@ public static class Program
         if (arguments.Contains("--system-proxy-test")) return Tests.ProxyTest(arguments).GetAwaiter().GetResult();
         if (arguments.Contains("--local-proxy-integration")) return Tests.LocalProxyIntegration(arguments).GetAwaiter().GetResult();
         if (arguments.Contains("--probe-protocol")) return Tests.ProtocolProbe(arguments).GetAwaiter().GetResult();
+        for (int i = 0; ; i++)
+        {
+            if (!Mutex.TryOpenExisting(@"Global\PersonalVPN-Setup", out var setup)) break;
+            setup.Dispose();
+            if (!arguments.Contains("--wait-for-setup") || i >= 1200)
+            { MessageBox.Show("Personal VPN Setup is updating the application. Open it again when Setup finishes.", "Personal VPN"); return 1; }
+            Thread.Sleep(100);
+        }
         using var mutex = new Mutex(true, @"Local\PersonalVPN-" + Environment.UserName, out bool created);
         if (!created)
         {

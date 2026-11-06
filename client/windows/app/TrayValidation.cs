@@ -20,18 +20,14 @@ public static class TrayValidation
         var state = new TrayState("Disconnected", "REALITY", "Proxy", false, false, false, true, "—", true, true,
             new[] { new TrayProfile("test", "Japan & preview", true) });
         using var tray = new TrayHost(() => state, command => { commands.Add(command); return Task.CompletedTask; }, exception => throw exception, visible: false);
-        // Exercise the real WinForms Opening path while initially empty. A test
-        // that prebuilds Items misses the default Cancel=true on the first click.
+        // Exercise actual USER32 menu tracking/input from an initially empty
+        // model, rather than calling ToolStrip.Show/Close with synthetic reasons.
         var popup = tray.MenuForTest;
         Assert(popup.Items.Count == 0, "The first popup fixture was prepopulated.");
-        foreach (var reason in new[] { Forms.ToolStripDropDownCloseReason.AppFocusChange, Forms.ToolStripDropDownCloseReason.AppClicked, Forms.ToolStripDropDownCloseReason.Keyboard, Forms.ToolStripDropDownCloseReason.ItemClicked })
-        {
-            popup.Show(new System.Drawing.Point(-30000, -30000));
-            Assert(popup.Visible && popup.Items.Count > 0, "Tray menu did not open on a single request.");
-            popup.Close(reason);
-            Assert(!popup.Visible, "Tray popup refused dismissal: " + reason);
-        }
-        result.Add("initially empty native popup opens on first request; focus change, outside click, Escape and action close reasons dismiss it");
+        foreach (string mode in new[] { "escape", "outside", "escape", "selection" }) NativeTrayValidation.Check(tray, mode);
+        Assert(commands.SequenceEqual(new[] { "open" }), "Native selection dispatched twice or dismissal triggered an action.");
+        commands.Clear();
+        result.Add("real native popup opens on each single request, stays open on pointer exit, dismisses on outside input/Escape, and dispatches one selected action");
         var menu = Items(tray.MenuForTest.Items).Where(x => x.Name != "").ToDictionary(x => x.Name);
         Assert(menu["connect"].Enabled && !menu["reconnect"].Enabled && !menu["copy-exit"].Enabled, "Disconnected tray actions are incorrect.");
         Assert(menu["profile:test"].Checked && menu["protocol:REALITY"].Checked && menu["mode:Proxy"].Checked, "Tray selection lost.");

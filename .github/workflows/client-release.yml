@@ -9,6 +9,7 @@ on:
       - 'client/windows/app/**'
       - 'client/windows/*.ps1'
       - 'client/windows/setup.iss'
+      - 'client/windows/tools/test-upgrade.ps1'
       - 'client/android/app/**'
       - 'client/android/probe/**'
       - 'client/android/native/**'

@@ -229,6 +229,7 @@ public sealed partial class MainWindow : Window
     }
     private void Refresh()
     {
+        if (exitRequest?.WaitOne(0) == true) { _ = QuitApplication(); return; }
         if (exiting || quitInProgress) return;
         if (showRequest?.WaitOne(0) == true) { RestoreFromTray(); return; }
         tray?.Update(); RefreshCaptureChoices();

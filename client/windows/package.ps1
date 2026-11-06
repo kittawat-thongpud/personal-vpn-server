@@ -50,6 +50,8 @@ Copy-Item -LiteralPath (Join-Path $wintun 'wintun/LICENSE.txt') -Destination (Jo
 }
 if ((Get-AuthenticodeSignature -LiteralPath (Join-Path $cores 'wintun.dll')).Status -ne 'Valid') { throw 'Packaged Wintun signature verification failed' }
 foreach ($file in @('install.ps1','README.md','reset-tun.ps1')) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $packageRoot }
+New-Item -ItemType Directory -Force -Path (Join-Path $packageRoot 'Assets') | Out-Null
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'app/Assets/personal-vpn.ico') -Destination (Join-Path $packageRoot 'Assets/personal-vpn.ico')
 @'
 Native components: verified downloads and a pinned source build with embedded runtime hash:
 Xray-core v26.10.31, MPL-2.0: https://github.com/XTLS/Xray-core/tree/v26.10.31

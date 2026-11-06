@@ -70,7 +70,7 @@ public static class MobileValidation
             window.MinHeight = window.MinWidth = 0; window.Left = window.Top = -30000;
             window.ShowActivated = false; window.ShowInTaskbar = false; window.Show();
             Assert(window.HiddenCloseForTest(), "Closing must hide to tray without stopping backend or clearing logs.");
-            checks.Add("X hides window, remains outside taskbar, reopen retains backend session logs");
+            checks.Add("X hides to tray; restoring shows the taskbar button; minimizing retains it; backend session logs survive");
             foreach (var size in new[] { new Size(380, 590), new Size(438, 750), new Size(1280, 760) })
             foreach (string page in new[] { "Home", "Settings", "AppTunnel", "SiteTunnel", "Diagnostics", "VpnConfig", "Profiles" })
             {
