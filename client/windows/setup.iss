@@ -34,7 +34,7 @@ ArchitecturesAllowed=x64compatible
 [Files]
 ; A private maintenance copy runs before any installed binary is overwritten.
 Source: "{#PackageDir}\*"; DestDir: "{tmp}\PersonalVPN-update"; Flags: dontcopy recursesubdirs createallsubdirs
-Source: "{#PackageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#PackageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; BeforeInstall: FinalizeUpgradePreparation
 [InstallDelete]
 #if Architecture == "x64"
 Type: files; Name: "{app}\architecture-x86.txt"
@@ -51,7 +51,7 @@ Filename: "{app}\PersonalVPN.exe"; Parameters: "--wait-for-setup"; Description: 
 [UninstallRun]
 Filename: "{app}\PersonalVPN.exe"; Parameters: "--uninstall-adapter"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveOwnedAdapterService"
 [Code]
-var AdapterPreparationFailed: Boolean;
+var AdapterPreparationFailed, UpgradePrepared: Boolean;
     LegacyUninstallers: TArrayOfString;
     UserDesktopOwned, UserProgramsOwned: Boolean;
 
@@ -163,6 +163,23 @@ begin
     Result := 'Personal VPN could not finish disconnecting. Exit it from its tray menu and retry Setup.';
 end;
 
+procedure FinalizeUpgradePreparation;
+var ResultCode: Integer; Started: Boolean; Report: AnsiString;
+begin
+  if UpgradePrepared then Exit;
+  // ssInstall runs BEFORE Restart Manager shuts down files-in-use applications.
+  // The first installed file's callback runs afterwards, before replacing it.
+  Started := Exec(ExpandConstant('{tmp}\PersonalVPN-update\PersonalVPN.exe'),
+    '--prepare-upgrade --report "' + ExpandConstant('{tmp}\PersonalVPN-upgrade.json') + '"',
+    ExpandConstant('{tmp}\PersonalVPN-update'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Log('Final upgrade preparation result: ' + IntToStr(ResultCode));
+  if LoadStringFromFile(ExpandConstant('{tmp}\PersonalVPN-upgrade.json'), Report) then
+    Log('Upgrade preparation: ' + Copy(String(Report), 1, 2048));
+  if not Started or (ResultCode <> 0) then
+    RaiseException('Personal VPN could not finish disconnecting. Disconnect and exit it from its tray menu, then retry Setup.');
+  UpgradePrepared := True;
+end;
+
 procedure RemoveLegacyRegistrations(Root: Integer);
 var I: Integer; Arch, Key, Folder: String;
 begin
@@ -213,12 +230,6 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var ResultCode: Integer;
 begin
-  if CurStep = ssInstall then begin
-    if not Exec(ExpandConstant('{tmp}\PersonalVPN-update\PersonalVPN.exe'),
-      '--prepare-upgrade --report "' + ExpandConstant('{tmp}\PersonalVPN-upgrade.json') + '"',
-      ExpandConstant('{tmp}\PersonalVPN-update'), SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
-      RaiseException('Personal VPN could not finish disconnecting. Disconnect and exit it from its tray menu, then retry Setup.');
-  end;
   if CurStep = ssPostInstall then
   begin
     AdapterPreparationFailed := True;
