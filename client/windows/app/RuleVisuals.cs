@@ -46,7 +46,7 @@ internal static class AppIcons
                 var result=Imaging.CreateBitmapSourceFromHIcon(icon.Handle,Int32Rect.Empty,BitmapSizeOptions.FromWidthAndHeight(32,32));result.Freeze();return result;
             }).ConfigureAwait(false);
         }
-        catch(Exception error) when(error is IOException or UnauthorizedAccessException or ArgumentException or System.Runtime.InteropServices.ExternalException or System.Security.SecurityException) { }
+        catch(Exception error) when(error is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or NotSupportedException or System.ComponentModel.Win32Exception or System.Runtime.InteropServices.ExternalException or System.Security.SecurityException) { }
         finally { workers.Release(); }
         lock(gate)
         {
