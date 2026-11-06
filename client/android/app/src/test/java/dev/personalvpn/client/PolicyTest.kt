@@ -28,6 +28,7 @@ class PolicyTest {
         rejected { SiteTargets.parse("Domain","www.google.com,1.2.3.4") }
         rejected { SiteTargets.parse("Domain","https://example.com") }
         rejected { SiteTargets.parse("Domain",(0..500).joinToString(","){"site$it.example"}) }
+        rejected { SiteTargets.validate(Policy(rules=listOf(Rule((0..249).joinToString(","){"first$it.example"},Action.Tunnel),Rule((0..250).joinToString(","){"second$it.example"},Action.Bypass)))) }
         rejected { SiteTargets.validate(Policy(rules=listOf(Rule("2.2.2.*",Action.Bypass,"IP"),Rule("2.2.2.1/24",Action.Tunnel,"IP")))) }
     }
     @Test fun bulkAppActionsReplaceSelectedAndPreserveOtherExceptions() {

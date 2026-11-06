@@ -111,6 +111,7 @@ public static class MobileValidation
                 if (page == "Settings") Assert(!elements.OfType<Button>().Single(x => x.Name == "AppTunnelSettings").IsEnabled, "App Tunnel must remain visible but disabled in Proxy.");
                 if (page == "AppTunnel")
                 {
+                    Assert(elements.OfType<Image>().Any(x=>ReferenceEquals(x.Source,executableIcon)),"App Tunnel did not display the cached executable icon.");
                     Assert(!elements.OfType<Button>().Single(x => x.Content as string == "+ Choose app.exe").IsEnabled, "Disabled App Tunnel has an active app picker.");
                     Assert(!elements.OfType<Button>().Single(x => x.Content as string == "Save draft").IsEnabled, "Disabled App Tunnel has an active save action.");
                 }
