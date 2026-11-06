@@ -66,6 +66,8 @@ jobs:
   android:
     if: ${{ needs.version.outputs.build == 'true' }}
     needs: version
+    permissions:
+      contents: write
     uses: ./.github/workflows/android-client.yml
     with:
       client_version: ${{ needs.version.outputs.version }}
