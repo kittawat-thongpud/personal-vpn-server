@@ -1,3 +1,68 @@
+# Client 0.9.0 compact rules and site groups - 2026-11-06
+
+Qualified release source: `3755ee772d248f2da868d104885b858ddb89c822`.
+[Final publication run, attempt 2](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/42212778404)
+completed successfully. [Client 0.9.0](https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/client-v0.9.0)
+is stable, non-draft and Latest with 12 assets. The tag and immutable base/release
+branches match the source. The previous 0.8.0 source is preserved in its legacy
+branch; its installers remain the rollback release.
+
+- All 11 SHA256SUMS entries match GitHub's uploaded-byte SHA-256 digests. All
+  eight platform entries in CLIENT-RELEASE.json match their uploaded sizes and
+  hashes. The three small downloaded verification files also match their own
+  GitHub digests. Large installers were not redundantly downloaded to this host.
+- The signed Android APK retains the pinned existing certificate and passes v2
+  signature verification. Its version is shared with Windows x86/x64 Setup and
+  portable packages. No local native/application build or installer launch was
+  used to qualify this release.
+- Windows x86/x64 pass executable-resource icon extraction/cache/display,
+  single-row/ellipsis and virtualized-list layout, a missing-executable fallback,
+  the disabled Proxy view, and named multi-target editing. Invalid edits retain
+  the existing group; valid edits preserve every member. Synthetic previews at
+  small/default/wide sizes, active App Tunnel and the site editor were reviewed.
+- Group validation covers comma/newline lists, IPv4 wildcards, CIDR masking,
+  IPv6, deduplication, invalid members, a combined 500-target limit and legacy
+  single-target settings. Both routing compilers retain all group members.
+  Explicit App rules still precede Site rules. Windows keeps Site Block-first
+  order and Android keeps insertion order; group names do not enter routing.
+- Windows native gates pass driver/adapter ownership, captured DNS/HTTPS, real
+  App-over-Site rules, UDP, repeated mode switches, core/parent crash recovery,
+  persistent adapter identity and proxy/DNS cleanup. Installer migration from
+  published 0.7.2 and in-place reinstall preserve settings and stable paths.
+- Android JVM tests, lint, native validation, signing/ABI and Android 14 emulator
+  instrumentation pass. Final instrumentation reports `OK (5 tests)` in
+  **159.622 s**, including multi-IP/domain add/rename/delete, encrypted grouped
+  settings, bulk installed-app selection, and both protocol handovers with
+  separate-UID HTTPS/UDP and one retained TUN descriptor.
+
+Qualification diagnostics: an earlier run exposed a race in the handover test's
+readiness condition: a network-change callback could still observe the previous
+Connected label. It now requires authenticated health for the latest network
+generation and selected transport before continuing; UDP assertions remain.
+A later UI test missed a cold-launch Settings tap; it now confirms the unique
+Settings heading before selecting the destination and dumps the UI hierarchy on
+failure. These changes affect tests only. A bounded connect deadline and progress
+file improve diagnostics in the hidden Windows integration test command.
+
+An earlier x64 runner stopped reporting and its logs were unavailable; that run
+was cancelled and never qualified. Final publication attempt 1 reported Windows
+TUN verification/HTTPS failures; the unchanged source passed all required gates
+on fresh runners in attempt 2. Their root cause was not established, and no
+production transport change or performance claim is inferred from the retry.
+The preceding complete qualification also passed
+([run 42209343762](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/42209343762),
+Android 5 tests in 214.059 s).
+
+Verification is from isolated CI runners and an emulator, not a new measurement
+on the Redmi or across the user's China-to-VPS path. The live host VPN, VPS and
+P2P sector were not modified. Temporary QA releases and obsolete 0.7.3 installer
+assets are removed; source tags/legacy branches remain. The 0.7.2 upgrade fixture,
+Windows 0.6.0 dependency bundle and server releases are retained.
+
+---
+
+The following records the previous qualification at its publication time.
+
 # Client 0.8.0 UI and latency — 2026-11-06
 
 Qualified source: `0b0f7788951e1325b8b4697531a4fdbe3ce7a651`.
