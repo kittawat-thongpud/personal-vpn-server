@@ -20,6 +20,8 @@ namespace PersonalVpn;
 public sealed partial class MainWindow : Window
 {
     private readonly Backend backend = new();
+    private readonly ServerLatency latency = new();
+    private readonly List<(TextBlock Text, LatencyTarget? Target)> latencyLabels = new();
     private Settings settings;
     private readonly ContentControl content;
     private readonly TextBlock subtitle;
@@ -51,7 +53,7 @@ public sealed partial class MainWindow : Window
         Width = Math.Min(438, SystemParameters.WorkArea.Width - 24); Height = Math.Min(800, SystemParameters.WorkArea.Height - 24);
         MinWidth = Math.Min(380, Width); MinHeight = Math.Min(640, Height);
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        Background = Color("#0D1627"); Foreground = Color("#EBEFF8"); FontFamily = new FontFamily("Segoe UI"); FontSize = 14;
+        Background = new LinearGradientBrush(new GradientStopCollection { new GradientStop(System.Windows.Media.Color.FromRgb(23,40,63),0),new GradientStop(System.Windows.Media.Color.FromRgb(11,20,36),.55),new GradientStop(System.Windows.Media.Color.FromRgb(16,29,48),1) },90); Foreground = Color("#EBEFF8"); FontFamily = new FontFamily("Segoe UI"); FontSize = 14;
         UseLayoutRounding = true; SnapsToDevicePixels = true;
         SourceInitialized += (_, _) => { int dark = 1; DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 20, ref dark, sizeof(int)); };
         if (!Application.Current.Resources.MergedDictionaries.Any(x => x.Source?.OriginalString.Contains("Theme.xaml") == true))
@@ -86,6 +88,8 @@ public sealed partial class MainWindow : Window
         };
         InitializeTray();
         SizeChanged += (_, _) => { if (page == "Home" && lastCompactHome != (Height < 680)) Navigate("Home"); };
+        IsVisibleChanged += (_, _) => { if (!previewOnly) latency.Tick(IsVisible && WindowState != WindowState.Minimized); };
+        Closed += (_, _) => latency.Dispose();
         Navigate("Home");
         if (autoConnect) ContentRendered += async (_, _) => { try { await ConnectSelected(); } catch (Exception error) { ShowError(error); } };
     }
@@ -147,6 +151,7 @@ public sealed partial class MainWindow : Window
     private void Navigate(string target)
     {
         if (target == "AppTunnel" && settings.CaptureMode != "TUN" && !previewOnly) return;
+        CloseSheet(); latencyLabels.Clear(); if (!previewOnly) latency.Profiles(settings.Profiles,settings.Protocol);
         proxyChoice = tunChoice = null;
         page = target; subtitle.Text = target switch { "Profiles" => "Server profiles", "VpnConfig" => "VPN configure", "AppTunnel" => "App Tunnel", "SiteTunnel" => "Site Tunnel", "Diagnostics" => "Backend logs", _ => target }; status = detail = exit = draftNotice = captureDetail = null; connect = null; logText = null; lastLogText = "";
         backButton.Visibility = target is "Home" or "Settings" ? Visibility.Hidden : Visibility.Visible;
@@ -163,7 +168,7 @@ public sealed partial class MainWindow : Window
         var tx = Stack(); uploadRate = Text("↑ 0 B/s", 19, "#16C8A0"); tx.Children.Add(uploadRate); uploadTotal = Text("0 B sent", 10, "#9BAECD"); tx.Children.Add(uploadTotal); values.Children.Add(tx);
         var rx = Stack(); downloadRate = Text("↓ 0 B/s", 19, "#64A8FF"); rx.Children.Add(downloadRate); downloadTotal = Text("0 B received", 10, "#9BAECD"); rx.Children.Add(downloadTotal); Grid.SetColumn(rx, 1); values.Children.Add(rx); panel.Children.Add(values);
         if (compact) { uploadRate.FontSize = downloadRate.FontSize = 17; uploadTotal.Margin = downloadTotal.Margin = new Thickness(0, 0, 0, 3); }
-        trafficChart = new TrafficChart { Height = compact ? 24 : 36, HorizontalAlignment = HorizontalAlignment.Stretch, ToolTip = "60 samples · tunnel payload only · includes health traffic" };
+        trafficChart = new TrafficChart { Height = compact ? 64 : 82, HorizontalAlignment = HorizontalAlignment.Stretch, ToolTip = "Last 60 seconds · shared upload/download scale · tunnel payload, including health checks" };
         foreach (var sample in backend.Traffic.History) trafficChart.Sample(sample);
         panel.Children.Add(trafficChart); trafficStatus = Text("Session totals", 10, "#8395B2"); trafficStatus.Visibility = compact ? Visibility.Collapsed : Visibility.Visible; panel.Children.Add(trafficStatus); var card = Card(panel); card.Margin = new Thickness(0); card.Padding = compact ? new Thickness(12, 6, 12, 6) : new Thickness(14, 9, 14, 9); return card;
     }
@@ -171,12 +176,15 @@ public sealed partial class MainWindow : Window
     private UIElement Profiles()
     {
         var body = PageRows(Auto, Star); var header = Stack();
-        header.Children.Add(Action("+  Import profile", Import));
+        var tools = new Grid(); tools.ColumnDefinitions.Add(new ColumnDefinition()); tools.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        tools.Children.Add(Action("+  Import profile", Import)); var refresh = Action("↻", () => latency.Refresh()); refresh.ToolTip = "Refresh latency for all profiles"; refresh.MinWidth = 44; Grid.SetColumn(refresh,1); tools.Children.Add(refresh); header.Children.Add(tools);
         header.Children.Add(Text("Import a device profile folder. Credentials stay encrypted on this Windows account.", 12, "#9BAECD")); Put(body, header, 0);
         var list = Stack();
         foreach (var profile in settings.Profiles.ToArray())
         {
-            var row = Stack(); row.Children.Add(Text(Country(profile.Country) + "    " + profile.Name + (settings.SelectedId == profile.Id ? "   ✓" : ""), 17));
+            var row = Stack(); var heading = new Grid(); heading.ColumnDefinitions.Add(new ColumnDefinition()); heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            heading.Children.Add(Text(Country(profile.Country) + "    " + profile.Name + (settings.SelectedId == profile.Id ? "   ✓" : ""), 15));
+            var measured = LatencyLabel(profile); Grid.SetColumn(measured,1); heading.Children.Add(measured); row.Children.Add(heading);
             row.Children.Add(Text(profile.Endpoint, 12, "#9BAECD")); var actions = new WrapPanel();
             actions.Children.Add(Action("Select", () => { settings.SelectedId = profile.Id; Changed(); Navigate("Home"); }));
             actions.Children.Add(Action("Edit", () => EditProfile(profile)));
@@ -202,15 +210,14 @@ public sealed partial class MainWindow : Window
     }
     private void EditProfile(ServerProfile profile)
     {
-        var dialog = new Window { Owner = this, Title = "Edit server", Width = 360, Height = 305, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterOwner, Background = Background, Foreground = Foreground };
-        var panel = new StackPanel { Margin = new Thickness(22) }; panel.Children.Add(Text("Server name"));
+        var panel = Stack(); panel.Children.Add(Text("Server name"));
         var name = new TextBox { Text = profile.Name, MaxLength = 80 }; panel.Children.Add(name); panel.Children.Add(Text("Country icon"));
         var country = Combo(new[] { "JP", "SG", "KR", "US", "HK", "TW", "TH", "GB", "DE", "FR", "NL", "AU", "Other" }, profile.Country, _ => { }); panel.Children.Add(country);
         panel.Children.Add(Action("Save", () =>
         {
             if (string.IsNullOrWhiteSpace(name.Text)) return;
-            profile.Name = name.Text.Trim(); profile.Country = country.SelectedItem.ToString()!; Changed(); dialog.Close(); Navigate("Profiles");
-        })); dialog.Content = panel; dialog.ShowDialog();
+            profile.Name = name.Text.Trim(); profile.Country = country.SelectedItem.ToString()!; Changed(); CloseSheet(); Navigate("Profiles");
+        })); ShowSheet("Edit server", panel);
     }
     private ComboBox Combo(IEnumerable<string> values, string selected, Action<string> change)
     {
@@ -233,7 +240,10 @@ public sealed partial class MainWindow : Window
         if (exitRequest?.WaitOne(0) == true) { _ = QuitApplication(); return; }
         if (showRequest?.WaitOne(0) == true) { RestoreFromTray(); return; }
         tray?.Update(); RefreshCaptureChoices();
-        if (status != null) { status.Text = backend.State; status.Foreground = Color(backend.State == "Connected" ? "#57DCB5" : "#D7E4F8"); }
+        if (!previewOnly) latency.Tick(IsVisible && WindowState != WindowState.Minimized);
+        foreach (var label in latencyLabels) { var measured = latency.Get(label.Target); label.Text.Text = measured.Label; label.Text.ToolTip = measured.Detail; }
+        if (!IsVisible && !previewOnly) return;
+        if (status != null) { status.Text = backend.State; status.Foreground = Color(backend.State == "Connected" ? "#57DCB5" : backend.Running ? "#EBC17A" : "#D7E4F8"); }
         if (detail != null) detail.Text = backend.Detail;
         if (status != null) status.ToolTip = backend.Detail;
         if (exit != null) exit.Text = "Exit IP: " + backend.ExitIp;
@@ -247,7 +257,7 @@ public sealed partial class MainWindow : Window
             trafficStatus!.Text = sample.Available ? "Live · 1s · this connection" : backend.Running ? "Counters unavailable" : "Session totals · connect to see traffic";
             trafficChart?.Sample(sample);
         }
-        if (connect != null) { connect.Content = connectBusy ? "Connecting…" : backend.Running ? dirty ? "Apply &\nreconnect" : backend.State == "Proxy conflict" ? "Use proxy" : "Disconnect" : "Connect"; connect.IsEnabled = !connectBusy && settings.Profiles.Count > 0; }
+        if (connect != null) { connect.Background = Color(backend.State == "Connected" ? "#29CDAA" : backend.State is "Error" or "Failed" ? "#EA929D" : backend.Running ? "#EBC17A" : "#73A9EB"); connect.BorderBrush = connect.Background; connect.Content = connectBusy ? "Connecting…" : backend.Running ? dirty ? "Apply &\nreconnect" : backend.State == "Proxy conflict" ? "Use proxy" : "Disconnect" : "Connect"; connect.IsEnabled = !connectBusy && settings.Profiles.Count > 0; }
         if (draftNotice != null) { draftNotice.Text = dirty ? "Settings changed · reconnect to apply" : ""; draftNotice.Visibility = dirty ? Visibility.Visible : Visibility.Collapsed; }
         if (page == "Diagnostics" && logText != null)
         {

@@ -67,17 +67,21 @@ class TunnelInstrumentedTest {
                 device.wait(Until.findObject(By.text("App Tunnel")), 15000).click()
                 device.wait(Until.findObject(By.clazz("android.widget.EditText")), 15000).text = "dev.personalvpn"
                 fun selectBoth() { ids.forEach { id -> device.wait(Until.findObject(By.desc("Select app $id")), 20000).click() } }
+                assertNull("No action bar before selection",device.findObject(By.text("Choose action")))
                 selectBoth()
-                device.findObject(By.text("Block")).click()
+                device.wait(Until.findObject(By.text("Choose action")),10000).click()
+                device.wait(Until.findObject(By.text("Block")),10000).click()
                 device.findObject(By.text("Apply to 2 apps")).click()
                 waitFor("Bulk App Block saved", 10) { Repository.config.value.apps.rules.size == 2 && Repository.config.value.apps.rules.all { it.action == Action.Block } }
                 device.takeScreenshot(java.io.File(context.filesDir, "app-tunnel.png"))
                 selectBoth()
-                device.findObject(By.text("Bypass")).click()
+                device.wait(Until.findObject(By.text("Choose action")),10000).click()
+                device.wait(Until.findObject(By.text("Bypass")),10000).click()
                 device.findObject(By.text("Apply to 2 apps")).click()
                 waitFor("Bulk App Bypass replaces rules", 10) { Repository.config.value.apps.rules.size == 2 && Repository.config.value.apps.rules.all { it.action == Action.Bypass } }
                 selectBoth()
-                device.findObject(By.text("Use default")).click()
+                device.wait(Until.findObject(By.text("Choose action")),10000).click()
+                device.wait(Until.findObject(By.text("Use default")),10000).click()
                 waitFor("Bulk exceptions removed", 10) { Repository.config.value.apps.rules.isEmpty() }
                 assertEquals(Action.Tunnel, Repository.config.value.apps.mode)
             }

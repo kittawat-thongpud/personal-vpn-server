@@ -1,40 +1,36 @@
-Client 0.7.3 fixes Windows installation, shortcut icons and taskbar/tray interaction.
+Client 0.8.0 refreshes the Android and Windows interface under one client version.
 
-Windows Setup now uses one stable Program Files\PersonalVPN directory and one
-uninstall identity for x86/x64. Updates and reinstalls replace the existing
-application. Registered legacy and version-named packages are retired through
-their own uninstall logs; unowned files are retained. Profiles and rules remain
-in current-user DPAPI storage. Restart Manager closes an existing GUI before
-replacement, then maintenance recovers only abandoned Personal VPN leases and
-stops its adapter service. No installer force-kills another VPN.
-For the first migration, an older active TUN client must use Disconnect & exit
-before Setup; clients with the new exit event can shut down gracefully during
-later updates.
+Home keeps the server and VPN-protocol controls in a centered mobile column.
+Gradient surfaces, outlined cards and a dimensional Connect button use actual
+connection state. Traffic is a subdued curved area graph with horizontal and
+vertical grid lines, a 60-second time axis and one rounded upload/download scale.
+Spikes expand the scale immediately; quieter windows settle gradually. Curves
+pass through measured points without introducing negative values or overshoots.
 
-Desktop and Start-menu shortcuts point to a standalone multi-size ICO at a
-stable path and share the application's AppUserModelID. Existing shadowing
-per-user shortcuts are repaired and their shell cache entries refreshed.
+Android App Tunnel uses compact installed-app rows, cached icons and a search/
+filter header that collapses while scrolling. Package IDs move to app details
+except for duplicate names. Selection survives searches and filters. A contextual
+bar appears only after selection; Choose action opens the batch-action sheet.
+Use default removes selected exceptions. Rules-off still requires explicit
+confirmation before enabling rules. Explicit App rules keep priority over Site.
 
-An open app appears in the taskbar and Alt+Tab. Minimize retains its taskbar
-button; X hides the window to tray. Left-click/Open restores it without starting
-a second instance. Disconnect & exit still restores owned network settings.
+Settings have consistent icons. Protocol/default-action choices, import, site
+editing and app details use bottom sheets; long profile forms scroll inside the
+sheet with keyboard insets. Android notification and Quick Settings icons use
+the monochrome Personal VPN hexagon/power logo, replacing the warning shield.
 
-Right-click uses a native Windows HMENU with foreground ownership, standard
-menu tracking and the documented WM_NULL handoff after dismissal. One request
-opens the menu; pointer movement alone does not dismiss it. Outside click,
-Escape and a selected action dismiss normally. Menus follow Windows styling;
-Explorer controls the notification overflow panel. No focus-loss/MouseLeave
-cancellation overrides or custom global input hooks are used.
+Server cards share a foreground-only latency cache: initial/due checks every five
+minutes, manual refresh, two concurrent workers and a three-second deadline.
+Home shows the selected server; profiles show all. The method is TCP connect on
+a physical interface, not ICMP ping, authenticated VPN health or QUIC RTT. A TCP
+failure is Unavailable/Timeout and does not mean Hysteria 2 is offline. TCP-only
+probes do not start extra cores, change routes or affect the recovery loop.
+Windows probes currently require an IPv4 physical path; Android supports the
+addresses resolved on its selected physical network. Checks stop in background/
+tray, have no UI event logging and do not store credentials or latency on disk.
 
-Qualification covers native HMENU state/command identity, visible/hidden taskbar
-lifecycle checks, migration from the published 0.7.2 installer, an in-place
-reinstall while an idle GUI is running, byte-identical encrypted settings,
-shortcut/icon extraction and the full existing Proxy/TUN/driver/cleanup suite.
-Native input availability is reported separately: a headless runner cannot
-establish Explorer overflow behavior. Actual Windows 11 desktop acceptance must
-be recorded without treating unavailable mouse tests as passed.
-
-The shared release includes Android APK and Windows x86/x64 setup/portable
-packages built in GitHub Actions. Android networking remains the qualified
-0.7.2 recovery implementation and is requalified under the shared version.
-VPS configuration and protocol credentials do not change. P2P remains paused.
+Windows keeps the stable install directory, encrypted settings, Administrator
+requirement, native tray-menu tracking and taskbar behavior from 0.7.3. The
+release includes the signed Android APK and Windows x86/x64 Setup/portable
+packages, built and qualified in GitHub Actions. No VPS changes are required.
+P2P development remains paused.

@@ -124,38 +124,73 @@ internal static class CoreTraffic
     }
 }
 
+internal sealed class ChartScale
+{
+    public double Ceiling { get; private set; } = 1024;
+    private int quiet;
+    public double Update(double peak)
+    {
+        double wanted = Nice(Math.Max(1024, peak * 1.12));
+        if (wanted > Ceiling) { Ceiling = wanted; quiet = 0; }
+        else if (wanted < Ceiling / 2) { if (++quiet >= 15) { Ceiling = Math.Max(wanted, Ceiling / 2); quiet = 0; } }
+        else quiet = 0;
+        return Ceiling;
+    }
+    public static double Nice(double value)
+    {
+        double magnitude = Math.Pow(10, Math.Floor(Math.Log10(Math.Max(1, value))));
+        return new[] { 1d, 2, 5, 10 }.First(x => x * magnitude >= value) * magnitude;
+    }
+}
 public sealed class TrafficChart : FrameworkElement
 {
-    private readonly Queue<(double Up, double Down)> samples = new();
-    private static readonly Pen UpPen = new(new SolidColorBrush(Color.FromRgb(22, 200, 160)), 1.8);
-    private static readonly Pen DownPen = new(new SolidColorBrush(Color.FromRgb(100, 168, 255)), 1.8);
+    private readonly Queue<TrafficSample> samples = new();
+    private readonly ChartScale scale = new();
     private DateTime last = DateTime.MinValue;
     public void Sample(TrafficSample sample)
     {
         if (!sample.Available || sample.Time == last) return;
-        last = sample.Time; samples.Enqueue((sample.UploadRate, sample.DownloadRate));
-        while (samples.Count > 60) samples.Dequeue(); InvalidateVisual();
+        if (sample.Time < last) { samples.Clear(); }
+        last = sample.Time; samples.Enqueue(sample);
+        while (samples.Count > 60 || (samples.Count > 0 && last - samples.Peek().Time > TimeSpan.FromSeconds(60))) samples.Dequeue();
+        scale.Update(samples.Max(x => Math.Max(x.UploadRate, x.DownloadRate))); InvalidateVisual();
     }
     protected override void OnRender(DrawingContext drawing)
     {
         base.OnRender(drawing);
-        double width = Math.Max(1, ActualWidth - 6), height = Math.Max(1, ActualHeight - 8);
-        var grid = new Pen(new SolidColorBrush(Color.FromRgb(43, 61, 85)), .7);
-        foreach (double fraction in new[] { 0d, .5, 1d }) drawing.DrawLine(grid, new Point(3, 4 + height * fraction), new Point(width + 3, 4 + height * fraction));
+        double left = 56, top = 7, right = Math.Max(left + 1, ActualWidth - 4), bottom = Math.Max(top + 1, ActualHeight - 17), width = right - left, height = bottom - top;
+        var grid = new Pen(new SolidColorBrush(Color.FromRgb(43, 61, 85)), .6);
+        void Label(string value, double x, double y, int align = 0)
+        {
+            var text = new FormattedText(value, System.Globalization.CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, new Typeface("Segoe UI"), 9,
+                new SolidColorBrush(Color.FromRgb(142, 160, 185)), VisualTreeHelper.GetDpi(this).PixelsPerDip);
+            drawing.DrawText(text, new Point(x - (align == 1 ? text.Width / 2 : align == 2 ? text.Width : 0), y));
+        }
+        for (int i = 0; i <= 2; i++)
+        {
+            double y = bottom - height * i / 2; drawing.DrawLine(grid, new Point(left, y), new Point(right, y));
+            Label(i == 0 ? "0" : TrafficMeter.Format(scale.Ceiling * i / 2) + "/s", 0, y - 6);
+        }
+        for (int i = 0; i <= 4; i++)
+        {
+            double x = left + width * i / 4; drawing.DrawLine(grid, new Point(x, top), new Point(x, bottom));
+            Label(i == 4 ? "now" : "−" + (60 - 15 * i) + "s", x, bottom + 3, i == 0 ? 0 : i == 4 ? 2 : 1);
+        }
         if (samples.Count < 2) return;
-        var values = samples.ToArray(); double peak = Math.Max(1024, values.Max(x => Math.Max(x.Up, x.Down)) * 1.12);
         foreach (bool upload in new[] { true, false })
         {
-            var line = new StreamGeometry();
-            using (var shape = line.Open())
+            var points = samples.Select(x => new Point(right - width * Math.Clamp((last - x.Time).TotalSeconds / 60, 0, 1), bottom - height * Math.Clamp((upload ? x.UploadRate : x.DownloadRate) / scale.Ceiling, 0, 1))).ToArray();
+            var line = new StreamGeometry(); var area = new StreamGeometry();
+            void Curve(StreamGeometryContext shape)
             {
-                for (int i = 0; i < values.Length; i++)
-                {
-                    var point = new Point(3 + width * (60 - values.Length + i) / 59, 4 + height * (1 - (upload ? values[i].Up : values[i].Down) / peak));
-                    if (i == 0) shape.BeginFigure(point, false, false); else shape.LineTo(point, true, false);
-                }
+                for (int i = 1; i < points.Length; i++)
+                { var a = points[i - 1]; var b = points[i]; double mid = (a.X + b.X) / 2; shape.BezierTo(new Point(mid, a.Y), new Point(mid, b.Y), b, true, false); }
             }
-            line.Freeze(); drawing.DrawGeometry(null, upload ? UpPen : DownPen, line);
+            using (var shape = line.Open()) { shape.BeginFigure(points[0], false, false); Curve(shape); }
+            using (var shape = area.Open()) { shape.BeginFigure(points[0], true, true); Curve(shape); shape.LineTo(new Point(points[^1].X, bottom), false, false); shape.LineTo(new Point(points[0].X, bottom), false, false); }
+            var color = upload ? Color.FromRgb(42, 197, 166) : Color.FromRgb(110, 159, 228);
+            drawing.DrawGeometry(new LinearGradientBrush(Color.FromArgb(38, color.R, color.G, color.B), Color.FromArgb(3, color.R, color.G, color.B), 90), null, area);
+            drawing.DrawGeometry(null, new Pen(new SolidColorBrush(color), 1.6) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round }, line);
         }
     }
 }

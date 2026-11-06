@@ -35,13 +35,14 @@ public sealed partial class MainWindow
         bool compact = lastCompactHome = Height < 680;
         var body = PageRows(Auto, Auto, Star, Auto);
         var profile = settings.Profiles.FirstOrDefault(x => x.Id == settings.SelectedId);
-        var card = new Grid(); card.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) }); card.ColumnDefinitions.Add(new ColumnDefinition()); card.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
+        var card = new Grid(); card.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) }); card.ColumnDefinitions.Add(new ColumnDefinition()); card.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); card.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
         var flag = new Border { Width = 32, Height = 32, CornerRadius = new CornerRadius(16), Background = Color("#F4F7FB"), VerticalAlignment = VerticalAlignment.Center };
         flag.Child = profile?.Country == "JP" ? new System.Windows.Shapes.Ellipse { Width = 15, Height = 15, Fill = Color("#CC2944") } : new TextBlock { Text = profile?.Country ?? "+", Foreground = Color("#23334C"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.Bold };
         card.Children.Add(flag);
         var labels = Stack(); var name = Text(profile?.Name ?? "Add your server", 14); name.TextWrapping = TextWrapping.NoWrap; name.TextTrimming = TextTrimming.CharacterEllipsis; labels.Children.Add(name);
         labels.Children.Add(Text(profile == null ? "Import a device profile" : DisplayEndpoint(profile), 11, "#9BAECD")); Grid.SetColumn(labels, 1); card.Children.Add(labels);
-        var arrow = Text("›", 24, "#86B8FF"); arrow.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(arrow, 2); card.Children.Add(arrow);
+        if (profile != null) { var measured = LatencyLabel(profile); Grid.SetColumn(measured,2); card.Children.Add(measured); }
+        var arrow = Text("›", 24, "#86B8FF"); arrow.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(arrow, 3); card.Children.Add(arrow);
         var server = Action("", () => Navigate("Profiles")); server.Content = card; server.HorizontalContentAlignment = HorizontalAlignment.Stretch; server.Name = "ServerCard"; server.Height = compact ? 64 : 75; server.Margin = new Thickness(0, 0, 0, 8); Put(body, server, 0);
         var capture = Stack(); capture.Children.Add(CaptureSelector());
         var protocol = Combo(new[] { "Hysteria 2", "REALITY" }, settings.Protocol, value => { settings.Protocol = value; Changed(); Navigate("Home"); }); protocol.Name = "HomeProtocol"; protocol.Margin = new Thickness(0, 1, 0, 3); capture.Children.Add(protocol); Put(body, capture, 1);
@@ -51,9 +52,13 @@ public sealed partial class MainWindow
         connect.Name = "ConnectButton"; connect.Width = connect.Height = 172; connect.FontSize = 18; connect.Margin = new Thickness(0); connect.Background = Color("#14C7A0"); connect.Foreground = Color("#052D28");
         connect.Template = (ControlTemplate)XamlReader.Parse("""
           <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="Button">
-            <Grid><Ellipse Fill="#173F49"/><Ellipse Margin="9" Fill="{TemplateBinding Background}"/>
+            <Grid>
+              <Ellipse Margin="5" Fill="{TemplateBinding BorderBrush}" Opacity="0.18"><Ellipse.Effect><DropShadowEffect Color="{Binding BorderBrush.Color, RelativeSource={RelativeSource TemplatedParent}}" BlurRadius="18" ShadowDepth="0" Opacity="0.7"/></Ellipse.Effect></Ellipse>
+              <Ellipse Margin="9,12,9,6" Fill="#040C17"><Ellipse.Effect><DropShadowEffect BlurRadius="13" ShadowDepth="7" Opacity="0.65"/></Ellipse.Effect></Ellipse>
+              <Ellipse Margin="10" Fill="{TemplateBinding Background}" Stroke="#70EBFFF5" StrokeThickness="1"/>
+              <Ellipse Margin="11" IsHitTestVisible="False"><Ellipse.Fill><LinearGradientBrush StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#40FFFFFF" Offset="0"/><GradientStop Color="#00FFFFFF" Offset="0.5"/><GradientStop Color="#18000000" Offset="1"/></LinearGradientBrush></Ellipse.Fill></Ellipse>
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Grid><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Opacity" Value="0.86"/></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter Property="Foreground" Value="White"/></Trigger></ControlTemplate.Triggers>
+            </Grid><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Opacity" Value="0.9"/></Trigger><Trigger Property="IsPressed" Value="True"><Setter Property="Opacity" Value="0.75"/></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter Property="Foreground" Value="White"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.5"/></Trigger></ControlTemplate.Triggers>
           </ControlTemplate>
           """);
         Put(center, new Viewbox { Child = connect, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, MaxHeight = compact ? 140 : 184, Margin = new Thickness(0, 4, 0, 5) }, 1);
@@ -74,9 +79,10 @@ public sealed partial class MainWindow
     }
     private Button SettingsRow(string title, string description, string target)
     {
-        var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition()); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
-        var labels = Stack(); labels.Children.Add(Text(title, 15)); labels.Children.Add(Text(description, 11, "#9BAECD")); grid.Children.Add(labels);
-        var arrow = Text("›", 23, "#86B8FF"); arrow.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(arrow, 1); grid.Children.Add(arrow);
+        var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) }); grid.ColumnDefinitions.Add(new ColumnDefinition()); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
+        var labels = Stack(); labels.Children.Add(Text(title, 15)); labels.Children.Add(Text(description, 11, "#9BAECD")); Grid.SetColumn(labels,1); grid.Children.Add(labels);
+        var icon = new TextBlock { Text = target switch { "AppTunnel" => "\uE8A5", "SiteTunnel" => "\uE774", "Diagnostics" => "\uE9D9", _ => "\uE713" }, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize=21, Foreground=Color("#91BEF4"), VerticalAlignment=VerticalAlignment.Center }; grid.Children.Add(icon);
+        var arrow = Text("›", 23, "#86B8FF"); arrow.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(arrow, 2); grid.Children.Add(arrow);
         var button = Action("", () => Navigate(target)); button.Content = grid; button.HorizontalContentAlignment = HorizontalAlignment.Stretch; button.Padding = new Thickness(14, 11, 14, 11); button.Margin = new Thickness(0, 4, 0, 6); return button;
     }
     private async Task ApplyPolicy()
@@ -159,8 +165,7 @@ public sealed partial class MainWindow
     {
         string? selected = null;
         if (apps && previous == null) { var file = new OpenFileDialog { Filter = "Windows app (*.exe)|*.exe", CheckFileExists = true }; if (file.ShowDialog(this) != true) return; selected = file.FileName; }
-        var dialog = new Window { Owner = this, Title = previous == null ? "Add exception" : "Edit exception", Width = 370, Height = 380, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterOwner, Background = Background, Foreground = Foreground };
-        var panel = new StackPanel { Margin = new Thickness(18) }; panel.Children.Add(Text(apps ? "App executable" : "Target type", 13));
+        var panel = Stack(); panel.Children.Add(Text(apps ? "App executable" : "Target type", 13));
         var kind = Combo(apps ? new[] { "App" } : new[] { "Domain", "IP" }, previous?.Kind ?? (apps ? "App" : "Domain"), _ => { }); if (!apps) panel.Children.Add(kind);
         var value = new TextBox { Text = previous?.Value ?? selected ?? "", MaxLength = apps ? 1024 : 253 }; panel.Children.Add(value);
         panel.Children.Add(Text(apps ? "Full .exe path. Child processes need their own entry." : "Domain includes subdomains. IP accepts IPv4, IPv6 or CIDR.", 11, "#9BAECD")); panel.Children.Add(Text("Action", 13));
@@ -170,8 +175,8 @@ public sealed partial class MainWindow
             var next = new TunnelException { Kind = (string)kind.SelectedItem, Value = value.Text.Trim(), Action = (string)action.SelectedItem };
             var candidate = new TunnelPolicy { Mode = policy.Mode, Entries = policy.Entries.Where(x => !ReferenceEquals(x, previous)).Append(next).ToList() }; Policy.ValidateTunnel(candidate, apps);
             if (previous == null) policy.Entries.Add(next); else policy.Entries[policy.Entries.IndexOf(previous)] = next;
-            Changed(!apps || settings.CaptureMode == "TUN"); dialog.Close(); Navigate(apps ? "AppTunnel" : "SiteTunnel");
-        })); dialog.Content = panel; dialog.ShowDialog();
+            Changed(!apps || settings.CaptureMode == "TUN"); CloseSheet(); Navigate(apps ? "AppTunnel" : "SiteTunnel");
+        })); ShowSheet(previous == null ? "Add exception" : "Edit exception", panel);
     }
     internal FrameworkElement LayoutForTest(string target, Size size)
     {

@@ -34,6 +34,13 @@ public static class MobileValidation
             Assert(rules.Count == (mode == "Disabled" ? 2 : 3), "Rules-off must retain but ignore exceptions.");
             if (mode == "Block") Assert((string?)rules[1]?["outboundTag"] == "tunnel", "Tunnel exception must override a Block default.");
         }
+        var scale = new ChartScale(); double spike = scale.Update(8000000);
+        Assert(spike >= 8000000 && ChartScale.Nice(5001) == 10000, "Graph scale clips a spike or loses rounded ticks.");
+        for (int i = 0; i < 14; i++) Assert(scale.Update(0) == spike,"Graph scale shrank before a quiet window.");
+        Assert(scale.Update(0) == spike / 2,"Graph scale did not settle gradually.");
+        Assert(LatencyTarget.From(new ServerProfile { Hysteria = "{\"server\":\"[2001:db8::1]:8443\"}" }) == new LatencyTarget("2001:db8::1",8443), "IPv6 latency endpoint parsing failed.");
+        Assert(new LatencyResult(Checked: DateTime.UtcNow,Reason:"TCP unavailable").Label != "Offline", "TCP failure must not claim the UDP VPN is offline.");
+        checks.Add("traffic shared scale covers spikes and settles slowly; latency parses IPv6 and distinguishes TCP from VPN health");
         checks.Add("site defaults, exception over Block default, rules-off, legacy migration");
         var policy = new Settings { Sites = new TunnelPolicy { Mode = "Block", Entries = new() { new() { Kind = "Domain", Value = "example.com", Action = "Block" } } }, Apps = new TunnelPolicy { Mode = "Tunnel", Entries = new() { new() { Kind = "App", Value = @"C:\Apps\browser.exe", Action = "Bypass" } } } };
         var plan = TunPlan.Compile(policy, new[] { "203.0.113.10", "2001:db8::10" }, new[] { @"C:\PersonalVPN\cores\xray.exe", @"C:\PersonalVPN\cores\hysteria.exe" });

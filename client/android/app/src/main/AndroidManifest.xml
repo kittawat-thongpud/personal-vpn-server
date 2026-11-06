@@ -19,7 +19,7 @@
         <service android:name=".TunnelService" android:permission="android.permission.BIND_VPN_SERVICE" android:foregroundServiceType="systemExempted" android:exported="true" tools:ignore="ForegroundServicePermission">
             <intent-filter><action android:name="android.net.VpnService"/></intent-filter>
         </service>
-        <service android:name=".VpnTile" android:label="Personal VPN" android:icon="@drawable/ic_vpn" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE" android:exported="true">
+        <service android:name=".VpnTile" android:label="Personal VPN" android:icon="@drawable/ic_notification" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE" android:exported="true">
             <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE"/></intent-filter>
             <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="true"/>
         </service>
