@@ -106,6 +106,7 @@ public sealed partial class MainWindow
         var badge=new Border{Child=mode,Background=Color("#263B52"),CornerRadius=new CornerRadius(7),Margin=new Thickness(0,0,6,0),VerticalAlignment=VerticalAlignment.Center};Grid.SetColumn(badge,2);row.Children.Add(badge);
         var edit=Action("",()=>EditException(policy,apps,entry));edit.Content=EditDeleteIcon(true);edit.ToolTip="Edit exception";edit.Padding=new Thickness(5);edit.Margin=new Thickness(1);edit.Height=32;Grid.SetColumn(edit,3);row.Children.Add(edit);
         var remove=Action("",()=>{policy.Entries.Remove(entry);Changed(!apps||settings.CaptureMode=="TUN");Navigate(apps?"AppTunnel":"SiteTunnel");});remove.Content=EditDeleteIcon(false);remove.ToolTip="Delete exception";remove.Padding=new Thickness(5);remove.Margin=new Thickness(1);remove.Height=32;Grid.SetColumn(remove,4);row.Children.Add(remove);
+        System.Windows.Automation.AutomationProperties.SetName(edit,"Edit "+label.Text);System.Windows.Automation.AutomationProperties.SetName(remove,"Delete "+label.Text);
         var card=Card(row);card.Padding=new Thickness(8,6,8,6);card.Margin=new Thickness(0,0,0,7);return card;
     }
     private ListBox ExceptionList(TunnelPolicy policy,bool apps)
