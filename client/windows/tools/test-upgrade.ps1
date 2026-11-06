@@ -32,7 +32,11 @@ function VerifyInstalled {
     $exe = Join-Path $root 'PersonalVPN.exe'
     if ((Get-FileHash $exe).Hash -ne (Get-FileHash dist/windows/PersonalVPN.exe).Hash) { throw 'Installed app differs from qualified package' }
     if ((Get-Content (Join-Path $root 'CLIENT-VERSION.txt') -Raw).Trim() -ne $Version) { throw 'Installed shared version mismatch' }
-    if ((Get-Content (Join-Path $root 'driver-install.json') -Raw | ConvertFrom-Json).result -ne 'PASS') { throw 'Installed driver not ready' }
+    $driverReport = Get-Content (Join-Path $root 'driver-install.json') -Raw | ConvertFrom-Json
+    if ($driverReport.result -ne 'PASS' -or $driverReport.bootstrapAttempts -notin @(1,2)) { throw 'Installed driver not ready' }
+    Write-Output "Adapter bootstrap attempts: $($driverReport.bootstrapAttempts); recovery: $($driverReport.bootstrapRecovery)"
+    if ((Get-Service PersonalVPNAdapter).Status -ne 'Running') { throw 'Installed adapter service is not running' }
+    if ((Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\PersonalVPNAdapter').ImagePath -ne ('"'+$exe+'" --adapter-service')) { throw 'Adapter service points to an old installation' }
     $large = [IntPtr]::Zero; $small = [IntPtr]::Zero
     try {
         if ([PersonalVpnIconCheck]::ExtractIconEx((Join-Path $root 'Assets/personal-vpn.ico'),0,[ref]$large,[ref]$small,1) -ne 1 -or $large -eq [IntPtr]::Zero -or $small -eq [IntPtr]::Zero) { throw 'Windows shell cannot extract the installed desktop icon' }

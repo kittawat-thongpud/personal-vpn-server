@@ -195,7 +195,12 @@ public static class AdapterService
         int lastCode = 0;
         for (int i = 0; i < 450; i++)
         {
-            try { return new WintunAdapter(AdapterName, RequestedId, openExisting: true); }
+            try
+            {
+                var adapter = new WintunAdapter(AdapterName, RequestedId, openExisting: true);
+                if (service == IntPtr.Zero || (QueryServiceStatus(service, out var current) && current.State == 4)) return adapter;
+                adapter.Dispose(); Thread.Sleep(100);
+            }
             catch (Win32Exception error) { lastCode = error.NativeErrorCode; Thread.Sleep(100); }
         }
         string detail = " Last device error: " + lastCode + ".";
