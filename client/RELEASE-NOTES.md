@@ -7,6 +7,9 @@ their own uninstall logs; unowned files are retained. Profiles and rules remain
 in current-user DPAPI storage. Restart Manager closes an existing GUI before
 replacement, then maintenance recovers only abandoned Personal VPN leases and
 stops its adapter service. No installer force-kills another VPN.
+For the first migration, an older active TUN client must use Disconnect & exit
+before Setup; clients with the new exit event can shut down gracefully during
+later updates.
 
 Desktop and Start-menu shortcuts point to a standalone multi-size ICO at a
 stable path and share the application's AppUserModelID. Existing shadowing

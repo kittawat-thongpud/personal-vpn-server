@@ -11,8 +11,10 @@ same directory. Registered legacy/versioned installations are retired through
 their own uninstall logs; unowned files and current-user DPAPI settings survive.
 Setup closes the previous application with Windows Restart Manager, recovers
 only abandoned Personal VPN leases and stops its service before replacing files.
-It never force-kills another VPN. If an old app cannot close, exit it from its tray
-and retry Setup. Prefer Setup for automatic legacy cleanup; ZIP installation also
+It never force-kills another VPN. An older active TUN client without an upgrade
+exit event must first use Disconnect & exit from its tray. Subsequent upgrades
+can request a graceful exit automatically. If an old app cannot close, exit it
+from its tray and retry Setup. Prefer Setup for automatic legacy cleanup; ZIP installation also
 uses the stable directory, but an older running GUI can require a manual exit.
 
 Home has server profiles, Proxy / TUN, the VPN protocol selector and live traffic.
@@ -25,6 +27,8 @@ click, Esc or a selected action does. Explorer owns its overflow panel and the
 app does not force that panel open/closed. Menus follow the native Windows theme.
 Shortcuts use a standalone multi-size ICO at a stable path and a matching stable
 AppUserModelID; only the app's shortcut entries are refreshed in the shell cache.
+See [installation and Shell behavior](SHELL-INSTALL.md) for the implementation
+sources and the separate Windows 11 desktop acceptance checks.
 
 Import a vpnctl Windows export folder containing xray.json / hysteria.json.
 Only connection fields are imported. Credentials / settings stay in current-user
