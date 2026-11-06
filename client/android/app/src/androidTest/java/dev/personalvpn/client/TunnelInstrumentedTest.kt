@@ -66,7 +66,13 @@ class TunnelInstrumentedTest {
                 settings.click()
                 device.wait(Until.findObject(By.text("App Tunnel")), 15000).click()
                 device.wait(Until.findObject(By.clazz("android.widget.EditText")), 15000).text = "dev.personalvpn"
-                fun selectBoth() { ids.forEach { id -> device.wait(Until.findObject(By.desc("Select app $id")), 20000).click() } }
+                fun selectBoth() {
+                    ids.forEach { id ->
+                        device.findObject(By.clazz("android.widget.EditText")).text=id
+                        device.wait(Until.findObject(By.desc("Select app $id")),20000).click()
+                    }
+                    device.findObject(By.clazz("android.widget.EditText")).text="dev.personalvpn"
+                }
                 assertNull("No action bar before selection",device.findObject(By.text("Choose action")))
                 selectBoth()
                 device.wait(Until.findObject(By.text("Choose action")),10000).click()
@@ -189,7 +195,11 @@ class TunnelInstrumentedTest {
         } finally { store.save(original) }
     }
     @Test fun homeControlsFitInsideTheScreen() {
-        launchHome().use {
+        val original=Repository.config.value
+        val profile=Profile(name="Japan · preview",reality=fixture().getJSONObject("reality").toString())
+        Repository.save(Config(listOf(profile),profile.id,"REALITY"))
+        val captureBefore=captureName()
+        try { launchHome().use { activity ->
             val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
             if (!device.wait(Until.hasObject(By.text("Connect")), 15000)) error("Connect missing after fresh launch; ${uiHierarchy()}")
             val connect = device.findObject(By.text("Connect")).visibleBounds
@@ -198,7 +208,15 @@ class TunnelInstrumentedTest {
             assertTrue(device.hasObject(By.text("TUNNEL TRAFFIC")))
             assertTrue(device.hasObject(By.desc("Traffic over 60 seconds; shared upload and download scale")))
             assertEquals(R.drawable.ic_notification,Surfaces.notification(context).smallIcon.resId)
+            waitFor("Foreground TCP latency",15) { device.hasObject(By.text(java.util.regex.Pattern.compile("[0-9]+ ms"))) }
+            assertEquals("Latency UI created a VPN interface",captureBefore,captureName())
+            assertFalse("Latency UI started a tunnel",Repository.state.value.active)
             device.takeScreenshot(java.io.File(context.filesDir,"home-ui.png"))
-        }
+            activity.onActivity { it.previewFontScaleForTest(1.5f) }
+            device.waitForIdle()
+            val nav=device.wait(Until.findObject(By.text("Settings")),10000).visibleBounds
+            assertTrue("Root navigation clipped at enlarged text",nav.top>=0 && nav.bottom<=device.displayHeight)
+            device.takeScreenshot(java.io.File(context.filesDir,"home-large-font.png"))
+        } } finally { Repository.save(original) }
     }
 }

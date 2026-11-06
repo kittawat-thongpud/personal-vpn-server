@@ -21,6 +21,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -29,7 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-@Composable fun AppTunnelPage(policy: Policy, sessionActive: Boolean, changed: (Policy) -> Unit) {
+@Composable fun AppTunnelPage(policy: Policy, sessionActive: Boolean, changed: (Policy) -> Boolean) {
     val context = LocalContext.current
     var refresh by remember { mutableIntStateOf(0) }
     val catalog by produceState(InstalledApps.peek(), refresh) { value = InstalledApps.load(context, refresh > 0) }
@@ -68,7 +69,7 @@ import androidx.compose.ui.unit.sp
     val duplicateNames = remember(apps) { apps.groupingBy { it.name }.eachCount().filterValues { it > 1 }.keys }
     val chosen = selected.toSet()
     fun select(id: String) { saved = false; selected = ArrayList(if (id in chosen) selected.filterNot { it == id } else selected + id) }
-    fun apply(base: Policy = policy) { changed(AppRules.apply(base, chosen, action)); selected = arrayListOf(); actionsOpen = false; saved = true }
+    fun apply(base: Policy = policy) { if(changed(AppRules.apply(base,chosen,action))) { selected=arrayListOf();actionsOpen=false;saved=true } }
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Box {
@@ -118,10 +119,14 @@ import androidx.compose.ui.unit.sp
             }
         }
         if (selected.isNotEmpty()) Surface(shape=RoundedCornerShape(18.dp),color=MaterialTheme.colorScheme.surfaceContainerHigh,tonalElevation=4.dp) {
-            Row(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=4.dp),verticalAlignment=Alignment.CenterVertically) {
-                Text("${selected.size} selected",Modifier.weight(1f),fontWeight=FontWeight.Medium)
-                TextButton(onClick={ selected=arrayListOf() }) { Text("Clear") }
-                Button(onClick={ actionsOpen=true }) { Text("Choose action") }
+            Column(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=4.dp)) {
+                val large=LocalDensity.current.fontScale>1.3f
+                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                    Text("${selected.size} selected",Modifier.weight(1f),fontWeight=FontWeight.Medium)
+                    TextButton(onClick={selected=arrayListOf()}) { Text("Clear") }
+                    if(!large) Button(onClick={actionsOpen=true}) { Text("Choose action") }
+                }
+                if(large) Button(onClick={actionsOpen=true},modifier=Modifier.fillMaxWidth()) { Text("Choose action") }
             }
         }
         if (saved) Text(if(sessionActive) "Saved · reconnect to apply" else "Saved",fontSize=11.sp,color=MaterialTheme.colorScheme.primary)
@@ -130,9 +135,10 @@ import androidx.compose.ui.unit.sp
     if (expanded) VpnSheet("Default app action",{ expanded=false }) { Action.entries.forEach { mode -> TextButton(onClick={ changed(policy.copy(mode=mode));expanded=false },modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text(modeLabel(mode)) } } }
     if (actionsOpen && selected.isNotEmpty()) VpnSheet("${selected.size} selected apps",{ actionsOpen=false }) {
         Text("App exceptions take priority over site rules.",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)) { listOf(Action.Tunnel,Action.Bypass,Action.Block).forEach { value -> FilterChip(action==value,{action=value},label={Text(value.name)},modifier=Modifier.weight(1f).heightIn(min=48.dp)) } }
+        if(LocalDensity.current.fontScale>1.3f) Column { listOf(Action.Tunnel,Action.Bypass,Action.Block).forEach { value -> FilterChip(action==value,{action=value},label={Text(value.name)},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) } }
+        else Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)) { listOf(Action.Tunnel,Action.Bypass,Action.Block).forEach { value -> FilterChip(action==value,{action=value},label={Text(value.name)},modifier=Modifier.weight(1f).heightIn(min=48.dp)) } }
         Button(onClick={ if(policy.mode==Action.Disabled) { actionsOpen=false;enableRules=true } else apply() },modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Apply to ${selected.size} apps") }
-        OutlinedButton(onClick={ changed(AppRules.remove(policy,chosen));selected=arrayListOf();actionsOpen=false;saved=true },enabled=chosen.any { it in rules },modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Use default") }
+        OutlinedButton(onClick={ if(changed(AppRules.remove(policy,chosen))) { selected=arrayListOf();actionsOpen=false;saved=true } },enabled=chosen.any { it in rules },modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Use default") }
     }
     details?.let { app -> VpnSheet(app.name,{details=null}) { Text(app.packageName); Text(if(app.installed) "Installed app" else "App is not installed"); Text("Action: ${rules[app.packageName]?.action?.name ?: "Use default"}") } }
     if (enableRules) AlertDialog(onDismissRequest = { enableRules = false }, title = { Text("Enable App Tunnel rules?") }, text = { Text("Tunnel other apps by default and apply ${action.name} to the ${selected.size} selected apps. Site exceptions still apply to other apps.") }, confirmButton = { TextButton(onClick = { apply(policy.copy(mode = Action.Tunnel)); enableRules = false }) { Text("Enable & apply") } }, dismissButton = { TextButton(onClick = { enableRules = false }) { Text("Cancel") } })

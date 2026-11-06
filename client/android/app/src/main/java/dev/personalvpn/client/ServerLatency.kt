@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.SystemClock
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,19 +36,40 @@ internal class ServerLatency(context: Context) {
     private val running=mutableMapOf<String,Job>()
     private var scope: CoroutineScope?=null
     private var targets: List<LatencyTarget> = emptyList()
-    private fun physical(): Network? = manager.allNetworks.filter { n -> manager.getNetworkCapabilities(n)?.let { it.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) && it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) && it.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED) } == true }
-        .sortedByDescending { n -> manager.getNetworkCapabilities(n)?.let { (if(it.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED))2 else 0)+(if(it.hasTransport(NetworkCapabilities.TRANSPORT_WIFI))1 else 0) } ?: 0 }.firstOrNull()
-    private fun networkKey(n: Network?)="${n?.networkHandle}:${n?.let { manager.getLinkProperties(it)?.linkAddresses }}"
+    private var observed=emptyList<PhysicalNetwork>()
+    private var callback: PhysicalNetworks?=null
+    private var lastNetwork=""
+    private fun physical(): Network? {
+        val choice=chooseNetwork(observed.map { it.choice }.filterNot { it.suspended },null)
+        return observed.find { it.choice.id==choice?.id }?.network
+    }
+    private fun networkKey(n: Network?)=observed.find { it.network==n }?.choice?.path ?: "offline"
     fun profiles(profiles: List<Profile>,protocol: String) {
         targets=profiles.mapNotNull { it.latencyTarget(protocol) }.distinct()
+        running.keys.filter { key -> targets.none { it.key==key } }.forEach { running.remove(it)?.cancel() }
         mutable.value=mutable.value.filterKeys { key -> targets.any { it.key==key } }
         refresh(false)
     }
-    fun start() { if(scope!=null)return;scope=CoroutineScope(SupervisorJob()+Dispatchers.Main.immediate).also { it.launch { while(isActive) { refresh(false);delay(300_000) } } } }
-    fun stop() { scope?.cancel();scope=null;running.clear();mutable.value=mutable.value.mapValues { (_,v)->v.copy(pending=false) } }
+    fun start() {
+        if(scope!=null)return
+        val owner=CoroutineScope(SupervisorJob()+Dispatchers.Main.immediate);scope=owner
+        val observer=PhysicalNetworks { values -> owner.launch { observed=values;refresh(false) } }
+        callback=observer
+        manager.registerNetworkCallback(NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN).addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build(),observer)
+        owner.launch { while(isActive) { refresh(false);delay(300_000) } }
+    }
+    fun stop() {
+        callback?.let { runCatching { manager.unregisterNetworkCallback(it) } };callback=null
+        scope?.cancel();scope=null;running.clear();observed=emptyList()
+        mutable.value=mutable.value.mapValues { (_,v)->v.copy(pending=false) }
+    }
     fun refresh(force: Boolean=true,only: LatencyTarget?=null) {
         val owner=scope ?: return
         val network=physical();val key=networkKey(network)
+        if(key!=lastNetwork) {
+            lastNetwork=key;running.values.toList().forEach { it.cancel() };running.clear()
+            mutable.value=emptyMap()
+        }
         for(target in (only?.let { listOf(it) } ?: targets)) {
             val previous=mutable.value[target.key]
             if(running[target.key]?.isActive==true)continue

@@ -69,6 +69,7 @@ jobs:
     uses: ./.github/workflows/android-client.yml
     with:
       client_version: ${{ needs.version.outputs.version }}
+      stage_previews: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish }}
     secrets: inherit
   release:
     if: ${{ needs.version.outputs.build == 'true' && (github.event_name != 'workflow_dispatch' || inputs.publish) }}

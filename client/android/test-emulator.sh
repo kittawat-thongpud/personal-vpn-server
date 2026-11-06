@@ -69,6 +69,8 @@ timeout 480 "$adb_binary" shell am instrument -w -r -e fixture "$fixture" dev.pe
 adb logcat -d -s System.out:I AndroidRuntime:E '*:S' | tail -n 120
 grep -Eq '^OK \([0-9]+ tests?\)' "$project/app/build/emulator/result.txt"
 adb exec-out run-as dev.personalvpn.client cat files/app-tunnel.png > "$project/app/build/emulator/app-tunnel.png"
+adb exec-out run-as dev.personalvpn.client cat files/home-ui.png > "$project/app/build/emulator/home-ui.png"
+adb exec-out run-as dev.personalvpn.client cat files/home-large-font.png > "$project/app/build/emulator/home-large-font.png"
 adb shell am start -W -n dev.personalvpn.client/.MainActivity
 sleep 2
 adb exec-out screencap -p > "$project/app/build/emulator/home.png"

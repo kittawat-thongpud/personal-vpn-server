@@ -39,7 +39,8 @@ scale step. New sessions must not show samples from an earlier connection.
 
 The foreground UI has a separate in-memory TCP-connect cache, shared by Home
 (selected profile) and Profiles (all). Profile/port changes invalidate the key;
-credentials never enter the key. Initial/due measurements run at five-minute
+credentials never enter the key. Android observes physical-link changes only
+while the Activity is started and invalidates obsolete results. Initial/due measurements run at five-minute
 intervals; manual refresh deduplicates pending requests, with two workers and a
 three-second per-probe deadline. Hiding/minimizing Windows or stopping the
 Android Activity cancels UI probes. The VPN recovery/notification worker remains.

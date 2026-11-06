@@ -84,7 +84,15 @@ public sealed partial class MainWindow
     {
         var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) }); grid.ColumnDefinitions.Add(new ColumnDefinition()); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
         var labels = Stack(); labels.Children.Add(Text(title, 15)); labels.Children.Add(Text(description, 11, "#9BAECD")); Grid.SetColumn(labels,1); grid.Children.Add(labels);
-        var icon = new TextBlock { Text = target switch { "AppTunnel" => "\uE8A5", "SiteTunnel" => "\uE774", "Diagnostics" => "\uE9D9", _ => "\uE713" }, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize=21, Foreground=Color("#91BEF4"), VerticalAlignment=VerticalAlignment.Center }; grid.Children.Add(icon);
+        UIElement icon;
+        if (target == "AppTunnel")
+        {
+            var boxes = new GeometryGroup();
+            foreach (double x in new[] { 1d,12 }) foreach (double y in new[] { 1d,12 }) boxes.Children.Add(new RectangleGeometry(new Rect(x,y,7,7),1,1));
+            boxes.Freeze(); icon = new System.Windows.Shapes.Path { Data=boxes,Stroke=Color("#91BEF4"),StrokeThickness=1.4,Width=21,Height=21,Stretch=Stretch.Uniform,VerticalAlignment=VerticalAlignment.Center,HorizontalAlignment=HorizontalAlignment.Left };
+        }
+        else icon = new TextBlock { Text = target switch { "SiteTunnel" => "\uE774", "Diagnostics" => "\uE9D9", _ => "\uE713" }, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize=21, Foreground=Color("#91BEF4"), VerticalAlignment=VerticalAlignment.Center };
+        grid.Children.Add(icon);
         var arrow = Text("›", 23, "#86B8FF"); arrow.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(arrow, 2); grid.Children.Add(arrow);
         var button = Action("", () => Navigate(target)); button.Content = grid; button.HorizontalContentAlignment = HorizontalAlignment.Stretch; button.Padding = new Thickness(14, 11, 14, 11); button.Margin = new Thickness(0, 4, 0, 6); return button;
     }

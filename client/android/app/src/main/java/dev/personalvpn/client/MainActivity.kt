@@ -69,6 +69,14 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) window.decorView.post { handle(intent) }
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handle(intent) }
+    // Isolated instrumentation checks enlarged text without changing device settings.
+    internal fun previewFontScaleForTest(scale: Float) {
+        check(Repository.instrumentedDiagnostics)
+        setContent {
+            val density=androidx.compose.ui.platform.LocalDensity.current
+            CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density,scale)) { Client() }
+        }
+    }
     private fun handle(intent: Intent) {
         // The launcher Activity is exported; arbitrary other apps must not be
         // able to disconnect the VPN by fabricating a command Intent.
@@ -81,7 +89,7 @@ class MainActivity : ComponentActivity() {
     }
     private fun consentThenConnect() { val intent = VpnService.prepare(this); if (intent == null) startTunnel() else consent.launch(intent) }
     private fun startTunnel() { TunnelService.command(this, if (Repository.state.value.active) TunnelService.RECONNECT else TunnelService.CONNECT) }
-    private fun save(config: Config) { try { Repository.save(config) } catch (_: Exception) { message = "Could not save encrypted settings. Existing settings were preserved." } }
+    private fun save(config: Config): Boolean = try { Repository.save(config);true } catch (_: Exception) { message = "Could not save encrypted settings. Existing settings were preserved.";false }
     private fun addProfiles(profiles: List<Profile>) { val c = Repository.config.value; val first = profiles.first(); save(c.copy(profiles = c.profiles + profiles, selected = first.id, protocol = if (first.hysteria != null) "Hysteria 2" else "REALITY")) }
 
     @Composable private fun Client() {

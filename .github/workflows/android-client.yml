@@ -6,6 +6,10 @@ on:
         description: Shared client version from client/VERSION
         required: true
         type: string
+      stage_previews:
+        description: Save synthetic UI screenshots in a private review draft
+        type: boolean
+        default: false
       native_only:
         description: Qualify native code without building or publishing installers
         type: boolean
@@ -15,6 +19,10 @@ on:
       client_version:
         required: true
         type: string
+      stage_previews:
+        description: Save synthetic UI screenshots in a private review draft
+        type: boolean
+        default: false
       native_only:
         description: Build the native library without publishing an APK
         type: boolean
@@ -142,6 +150,8 @@ jobs:
           path: client-distribution/android-app
           key: client-dist-${{ github.run_id }}-${{ github.sha }}-android-app
   emulator:
+    permissions:
+      contents: write
     if: ${{ !inputs.native_only }}
     needs: app
     runs-on: ubuntu-24.04
@@ -175,6 +185,13 @@ jobs:
           rm -rf -- "$GITHUB_WORKSPACE/client-distribution/android-app"
       - name: Verify real Android 14 capture and application policy
         run: bash client/android/test-emulator.sh
+      - name: Stage synthetic UI previews for review
+        if: ${{ inputs.stage_previews }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          previews=(client/android/app/build/emulator/*.png)
+          gh release create "qa-android-${{ github.run_id }}" --draft --target "${{ github.sha }}" --title "Android $CLIENT_VERSION UI review" --notes "Synthetic emulator UI previews only; no production profiles. Stable Client release is unchanged." "${previews[@]}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         continue-on-error: true
