@@ -135,6 +135,23 @@ public static class MobileValidation
                 var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap)); using var file = File.Create(Path.Combine(output, page + "-" + (int)size.Width + ".png")); encoder.Save(file);
             }
             checks.Add("all mobile pages rendered at small, default and wide sizes; Home widgets fit without page scroll; bounded log viewport");
+            settings.CaptureMode="TUN";
+            var appRoot=window.LayoutForTest("AppTunnel",new Size(438,750));
+            var appBitmap=new RenderTargetBitmap(438,750,96,96,PixelFormats.Pbgra32);appBitmap.Render(appRoot);
+            var appEncoder=new PngBitmapEncoder();appEncoder.Frames.Add(BitmapFrame.Create(appBitmap));using(var file=File.Create(Path.Combine(output,"AppTunnel-TUN.png")))appEncoder.Save(file);
+            settings.CaptureMode="Proxy";
+            var editor=window.RuleEditorForTest(new Size(438,750));var editorElements=Elements(editor).ToArray();
+            var targets=editorElements.OfType<TextBox>().Single(x=>x.Name=="ExceptionTargets");
+            var groupName=editorElements.OfType<TextBox>().Single(x=>x.Name=="SiteGroupName");
+            Assert(targets.Text.Contains("2.2.2.*") && groupName.Text=="Private lab" && targets.AcceptsReturn,"Site editor lost the optional name or full target list.");
+            var editorBitmap=new RenderTargetBitmap(438,750,96,96,PixelFormats.Pbgra32);editorBitmap.Render(editor);
+            var editorEncoder=new PngBitmapEncoder();editorEncoder.Frames.Add(BitmapFrame.Create(editorBitmap));using(var file=File.Create(Path.Combine(output,"SiteGroupEditor.png")))editorEncoder.Save(file);
+            var save=editorElements.OfType<Button>().Single(x=>x.Content as string=="Save exception");
+            targets.Text="2.*.3.*";save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert(settings.Sites!.Entries[0].Value.Contains("2.2.2.*"),"An invalid group partially replaced existing rules.");
+            targets.Text="2.2.2.*, 10.46.136.6\n2.2.2.2";groupName.Text="Local machines";save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert(settings.Sites.Entries[0].Name=="Local machines" && SiteTargets.Parse("IP",settings.Sites.Entries[0].Value).Length==3,"Editing the group lost a member or its name.");
+            checks.Add("executable icon displayed; named multi-target editor retains invalid drafts and saves complete edits");
             var confirmation = window.CaptureConfirmationForTest("TUN");
             confirmation.WindowStartupLocation = WindowStartupLocation.Manual; confirmation.ShowActivated = false; confirmation.Left = confirmation.Top = -30000;
             confirmation.Show(); confirmation.UpdateLayout();

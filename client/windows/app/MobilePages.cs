@@ -167,9 +167,9 @@ public sealed partial class MainWindow
         if (apps && previous == null) { var file = new OpenFileDialog { Filter = "Windows app (*.exe)|*.exe", CheckFileExists = true }; if (file.ShowDialog(this) != true) return; selected = file.FileName; }
         var panel = Stack(); panel.Children.Add(Text(apps ? "App executable" : "Target type", 13));
         var kind = Combo(apps ? new[] { "App" } : new[] { "Domain", "IP" }, previous?.Kind ?? (apps ? "App" : "Domain"), _ => { }); if (!apps) panel.Children.Add(kind);
-        var name = new TextBox { Text = previous?.Name ?? "", MaxLength = 80 };
+        var name = new TextBox { Name="SiteGroupName", Text = previous?.Name ?? "", MaxLength = 80 };
         if (!apps) { panel.Children.Add(Text("Group name (optional)", 13)); panel.Children.Add(name); panel.Children.Add(Text("Targets", 13)); }
-        var value = new TextBox { Text = previous?.Value ?? selected ?? "", MaxLength = apps ? 1024 : SiteTargets.InputLimit, AcceptsReturn = !apps, MinHeight = apps ? 0 : 100, MaxHeight = 180, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }; panel.Children.Add(value);
+        var value = new TextBox { Name="ExceptionTargets", Text = previous?.Value ?? selected ?? "", MaxLength = apps ? 1024 : SiteTargets.InputLimit, AcceptsReturn = !apps, MinHeight = apps ? 0 : 100, MaxHeight = 180, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }; panel.Children.Add(value);
         panel.Children.Add(Text(apps ? "Full .exe path. Child processes need their own entry." : "Separate targets with commas or new lines. Domain includes subdomains. IP supports IPv4, IPv6, CIDR and trailing wildcards such as 2.2.2.*.", 11, "#9BAECD")); panel.Children.Add(Text("Action", 13));
         var action = Combo(new[] { "Tunnel", "Bypass", "Block" }, previous?.Action ?? "Tunnel", _ => { }); panel.Children.Add(action);
         var error = Text("", 12, "#F29C9F"); panel.Children.Add(error);
@@ -192,6 +192,7 @@ public sealed partial class MainWindow
         Navigate(target); layoutRoot.InvalidateMeasure(); layoutRoot.Measure(size); layoutRoot.Arrange(new Rect(size)); layoutRoot.UpdateLayout();
         Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle); return layoutRoot;
     }
+    internal FrameworkElement RuleEditorForTest(Size size) { LayoutForTest("SiteTunnel",size);EditException(settings.Sites!,false,settings.Sites!.Entries[0]);layoutRoot.UpdateLayout();return layoutRoot; }
     internal void FillPreviewLogs() { for (int i = 0; i < 200; i++) backend.Log.Add("INFO", "backend.retry", "Synthetic layout preview · retry result " + i); }
     internal void StopPreview() { exiting = true; timer.Stop(); backend.DisposeAsync().AsTask().GetAwaiter().GetResult(); Close(); }
 }
