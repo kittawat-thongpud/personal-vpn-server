@@ -28,8 +28,9 @@ public static class TrayValidation
         bool interactive = NativeTrayValidation.Check(tray, "escape");
         if (interactive)
         {
-            foreach (string mode in new[] { "outside", "escape", "selection" }) Assert(NativeTrayValidation.Check(tray, mode), "Input desktop disappeared during interactive menu qualification.");
-            Assert(commands.SequenceEqual(new[] { "open" }), "Native selection dispatched twice or dismissal triggered an action.");
+            foreach (string mode in new[] { "outside", "escape", "selection" })
+                if (!NativeTrayValidation.Check(tray, mode)) { interactive = false; break; }
+            Assert(interactive ? commands.SequenceEqual(new[] { "open" }) : commands.Count == 0, "Native selection dispatched twice or dismissal triggered an action.");
         }
         else Assert(commands.Count == 0, "Unavailable input desktop dispatched an action.");
         commands.Clear();

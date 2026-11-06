@@ -134,18 +134,33 @@ var I: Integer; Folder: String;
 begin
   for I := 0 to GetArrayLength(LegacyUninstallers) - 1 do begin
     Folder := ExtractFileDir(LegacyUninstallers[I]);
+#if VER >= EncodeVer(7, 0, 0)
     RegisterExtraCloseApplicationsResource(AddBackslash(Folder) + 'PersonalVPN.exe');
     RegisterExtraCloseApplicationsResource(AddBackslash(Folder) + 'cores\wintun.dll');
     RegisterExtraCloseApplicationsResource(AddBackslash(Folder) + 'cores\xray.exe');
     RegisterExtraCloseApplicationsResource(AddBackslash(Folder) + 'cores\hysteria.exe');
     RegisterExtraCloseApplicationsResource(AddBackslash(Folder) + 'cores\sing-box.exe');
+#else
+    RegisterExtraCloseApplicationsResource(Is64BitInstallMode, AddBackslash(Folder) + 'PersonalVPN.exe');
+    RegisterExtraCloseApplicationsResource(Is64BitInstallMode, AddBackslash(Folder) + 'cores\wintun.dll');
+    RegisterExtraCloseApplicationsResource(Is64BitInstallMode, AddBackslash(Folder) + 'cores\xray.exe');
+    RegisterExtraCloseApplicationsResource(Is64BitInstallMode, AddBackslash(Folder) + 'cores\hysteria.exe');
+    RegisterExtraCloseApplicationsResource(Is64BitInstallMode, AddBackslash(Folder) + 'cores\sing-box.exe');
+#endif
   end;
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
+var ResultCode: Integer;
 begin
   ExtractTemporaryFiles('{tmp}\PersonalVPN-update\*');
   Result := '';
+  // New clients can disconnect and release the service before Restart Manager
+  // looks for mapped binaries. A legacy GUI is left for Restart Manager below.
+  if not Exec(ExpandConstant('{tmp}\PersonalVPN-update\PersonalVPN.exe'),
+    '--prepare-upgrade --allow-legacy-running', ExpandConstant('{tmp}\PersonalVPN-update'),
+    SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
+    Result := 'Personal VPN could not finish disconnecting. Exit it from its tray menu and retry Setup.';
 end;
 
 procedure RemoveLegacyRegistrations(Root: Integer);

@@ -54,7 +54,6 @@ internal static class NativeTrayValidation
             }
             catch (Exception error) { failure = error; timer.Stop(); tray.PopupForTest.Cancel(); }
         };
-        timer.Start();
         try
         {
             // The genuine right-click supplies foreground activation, as a
@@ -62,8 +61,14 @@ internal static class NativeTrayValidation
             // background test process is not an equivalent interaction.
             Point origin = outside.PointToScreen(new Point(40, 30));
             if (!SetCursorPos(origin.X, origin.Y)) throw new Win32Exception();
+            var ready = Stopwatch.StartNew();
+            // Flush the previous popup's WM_NULL/fade and this host's layout
+            // before deciding whether an input desktop is available.
+            while (GetAncestor(WindowFromPoint(origin), 2) != outside.Handle && ready.ElapsedMilliseconds < 1500)
+            { Forms.Application.DoEvents(); Thread.Sleep(15); }
             if (GetAncestor(WindowFromPoint(origin), 2) != outside.Handle)
                 return false; // Explicitly reported as unavailable, never as an input-test pass.
+            watch.Restart(); timer.Start();
             Send(Mouse(8), Mouse(0x10));
             var deadline = Stopwatch.StartNew();
             while (opened == null && failure == null && deadline.ElapsedMilliseconds < 5000) { Forms.Application.DoEvents(); Thread.Sleep(10); }

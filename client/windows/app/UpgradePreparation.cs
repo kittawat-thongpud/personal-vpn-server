@@ -5,13 +5,16 @@ namespace PersonalVpn;
 
 internal static class UpgradePreparation
 {
-    internal static void Prepare()
+    internal static bool Prepare(bool allowLegacyRunning = false)
     {
         if (!WintunAdapter.IsAdministrator) throw new InvalidOperationException("Administrator required to update Personal VPN.");
         if (GuiRunning())
         {
             if (!EventWaitHandle.TryOpenExisting(MainWindow.ExitEventName, out var signal))
+            {
+                if (allowLegacyRunning) return false;
                 throw new InvalidOperationException("Disconnect and exit the older Personal VPN from its tray menu, then retry Setup.");
+            }
             using (signal) signal.Set();
             for (int i = 0; i < 450 && GuiRunning(); i++) Thread.Sleep(100);
             if (GuiRunning()) throw new InvalidOperationException("Personal VPN has not finished disconnecting. Wait and retry Setup.");
@@ -25,6 +28,7 @@ internal static class UpgradePreparation
             Thread.Sleep(100); // Allow an older owned guard to finish restoring.
         }
         AdapterService.StopForUpgrade();
+        return true;
     }
     private static bool GuiRunning()
     {

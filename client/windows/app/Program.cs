@@ -26,7 +26,7 @@ public static class Program
         if (arguments.Contains("--refresh-shortcuts")) { ShellIdentity.RefreshShortcuts(); return 0; }
         if (arguments.Contains("--prepare-upgrade"))
         {
-            try { UpgradePreparation.Prepare(); return Tests.Report(arguments, new { result = "PASS", ownedRecoveryOnly = true }, 0); }
+            try { bool ready = UpgradePreparation.Prepare(arguments.Contains("--allow-legacy-running")); return Tests.Report(arguments, new { result = ready ? "PASS" : "LEGACY_WAIT", ownedRecoveryOnly = true }, 0); }
             catch (Exception error) { return Tests.Report(arguments, new { result = "FAIL", reason = error.Message }, 1); }
         }
         if (arguments.Contains("--uninstall-adapter")) { AdapterService.Uninstall(); return 0; }
