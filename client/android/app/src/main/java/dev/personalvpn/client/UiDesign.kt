@@ -87,7 +87,7 @@ internal val VpnBackground = Brush.verticalGradient(listOf(Color(0xFF17283F),Col
 }
 
 @Composable internal fun TrafficGraph(history: List<Pair<Long,Long>>,modifier: Modifier=Modifier) {
-    val scale=remember { ChartScale() }
+    val scale=remember(history.isEmpty()) { ChartScale() }
     val peak=remember(history) { scale.update(history.maxOfOrNull { max(it.first,it.second).toDouble() }?:0.0) }
     val density=LocalDensity.current
     val paint=remember(density) { Paint(Paint.ANTI_ALIAS_FLAG).apply { color=0xFF8B9EBB.toInt();textSize=with(density){9.sp.toPx()} } }

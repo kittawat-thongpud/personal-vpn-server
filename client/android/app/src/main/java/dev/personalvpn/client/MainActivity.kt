@@ -92,6 +92,7 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(config.profiles,config.protocol) { latency.profiles(config.profiles,config.protocol) }
             val dirty = remember(config, state.active, state.appliedConfig) { state.active && config.fingerprint() != state.appliedConfig }
             var page by remember { mutableStateOf("Home") }
+            var latencyDetail by remember { mutableStateOf<String?>(null) }
             var pasted by remember { mutableStateOf(false) }
             var editing by remember { mutableStateOf<Profile?>(null) }
             var confirmProtocol by remember { mutableStateOf<String?>(null) }
@@ -131,7 +132,7 @@ class MainActivity : ComponentActivity() {
                                                 Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                                                     Text("${flag(profile.country)}  ${profile.name}${if(profile.id==config.selected) "  ✓" else ""}",Modifier.weight(1f),fontWeight=FontWeight.Medium,maxLines=2)
                                                     val measured=profile.latencyTarget(config.protocol)?.let { latencyResults[it.key] }?:LatencyResult()
-                                                    TextButton(onClick={message=measured.detail},modifier=Modifier.heightIn(min=48.dp)) { Text(measured.label,fontSize=12.sp,color=MaterialTheme.colorScheme.secondary) }
+                                                    TextButton(onClick={latencyDetail=measured.detail},modifier=Modifier.heightIn(min=48.dp)) { Text(measured.label,fontSize=12.sp,color=MaterialTheme.colorScheme.secondary) }
                                                 }
                                                 Row { TextButton(onClick = { editing = profile }) { Text("Configure") }; TextButton(onClick = { if (profile.id == config.selected && state.active) message = "Disconnect before deleting the active server." else save(config.copy(profiles = config.profiles.filterNot { it.id == profile.id }, selected = config.selected.takeUnless { it == profile.id })) }) { Text("Delete") } }
                                             }
@@ -147,6 +148,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+            latencyDetail?.let { text -> VpnSheet("Server latency",{latencyDetail=null}) { Text(text) } }
             message?.let { text -> AlertDialog(onDismissRequest = { message = null }, title = { Text("Personal VPN") }, text = { Text(text) }, confirmButton = { TextButton(onClick = { message = null }) { Text("OK") } }) }
             confirmProtocol?.let { protocol -> VpnSheet("Switch to $protocol?",{confirmProtocol=null}) { Text("The current connection will reconnect with the selected protocol.");Button(onClick={save(config.copy(protocol=protocol));confirmProtocol=null;startTunnel()},modifier=Modifier.fillMaxWidth()) { Text("Confirm") } } }
             if (pasted) PasteDialog({ pasted = false }) { text -> try { addProfiles(Imports.parse(listOf(text))); pasted = false } catch (e: Exception) { message = e.message ?: "Invalid profile." } }

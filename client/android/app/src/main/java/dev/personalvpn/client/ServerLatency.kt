@@ -77,7 +77,7 @@ internal class ServerLatency(context: Context) {
                         if(networkKey(physical())==key) mutable.value=mutable.value+(target.key to LatencyResult(elapsed,System.currentTimeMillis(),false,reason,key))
                         else mutable.value=mutable.value+(target.key to LatencyResult(reason="Network changed"))
                     }
-                } finally { running.remove(target.key) }
+                } finally { if(running[target.key]===currentCoroutineContext()[Job]) running.remove(target.key) }
             }
         }
     }

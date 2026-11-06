@@ -36,6 +36,8 @@ internal sealed record LatencyResult(long? Milliseconds = null, DateTime Checked
 // A UI-only cache: two sockets at most, no routes, cores or recovery changes.
 internal sealed class ServerLatency : IDisposable
 {
+    // Winsock IP_UNICAST_IF is 31; .NET has no named SocketOptionName member.
+    private const SocketOptionName IpUnicastInterface = (SocketOptionName)31;
     private readonly Dictionary<string, LatencyResult> cache = new();
     private readonly HashSet<string> pending = new();
     private readonly SemaphoreSlim workers = new(2);
@@ -54,6 +56,7 @@ internal sealed class ServerLatency : IDisposable
     {
         if (!visible)
         {
+            if (foreground == null) return;
             foreground?.Cancel(); foreground?.Dispose(); foreground = null; pending.Clear();
             foreach (string key in cache.Keys.ToArray()) cache[key] = cache[key] with { Pending = false };
             return;
@@ -96,7 +99,7 @@ internal sealed class ServerLatency : IDisposable
                     int index = nic.GetIPProperties().GetIPv4Properties().Index;
                     var local = nic.GetIPProperties().UnicastAddresses.First(x => x.Address.AddressFamily == AddressFamily.InterNetwork).Address;
                     using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                    socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.UnicastInterface, IPAddress.HostToNetworkOrder(index));
+                    socket.SetSocketOption(SocketOptionLevel.IP, IpUnicastInterface, IPAddress.HostToNetworkOrder(index));
                     socket.Bind(new IPEndPoint(local, 0)); var watch = Stopwatch.StartNew();
                     await socket.ConnectAsync(new IPEndPoint(address, target.Port), deadline.Token);
                     elapsed = Math.Max(1, watch.ElapsedMilliseconds);

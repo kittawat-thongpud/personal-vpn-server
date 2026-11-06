@@ -196,6 +196,9 @@ class TunnelInstrumentedTest {
             assertTrue(connect.top >= 0 && connect.bottom <= device.displayHeight)
             assertTrue(device.hasObject(By.text("Settings")))
             assertTrue(device.hasObject(By.text("TUNNEL TRAFFIC")))
+            assertTrue(device.hasObject(By.desc("Traffic over 60 seconds; shared upload and download scale")))
+            assertEquals(R.drawable.ic_notification,Surfaces.notification(context).smallIcon.resId)
+            device.takeScreenshot(java.io.File(context.filesDir,"home-ui.png"))
         }
     }
 }

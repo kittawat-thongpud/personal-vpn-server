@@ -16,16 +16,17 @@ using System.Windows.Media;
 
 namespace PersonalVpn;
 
-public sealed record TrafficSample(DateTime Time, long Upload, long Download, double UploadRate, double DownloadRate, bool Available);
+public sealed record TrafficSample(DateTime Time, long Upload, long Download, double UploadRate, double DownloadRate, bool Available, long Session = 0);
 public sealed class TrafficMeter
 {
     private readonly object gate = new();
+    private long session;
     private long upload, download, rawUp, rawDown, stamp = Stopwatch.GetTimestamp();
     private TrafficSample current = new(DateTime.MinValue, 0, 0, 0, 0, false);
     private readonly Queue<TrafficSample> history = new();
     public TrafficSample Snapshot { get { lock (gate) return current; } }
     public TrafficSample[] History { get { lock (gate) return history.ToArray(); } }
-    public void Reset() { lock (gate) { upload = download = 0; history.Clear(); BeginCore(); current = new(DateTime.UtcNow, 0, 0, 0, 0, false); } }
+    public void Reset() { lock (gate) { session++; upload = download = 0; history.Clear(); BeginCore(); current = new(DateTime.UtcNow, 0, 0, 0, 0, false, session); } }
     public void BeginCore() { lock (gate) { rawUp = rawDown = 0; stamp = Stopwatch.GetTimestamp(); } }
     public void Update(long up, long down)
     {
@@ -36,12 +37,12 @@ public sealed class TrafficMeter
             long tx = up >= rawUp ? up - rawUp : up, rx = down >= rawDown ? down - rawDown : down;
             upload = upload > long.MaxValue - tx ? long.MaxValue : upload + tx;
             download = download > long.MaxValue - rx ? long.MaxValue : download + rx;
-            current = new(DateTime.UtcNow, upload, download, tx / seconds, rx / seconds, true);
+            current = new(DateTime.UtcNow, upload, download, tx / seconds, rx / seconds, true, session);
             history.Enqueue(current); while (history.Count > 60) history.Dequeue();
             rawUp = up; rawDown = down; stamp = now;
         }
     }
-    public void Unavailable() { lock (gate) current = new(DateTime.UtcNow, upload, download, 0, 0, false); }
+    public void Unavailable() { lock (gate) current = new(DateTime.UtcNow, upload, download, 0, 0, false, session); }
     public static string Format(double bytes)
     {
         string[] units = { "B", "KiB", "MiB", "GiB", "TiB" }; int index = 0;
@@ -128,17 +129,19 @@ internal sealed class ChartScale
 {
     public double Ceiling { get; private set; } = 1024;
     private int quiet;
+    public void Reset() { Ceiling = 1024; quiet = 0; }
     public double Update(double peak)
     {
         double wanted = Nice(Math.Max(1024, peak * 1.12));
         if (wanted > Ceiling) { Ceiling = wanted; quiet = 0; }
-        else if (wanted < Ceiling / 2) { if (++quiet >= 15) { Ceiling = Math.Max(wanted, Ceiling / 2); quiet = 0; } }
+        else if (wanted < Ceiling / 2) { if (++quiet >= 15) { Ceiling = Math.Max(wanted, Nice(Ceiling * .4)); quiet = 0; } }
         else quiet = 0;
         return Ceiling;
     }
     public static double Nice(double value)
     {
-        double magnitude = Math.Pow(10, Math.Floor(Math.Log10(Math.Max(1, value))));
+        double unit = value >= 1024 * 1024 ? 1024 * 1024 : value >= 1024 ? 1024 : 1;
+        double magnitude = Math.Pow(10, Math.Floor(Math.Log10(Math.Max(1, value / unit)))) * unit;
         return new[] { 1d, 2, 5, 10 }.First(x => x * magnitude >= value) * magnitude;
     }
 }
@@ -147,10 +150,13 @@ public sealed class TrafficChart : FrameworkElement
     private readonly Queue<TrafficSample> samples = new();
     private readonly ChartScale scale = new();
     private DateTime last = DateTime.MinValue;
+    private long session = -1;
+    internal int SampleCount => samples.Count;
     public void Sample(TrafficSample sample)
     {
+        if (sample.Session != session) { session = sample.Session; samples.Clear(); scale.Reset(); last = DateTime.MinValue; InvalidateVisual(); }
         if (!sample.Available || sample.Time == last) return;
-        if (sample.Time < last) { samples.Clear(); }
+        if (sample.Time < last) { samples.Clear(); scale.Reset(); }
         last = sample.Time; samples.Enqueue(sample);
         while (samples.Count > 60 || (samples.Count > 0 && last - samples.Peek().Time > TimeSpan.FromSeconds(60))) samples.Dequeue();
         scale.Update(samples.Max(x => Math.Max(x.UploadRate, x.DownloadRate))); InvalidateVisual();

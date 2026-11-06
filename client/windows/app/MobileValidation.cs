@@ -35,7 +35,7 @@ public static class MobileValidation
             if (mode == "Block") Assert((string?)rules[1]?["outboundTag"] == "tunnel", "Tunnel exception must override a Block default.");
         }
         var scale = new ChartScale(); double spike = scale.Update(8000000);
-        Assert(spike >= 8000000 && ChartScale.Nice(5001) == 10000, "Graph scale clips a spike or loses rounded ticks.");
+        Assert(spike >= 8000000 && ChartScale.Nice(5001) == 5120, "Graph scale clips a spike or loses rounded ticks.");
         for (int i = 0; i < 14; i++) Assert(scale.Update(0) == spike,"Graph scale shrank before a quiet window.");
         Assert(scale.Update(0) == spike / 2,"Graph scale did not settle gradually.");
         Assert(LatencyTarget.From(new ServerProfile { Hysteria = "{\"server\":\"[2001:db8::1]:8443\"}" }) == new LatencyTarget("2001:db8::1",8443), "IPv6 latency endpoint parsing failed.");
@@ -63,6 +63,10 @@ public static class MobileValidation
         {
             checks.AddRange(PolicyChecks()); _ = Application.Current ?? new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             checks.AddRange(TrayValidation.Checks());
+            var chart = new TrafficChart(); var meter = new TrafficMeter(); meter.Reset(); meter.Update(100,200); chart.Sample(meter.Snapshot);
+            meter.BeginCore(); meter.Update(10,20); chart.Sample(meter.Snapshot); Assert(chart.SampleCount == 2,"Core reconnect must retain current-session graph data.");
+            meter.Reset(); chart.Sample(meter.Snapshot); Assert(chart.SampleCount == 0,"New connection retained an old graph.");
+            checks.Add("traffic chart clears a new session and retains same-session core recovery");
             string output = Path.GetFullPath(Program.Option(args, "--output") ?? throw new InvalidOperationException("Layout output folder required.")); Directory.CreateDirectory(output);
             var profile = new ServerProfile { Name = "Japan · preview", Country = "JP", Hysteria = """{"server":"203.0.113.10:443","auth":"synthetic-test-only","tls":{"sni":"test.example","insecure":true,"pinSHA256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}""" };
             var settings = new Settings { Profiles = new() { profile }, SelectedId = profile.Id };
@@ -92,6 +96,7 @@ public static class MobileValidation
                         Assert(bounds.Top >= -.5 && bounds.Bottom <= size.Height + .5 && bounds.Left >= -.5 && bounds.Right <= size.Width + .5 && bounds.Height > 20, "Home widget clipped: " + name);
                     }
                     Assert(elements.OfType<ComboBox>().Single(x => x.Name == "HomeProtocol").SelectedItem as string == settings.Protocol, "Home protocol selector missing.");
+                    Assert(elements.OfType<TrafficChart>().Single().ActualHeight >= 60, "Grid/scale labels lost their graph viewport.");
                     Assert(window.BusyCaptureForTest(), "Capture selector must be disabled and retain actual mode during connection operations.");
                     var server = elements.Single(x => x.Name == "ServerCard"); Assert(server.ActualWidth <= 460, "Maximized window lost the centered mobile column.");
                 }
