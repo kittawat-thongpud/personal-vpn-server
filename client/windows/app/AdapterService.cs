@@ -189,7 +189,7 @@ public static class AdapterService
     {
         if (!StartService(service, 0, IntPtr.Zero) && Marshal.GetLastWin32Error() != 1056) throw new Win32Exception();
     }
-    private sealed class AdapterReadinessException(string message) : InvalidOperationException(message);
+    private sealed class AdapterReadinessException(string message) : InvalidOperationException(message) { }
     private static WintunAdapter WaitReady(IntPtr service = default)
     {
         int lastCode = 0;
