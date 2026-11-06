@@ -24,10 +24,17 @@ public static class TrayValidation
         // model, rather than calling ToolStrip.Show/Close with synthetic reasons.
         var popup = tray.MenuForTest;
         Assert(popup.Items.Count == 0, "The first popup fixture was prepopulated.");
-        foreach (string mode in new[] { "escape", "outside", "escape", "selection" }) NativeTrayValidation.Check(tray, mode);
-        Assert(commands.SequenceEqual(new[] { "open" }), "Native selection dispatched twice or dismissal triggered an action.");
+        tray.Rebuild(); tray.PopupForTest.ValidateDefinition(popup.Items);
+        bool interactive = NativeTrayValidation.Check(tray, "escape");
+        if (interactive)
+        {
+            foreach (string mode in new[] { "outside", "escape", "selection" }) Assert(NativeTrayValidation.Check(tray, mode), "Input desktop disappeared during interactive menu qualification.");
+            Assert(commands.SequenceEqual(new[] { "open" }), "Native selection dispatched twice or dismissal triggered an action.");
+        }
+        else Assert(commands.Count == 0, "Unavailable input desktop dispatched an action.");
         commands.Clear();
-        result.Add("real native popup opens on each single request, stays open on pointer exit, dismisses on outside input/Escape, and dispatches one selected action");
+        result.Add("native HMENU structure, action IDs, checked/disabled entries and submenu flags match the action model");
+        result.Add(interactive ? "native input: single-request opening, pointer exit, outside click, Escape and single dispatch passed" : "native input unavailable on this desktop; Explorer/Windows 11 interaction acceptance is pending, not passed");
         var menu = Items(tray.MenuForTest.Items).Where(x => x.Name != "").ToDictionary(x => x.Name);
         Assert(menu["connect"].Enabled && !menu["reconnect"].Enabled && !menu["copy-exit"].Enabled, "Disconnected tray actions are incorrect.");
         Assert(menu["profile:test"].Checked && menu["protocol:REALITY"].Checked && menu["mode:Proxy"].Checked, "Tray selection lost.");
@@ -38,6 +45,7 @@ public static class TrayValidation
         menu = Items(tray.MenuForTest.Items).Where(x => x.Name != "").ToDictionary(x => x.Name);
         Assert(menu["connect"].Text == "Disconnect" && menu["reconnect"].Enabled && menu["copy-exit"].Enabled && !menu.ContainsKey("hide"), "Connected / hidden tray state incorrect.");
         state = state with { Busy = true }; tray.Rebuild(); menu = Items(tray.MenuForTest.Items).Where(x => x.Name != "").ToDictionary(x => x.Name);
+        tray.PopupForTest.ValidateDefinition(tray.MenuForTest.Items);
         Assert(!menu["connect"].Enabled && !menu["reconnect"].Enabled && menu["exit"].Enabled, "Busy tray must prevent duplicate connects and allow explicit exit.");
         state = state with { Busy = false, HasReality = false, Dirty = true }; tray.Rebuild(); menu = Items(tray.MenuForTest.Items).Where(x => x.Name != "").ToDictionary(x => x.Name);
         Assert(!menu["protocol:REALITY"].Enabled && menu["connect"].Text == "Apply & reconnect", "Unsupported protocol or dirty state incorrect.");

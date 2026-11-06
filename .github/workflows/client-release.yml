@@ -57,6 +57,8 @@ jobs:
   windows:
     if: ${{ needs.version.outputs.build == 'true' }}
     needs: version
+    permissions:
+      contents: write
     uses: ./.github/workflows/windows-client.yml
     with:
       client_version: ${{ needs.version.outputs.version }}

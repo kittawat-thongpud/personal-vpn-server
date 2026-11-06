@@ -11,7 +11,7 @@ namespace PersonalVpn;
 
 internal static class NativeTrayValidation
 {
-    internal static void Check(TrayHost tray, string dismissal)
+    internal static bool Check(TrayHost tray, string dismissal)
     {
         var area = Forms.Screen.PrimaryScreen!.WorkingArea;
         using var outside = new Forms.Form { ShowInTaskbar = false, StartPosition = Forms.FormStartPosition.Manual,
@@ -63,7 +63,7 @@ internal static class NativeTrayValidation
             Point origin = outside.PointToScreen(new Point(40, 30));
             if (!SetCursorPos(origin.X, origin.Y)) throw new Win32Exception();
             if (GetAncestor(WindowFromPoint(origin), 2) != outside.Handle)
-                throw new InvalidOperationException("The input desktop did not expose the isolated test window; visible=" + IsWindowVisible(outside.Handle));
+                return false; // Explicitly reported as unavailable, never as an input-test pass.
             Send(Mouse(8), Mouse(0x10));
             var deadline = Stopwatch.StartNew();
             while (opened == null && failure == null && deadline.ElapsedMilliseconds < 5000) { Forms.Application.DoEvents(); Thread.Sleep(10); }
@@ -73,6 +73,7 @@ internal static class NativeTrayValidation
         finally { timer.Stop(); outside.Close(); }
         if (failure != null) throw failure;
         if (phase != 2 || tray.PopupForTest.Tracking) throw new InvalidOperationException("Native popup closed before test input: " + dismissal + "; phase=" + phase + "; " + tray.PopupForTest.LastResult);
+        return true;
     }
     private static Input Mouse(uint flags) => new() { Type = 0, Data = new InputData { Mouse = new MouseInput { Flags = flags } } };
     private static Input Key(ushort key, bool up = false) => new() { Type = 1, Data = new InputData { Keyboard = new KeyboardInput { Key = key, Flags = up ? 2u : 0u } } };

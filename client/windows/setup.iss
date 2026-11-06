@@ -109,7 +109,7 @@ begin
         if LoadStringFromFile(AddBackslash(Folder) + 'CLIENT-VERSION.txt', VersionBytes) then begin
           Version := Trim(String(VersionBytes));
           if (Version <> '') and ((Entry.Name = Version + '-x86') or (Entry.Name = Version + '-x64')) and
-             (CompareText(GetFullPathName(ExtractFileDir(Folder)), GetFullPathName(Base)) = 0) then
+             (CompareText(ExpandFileName(ExtractFileDir(Folder)), ExpandFileName(Base)) = 0) then
             if FindFirst(AddBackslash(Folder) + 'unins*.exe', Uninstaller) then try
               repeat AddLegacy(AddBackslash(Folder) + Uninstaller.Name); until not FindNext(Uninstaller);
             finally FindClose(Uninstaller); end;
@@ -175,7 +175,7 @@ begin
   try
     for I := 0 to GetArrayLength(LegacyUninstallers) - 1 do
       // Never run a legacy uninstall log against the new installation directory.
-      if CompareText(GetFullPathName(ExtractFileDir(LegacyUninstallers[I])), GetFullPathName(ExpandConstant('{app}'))) <> 0 then
+      if CompareText(ExpandFileName(ExtractFileDir(LegacyUninstallers[I])), ExpandFileName(ExpandConstant('{app}'))) <> 0 then
         if FileExists(LegacyUninstallers[I]) then
           if not Exec(LegacyUninstallers[I], '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-',
             ExtractFileDir(LegacyUninstallers[I]), SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then

@@ -23,10 +23,13 @@ Escape and a selected action dismiss normally. Menus follow Windows styling;
 Explorer controls the notification overflow panel. No focus-loss/MouseLeave
 cancellation overrides or custom global input hooks are used.
 
-Qualification requires real native popup input tests, visible/hidden taskbar
+Qualification covers native HMENU state/command identity, visible/hidden taskbar
 lifecycle checks, migration from the published 0.7.2 installer, an in-place
 reinstall while an idle GUI is running, byte-identical encrypted settings,
 shortcut/icon extraction and the full existing Proxy/TUN/driver/cleanup suite.
+Native input availability is reported separately: a headless runner cannot
+establish Explorer overflow behavior. Actual Windows 11 desktop acceptance must
+be recorded without treating unavailable mouse tests as passed.
 
 The shared release includes Android APK and Windows x86/x64 setup/portable
 packages built in GitHub Actions. Android networking remains the qualified
