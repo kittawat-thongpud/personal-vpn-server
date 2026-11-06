@@ -33,7 +33,8 @@ branch; its installers remain the rollback release.
   instrumentation pass. Final instrumentation reports `OK (5 tests)` in
   **159.622 s**, including multi-IP/domain add/rename/delete, encrypted grouped
   settings, bulk installed-app selection, and both protocol handovers with
-  separate-UID HTTPS/UDP and one retained TUN descriptor.
+  separate-UID HTTPS and one retained TUN descriptor. Hysteria 2 UDP forwarding
+  is also checked.
 
 Qualification diagnostics: an earlier run exposed a race in the handover test's
 readiness condition: a network-change callback could still observe the previous
