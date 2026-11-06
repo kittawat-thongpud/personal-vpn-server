@@ -12,7 +12,16 @@ internal static class UpgradePreparation
         {
             if (!EventWaitHandle.TryOpenExisting(MainWindow.ExitEventName, out var signal))
             {
-                if (allowLegacyRunning) return false;
+                if (allowLegacyRunning)
+                {
+                    // Older GUIs have no graceful-exit event. Restart Manager
+                    // can close their window, but must not terminate the shared
+                    // GUI/service executable while the adapter service owns it.
+                    // Release an idle service first; an active legacy TUN needs
+                    // the operator's normal Disconnect & exit for safe recovery.
+                    AdapterService.StopForUpgrade();
+                    return false;
+                }
                 throw new InvalidOperationException("Disconnect and exit the older Personal VPN from its tray menu, then retry Setup.");
             }
             using (signal) signal.Set();

@@ -151,15 +151,19 @@ begin
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
-var ResultCode: Integer;
+var ResultCode: Integer; Started: Boolean; Report: AnsiString;
 begin
   ExtractTemporaryFiles('{tmp}\PersonalVPN-update\*');
   Result := '';
   // New clients can disconnect and release the service before Restart Manager
   // looks for mapped binaries. A legacy GUI is left for Restart Manager below.
-  if not Exec(ExpandConstant('{tmp}\PersonalVPN-update\PersonalVPN.exe'),
-    '--prepare-upgrade --allow-legacy-running', ExpandConstant('{tmp}\PersonalVPN-update'),
-    SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
+  Started := Exec(ExpandConstant('{tmp}\PersonalVPN-update\PersonalVPN.exe'),
+    '--prepare-upgrade --allow-legacy-running --report "' + ExpandConstant('{tmp}\PersonalVPN-preparation.json') + '"',
+    ExpandConstant('{tmp}\PersonalVPN-update'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Log('Initial upgrade preparation result: ' + IntToStr(ResultCode));
+  if LoadStringFromFile(ExpandConstant('{tmp}\PersonalVPN-preparation.json'), Report) then
+    Log('Upgrade preparation: ' + Copy(String(Report), 1, 2048));
+  if not Started or (ResultCode <> 0) then
     Result := 'Personal VPN could not finish disconnecting. Exit it from its tray menu and retry Setup.';
 end;
 

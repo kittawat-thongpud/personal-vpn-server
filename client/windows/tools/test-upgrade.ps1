@@ -11,7 +11,7 @@ $oldSetup = Join-Path $env:RUNNER_TEMP $asset
 $expected = if ($Architecture -eq 'x86') { '217c71a27c8ac0796eb63c137d2255f0e753861024cd5f3dc7b568088ac4680c' } else { '96e4a97cdbed9f514f28c4d820f54a50a6818837bf6cb051e2664e2d71023dc4' }
 if ((Get-FileHash $oldSetup).Hash -ne $expected) { throw 'Previous installer hash mismatch' }
 function Install([string]$Installer, [string]$Name, [string]$Directory='') {
-    $arguments = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/LOG="'+(Join-Path $env:RUNNER_TEMP ($Name+'.log'))+'"'))
+    $arguments = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/LOGCLOSEAPPLICATIONS',('/LOG="'+(Join-Path $env:RUNNER_TEMP ($Name+'.log'))+'"'))
     if ($Directory) { $arguments += '/DIR="'+$Directory+'"' }
     $process = Start-Process -FilePath $Installer -ArgumentList $arguments -PassThru -WindowStyle Hidden
     if (-not $process.WaitForExit(240000)) { $process.Kill(); throw "$Name installer timed out" }
