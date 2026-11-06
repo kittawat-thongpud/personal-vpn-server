@@ -8,13 +8,14 @@ import java.util.Base64
 import java.util.UUID
 
 enum class Action { Tunnel, Bypass, Block, Disabled }
-data class Rule(val target: String, val action: Action, val kind: String = "Domain") {
-    fun json() = JSONObject().put("target", target).put("action", action.name).put("kind", kind)
+data class Rule(val target: String, val action: Action, val kind: String = "Domain", val name: String = "") {
+    val displayName: String get()=name.ifBlank { target }
+    fun json() = JSONObject().put("target", target).put("action", action.name).put("kind", kind).put("name",name)
 }
 data class Policy(val mode: Action = Action.Disabled, val rules: List<Rule> = emptyList()) {
     fun json() = JSONObject().put("mode", mode.name).put("rules", JSONArray(rules.map { it.json() }))
     companion object {
-        fun parse(o: JSONObject?) = if (o == null) Policy() else Policy(Action.valueOf(o.getString("mode")), o.optJSONArray("rules").objects().map { Rule(it.getString("target"), Action.valueOf(it.getString("action")), it.optString("kind", "Domain")) })
+        fun parse(o: JSONObject?) = if (o == null) Policy() else Policy(Action.valueOf(o.getString("mode")), o.optJSONArray("rules").objects().map { Rule(it.getString("target"), Action.valueOf(it.getString("action")), it.optString("kind", "Domain"),it.optString("name","")) })
     }
 }
 
@@ -141,7 +142,7 @@ object EngineConfig {
         val tun = JSONObject().put("type", "tun").put("tag", "capture").put("address", JSONArray().put("172.29.255.1/30").put("fd66:706e:1::1/126")).put("mtu", 1280).put("auto_route", true).put("strict_route", true).put("stack", "gvisor")
         return JSONObject().put("log", JSONObject().put("disabled", !fixtureDns).put("level", "debug")).put("dns", dns).put("inbounds", JSONArray().put(tun)).put("outbounds", JSONArray().put(outbound(config.selectedProfile(), config.protocol, resolvedServer)).put(JSONObject().put("type", "direct").put("tag", "direct"))).put("route", JSONObject().put("auto_detect_interface", true).put("rules", rules).put("final", if (fallback == Action.Bypass) "direct" else "tunnel")).toString()
     }
-    private fun rule(rule: Rule, field: String) = JSONObject().put(field, JSONArray().put(rule.target)).put("action", if (rule.action == Action.Block) "reject" else "route").also { if (rule.action != Action.Block) it.put("outbound", if (rule.action == Action.Bypass) "direct" else "tunnel") }
+    private fun rule(rule: Rule, field: String) = JSONObject().put(field, if(field=="package_name") JSONArray().put(rule.target) else JSONArray(SiteTargets.parse(rule.kind,rule.target))).put("action", if (rule.action == Action.Block) "reject" else "route").also { if (rule.action != Action.Block) it.put("outbound", if (rule.action == Action.Bypass) "direct" else "tunnel") }
     fun validate(config: Config) {
         val profile = config.selectedProfile()
         require(config.protocol in listOf("REALITY", "Hysteria 2")) { "Select a supported VPN protocol." }
@@ -149,9 +150,6 @@ object EngineConfig {
         require(config.apps.rules.map { it.target }.distinct().size == config.apps.rules.size) { "Duplicate app rule." }
         for (rule in config.apps.rules + config.sites.rules) require(rule.action != Action.Disabled && rule.target.isNotBlank()) { "Invalid rule." }
         for (rule in config.apps.rules) require(AppRules.validPackage(rule.target) && rule.target != APP) { "Choose an installed app package." }
-        for (rule in config.sites.rules) {
-            if (rule.kind == "Domain") require(rule.target.matches(Regex("[A-Za-z0-9_*-]+(\\.[A-Za-z0-9_-]+)+")) && !rule.target.contains('*')) { "Enter a domain without scheme, path or wildcard." }
-            else { val parts = rule.target.split('/'); require(parts.size <= 2 && parts[0].matches(Regex("[0-9a-fA-F:.]+"))); if (parts.size == 2) require(parts[1].toInt() in 0..if (parts[0].contains(':')) 128 else 32) }
-        }
+        SiteTargets.validate(config.sites)
     }
 }

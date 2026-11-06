@@ -177,7 +177,7 @@ class TunnelInstrumentedTest {
             Repository.save(config); TunnelService.command(context, TunnelService.RECONNECT)
             waitFor("Apply app Block") { Repository.state.value.status == "Connected" && Repository.state.value.appliedConfig == config.fingerprint() }
             assertFalse("App Block must not be an OS Bypass exclusion", probe())
-            config = config.copy(apps = Policy(Action.Block, listOf(Rule("dev.personalvpn.probe", Action.Tunnel, "App"))), sites = Policy(Action.Block, listOf(Rule("fixture.local", Action.Block))))
+            config = config.copy(apps = Policy(Action.Block, listOf(Rule("dev.personalvpn.probe", Action.Tunnel, "App"))), sites = Policy(Action.Block, listOf(Rule("unrelated.example,fixture.local", Action.Block, "Domain", "Fixture block group"))))
             Repository.save(config); TunnelService.command(context, TunnelService.RECONNECT)
             waitFor("Apply App-over-Site policy") { Repository.state.value.status == "Connected" && Repository.state.value.appliedConfig == config.fingerprint() }
             assertTrue("Explicit App Tunnel must beat Site Block", probe())
@@ -202,13 +202,39 @@ class TunnelInstrumentedTest {
         val store = SecureStore(context)
         val original = Repository.config.value
         val profile = Profile(hysteria = """{"server":"192.0.2.1","port":443,"auth":"fixture-secret","sni":"fixture.local","pin":"${"ab".repeat(32)}"}""")
-        val config = Config(listOf(profile), profile.id)
+        val config = Config(listOf(profile), profile.id,sites=Policy(Action.Tunnel,listOf(Rule("2.2.2.*,10.46.136.6,2.2.2.2",Action.Bypass,"IP","Private lab"),Rule("www.google.com,www.youtube.com",Action.Block,"Domain","Web services"))))
         try {
             store.save(config); assertEquals(config, store.load())
             val bytes = java.io.File(context.noBackupFilesDir, "profiles.enc").readBytes()
             assertFalse(String(bytes, Charsets.ISO_8859_1).contains("fixture-secret"))
             Personalvpn.check(EngineConfig.compile(config, "192.0.2.1"))
         } finally { store.save(original) }
+    }
+    @Test fun groupedSitesCanBeAddedEditedAndDeletedWithoutLosingMembers() {
+        val original=Repository.config.value
+        Repository.save(original.copy(sites=Policy(Action.Tunnel)))
+        try { launchHome().use { activity ->
+            val device=UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+            clickFresh(By.text("Settings"));clickFresh(By.text("Site Tunnel"));clickFresh(By.text("Add site group"))
+            fun hideKeyboard() { activity.onActivity { it.window.insetsController?.hide(android.view.WindowInsets.Type.ime()) };device.waitForIdle() }
+            fun field(index: Int,value: String) {
+                waitFor("Edit site field",20) { try { device.findObjects(By.clazz("android.widget.EditText")).getOrNull(index)?.let { node->node.text=value;true }?:false } catch(_:androidx.test.uiautomator.StaleObjectException) { false } }
+                device.waitForIdle()
+            }
+            field(0,"Private lab");clickFresh(By.text("IP"));field(1,"2.2.2.*,10.46.136.6,2.2.2.2")
+            hideKeyboard();clickFresh(By.text("Bypass"));clickFresh(By.text("Save group"))
+            waitFor("Save multiple IPs") { Repository.config.value.sites.rules.singleOrNull()?.name=="Private lab" }
+            assertEquals(3,SiteTargets.parse("IP",Repository.config.value.sites.rules.single().target).size)
+            clickFresh(By.desc("Edit Private lab"));field(0,"Local machines");hideKeyboard();clickFresh(By.text("Save group"))
+            waitFor("Rename preserves members") { Repository.config.value.sites.rules.singleOrNull()?.name=="Local machines" }
+            clickFresh(By.text("Add site group"));field(1,"www.google.com,www.youtube.com");hideKeyboard();clickFresh(By.text("Save group"))
+            waitFor("Save multiple domains") { Repository.config.value.sites.rules.size==2 }
+            assertEquals(2,SiteTargets.parse("Domain",Repository.config.value.sites.rules.last().target).size)
+            device.takeScreenshot(java.io.File(context.filesDir,"site-tunnel.png"))
+            clickFresh(By.desc("Delete Local machines"))
+            waitFor("Delete only selected group") { Repository.config.value.sites.rules.size==1 }
+            assertEquals("www.google.com, www.youtube.com",Repository.config.value.sites.rules.single().displayName)
+        } } finally { Repository.save(original) }
     }
     @Test fun homeControlsFitInsideTheScreen() {
         val original=Repository.config.value

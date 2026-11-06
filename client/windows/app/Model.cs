@@ -37,6 +37,8 @@ public sealed class TunnelException
     public string Kind { get; set; } = "Domain";
     public string Value { get; set; } = "";
     public string Action { get; set; } = "Tunnel";
+    public string Name { get; set; } = "";
+    [JsonIgnore] public string DisplayName => string.IsNullOrWhiteSpace(Name) ? Value : Name;
 }
 
 public sealed class TunnelPolicy
@@ -118,7 +120,7 @@ public static class Policy
             var site = settings.Sites; ValidateTunnel(site, false);
             if (site.Mode != "Disabled")
                 foreach (var entry in SiteEntries(site))
-                    rules.Add(new JsonObject { ["type"] = "field", [entry.Kind == "Domain" ? "domain" : "ip"] = new JsonArray(entry.Kind == "Domain" ? "domain:" + entry.Value.ToLowerInvariant() : entry.Value), ["outboundTag"] = Tag(entry.Action) });
+                    rules.Add(new JsonObject { ["type"] = "field", [entry.Kind == "Domain" ? "domain" : "ip"] = new JsonArray(SiteTargets.Parse(entry.Kind,entry.Value).Select(x => JsonValue.Create(entry.Kind == "Domain" ? "domain:"+x : x)).ToArray()), ["outboundTag"] = Tag(entry.Action) });
             rules.Add(new JsonObject { ["type"] = "field", ["network"] = "tcp,udp", ["outboundTag"] = Tag(site.Mode == "Disabled" ? "Tunnel" : site.Mode) });
             return rules;
         }
@@ -137,23 +139,29 @@ public static class Policy
     public static void ValidateTunnel(TunnelPolicy policy, bool apps)
     {
         if (!Modes.Contains(policy.Mode) || policy.Entries.Count > 500) throw new InvalidOperationException("Invalid policy or more than 500 exceptions.");
-        var unique = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var unique = new HashSet<string>(StringComparer.OrdinalIgnoreCase); int targets=0;
         foreach (var entry in policy.Entries)
         {
             _ = Tag(entry.Action);
-            if (!unique.Add(entry.Kind + ":" + entry.Value)) throw new InvalidOperationException("An exception for this target already exists.");
             if (apps)
             {
-                if (entry.Kind != "App" || entry.Value.Length > 1024 || !Path.IsPathFullyQualified(entry.Value) || !entry.Value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                if (!unique.Add(entry.Value)) throw new InvalidOperationException("An exception for this app already exists.");
+                if (entry.Kind != "App" || entry.Value.Length > 1024 || !Path.IsPathFullyQualified(entry.Value) || !entry.Value.EndsWith(".exe",StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException("Choose the full path to an app.exe file.");
             }
             else
             {
-                if (entry.Kind is not ("Domain" or "IP")) throw new InvalidOperationException("Choose Domain or IP / CIDR.");
-                Validate(new CategoryRule { Entries = new() { entry.Value } }, entry.Kind == "Domain");
+                if (entry.Name.Length>80 || entry.Name.Any(char.IsControl)) throw new InvalidOperationException("Site names must fit on one line (maximum 80 characters).");
+                foreach (string target in SiteTargets.Parse(entry.Kind,entry.Value))
+                {
+                    if (!unique.Add(entry.Kind+":"+target)) throw new InvalidOperationException("A site target already exists in another group.");
+                    targets++;
+                }
             }
         }
+        if (!apps && targets>SiteTargets.Limit) throw new InvalidOperationException("Use at most 500 targets across site groups.");
     }
+
     public static void Upgrade(Settings settings)
     {
         if (settings.Sites != null) return;

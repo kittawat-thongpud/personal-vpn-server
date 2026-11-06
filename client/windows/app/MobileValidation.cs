@@ -25,6 +25,7 @@ public static class MobileValidation
     public static List<string> PolicyChecks()
     {
         var checks = new List<string>();
+        SiteGroupValidation.Run(); checks.Add("named multi-target sites, wildcard/CIDR normalization, legacy settings and all routing compiler members");
         var legacy = new Settings { Traffic = "Rules", Websites = new CategoryRule { Mode = "Tunnel", Entries = new() { "example.com" } } };
         Policy.Upgrade(legacy); Assert(legacy.Sites!.Mode == "Bypass" && legacy.Sites.Entries.Single().Action == "Tunnel", "Legacy migration changed defaults or exceptions.");
         foreach (string mode in new[] { "Tunnel", "Bypass", "Block", "Disabled" })
@@ -62,6 +63,9 @@ public static class MobileValidation
         try
         {
             checks.AddRange(PolicyChecks()); _ = Application.Current ?? new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            var executableIcon=AppIcons.Load(Environment.ProcessPath!).GetAwaiter().GetResult();
+            Assert(executableIcon!=null && executableIcon.IsFrozen && executableIcon.PixelWidth==32,"Local app resource icon was not extracted safely.");
+            Assert(ReferenceEquals(executableIcon,AppIcons.Load(Environment.ProcessPath!).GetAwaiter().GetResult()),"App icon cache did not reuse the frozen bitmap.");
             checks.AddRange(TrayValidation.Checks());
             var chart = new TrafficChart(); var meter = new TrafficMeter(); meter.Reset(); meter.Update(100,200); chart.Sample(meter.Snapshot);
             meter.BeginCore(); meter.Update(10,20); chart.Sample(meter.Snapshot); Assert(chart.SampleCount == 2,"Core reconnect must retain current-session graph data.");
@@ -71,8 +75,12 @@ public static class MobileValidation
             var profile = new ServerProfile { Name = "Japan · preview", Country = "JP", Hysteria = """{"server":"203.0.113.10:443","auth":"synthetic-test-only","tls":{"sni":"test.example","insecure":true,"pinSHA256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}""" };
             var settings = new Settings { Profiles = new() { profile }, SelectedId = profile.Id };
             Policy.Upgrade(settings);
+            settings.Sites!.Entries.Add(new TunnelException { Kind="IP", Name="Private lab", Value="2.2.2.*,10.46.136.6,2.2.2.2", Action="Bypass" });
+            settings.Sites.Entries.Add(new TunnelException { Kind="Domain", Value=string.Join(", ",Enumerable.Range(0,10).Select(i=>"a-very-long-domain"+i+".example")), Action="Tunnel" });
+            settings.Sites.Entries.Add(new TunnelException { Kind="Domain", Name="Web services", Value="www.google.com,www.youtube.com", Action="Block" });
             for (int i = 0; i < 120; i++) settings.Sites!.Entries.Add(new TunnelException { Kind = "Domain", Value = "site" + i + ".example", Action = i % 2 == 0 ? "Tunnel" : "Block" });
-            settings.Apps.Entries.Add(new TunnelException { Kind = "App", Value = @"C:\Apps\browser.exe", Action = "Bypass" });
+            settings.Apps.Entries.Add(new TunnelException { Kind = "App", Value = Environment.ProcessPath!, Action = "Bypass" });
+            settings.Apps.Entries.Add(new TunnelException { Kind = "App", Value = @"C:\Apps\missing-browser.exe", Action = "Block" });
             window = new MainWindow(settings, preview: true);
             window.FillPreviewLogs();
             // TextBox scroll metrics are published after a real presentation
@@ -105,6 +113,14 @@ public static class MobileValidation
                 {
                     Assert(!elements.OfType<Button>().Single(x => x.Content as string == "+ Choose app.exe").IsEnabled, "Disabled App Tunnel has an active app picker.");
                     Assert(!elements.OfType<Button>().Single(x => x.Content as string == "Save draft").IsEnabled, "Disabled App Tunnel has an active save action.");
+                }
+                if (page is "AppTunnel" or "SiteTunnel")
+                {
+                    var list=elements.OfType<ListBox>().Single();
+                    Assert(VirtualizingStackPanel.GetIsVirtualizing(list) && elements.OfType<TextBlock>().Count(x=>x.Name=="RuleSummary")<=20,"Rule list lost viewport virtualization.");
+                    Assert(!elements.OfType<TextBlock>().Any(x=>x.Text.Contains(" → ")),"Rule type/action second line remains.");
+                    foreach(var label in elements.OfType<TextBlock>().Where(x=>x.Name=="RuleSummary"))
+                        Assert(label.TextWrapping==TextWrapping.NoWrap && label.TextTrimming==TextTrimming.CharacterEllipsis && label.ActualWidth>20,"Rule summary is unbounded or lacks readable room.");
                 }
                 if (page == "Diagnostics")
                 {

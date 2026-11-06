@@ -156,20 +156,9 @@ public sealed partial class MainWindow
         header.Children.Add(Combo(ModeLabels, ModeName(policy.Mode), label => { policy.Mode = ModeValues[Array.IndexOf(ModeLabels, label)]; Changed(!apps || settings.CaptureMode == "TUN"); Navigate(target); }));
         header.Children.Add(Text(apps ? "App exceptions win over site exceptions. Executable rules apply in TUN mode." : "Exceptions override the default. Rules off ignores this list and tunnels captured traffic.", 11, "#9BAECD"));
         header.Children.Add(Action(apps ? "+ Choose app.exe" : "+ Add domain / IP", () => EditException(policy, apps, null))); Put(body, header, 0);
-        var list = Stack();
-        foreach (var entry in policy.Entries.ToArray())
-        {
-            var row = new Grid(); row.ColumnDefinitions.Add(new ColumnDefinition()); row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(68) });
-            var labels = Stack(); var name = Text(apps ? Path.GetFileName(entry.Value) : entry.Value, 13); name.TextWrapping = TextWrapping.NoWrap; name.TextTrimming = TextTrimming.CharacterEllipsis; name.ToolTip = entry.Value; labels.Children.Add(name);
-            labels.Children.Add(Text(entry.Kind + "  →  " + entry.Action, 11, entry.Action == "Block" ? "#F29C9F" : entry.Action == "Tunnel" ? "#58DCB5" : "#8DB8F2")); row.Children.Add(labels);
-            var buttons = new Grid(); buttons.ColumnDefinitions.Add(new ColumnDefinition()); buttons.ColumnDefinitions.Add(new ColumnDefinition());
-            var edit = Action("✎", () => EditException(policy, apps, entry)); edit.Padding = new Thickness(2); edit.ToolTip = "Edit exception";
-            var remove = Action("×", () => { policy.Entries.Remove(entry); Changed(!apps || settings.CaptureMode == "TUN"); Navigate(target); }); remove.Padding = new Thickness(2); remove.ToolTip = "Remove exception"; Grid.SetColumn(remove, 1); buttons.Children.Add(edit); buttons.Children.Add(remove); Grid.SetColumn(buttons, 1); row.Children.Add(buttons);
-            var card = Card(row); card.Padding = new Thickness(10, 7, 10, 7); list.Children.Add(card);
-        }
-        if (policy.Entries.Count == 0) list.Children.Add(Text("No exceptions yet. Add a target and choose Tunnel, Bypass or Block.", 12, "#9BAECD"));
+        FrameworkElement list = policy.Entries.Count == 0 ? Text("No exceptions yet. Add a target and choose Tunnel, Bypass or Block.", 12, "#9BAECD") : ExceptionList(policy, apps);
         if (policy.Mode == "Disabled") { list.Opacity = .5; list.ToolTip = "Saved exceptions are ignored while rules are off."; }
-        Put(body, Card(WidgetScroll(list)), 1); var footer = Stack(); footer.Children.Add(Text(policy.Entries.Count + " / 500 exceptions" + (apps ? " · not applied to Proxy" : " · explicit Block exceptions first"), 10, "#9BAECD"));
+        Put(body, Card(list), 1); var footer = Stack(); footer.Children.Add(Text(policy.Entries.Count + (apps ? " app exceptions · not applied to Proxy" : " site groups · explicit Block exceptions first"), 10, "#9BAECD"));
         footer.Children.Add(apps && settings.CaptureMode != "TUN" ? Action("Save draft", () => { Policy.ValidateTunnel(policy, true); Changed(false); Navigate("Settings"); }) : AsyncAction("Save & apply", ApplyPolicy)); Put(body, footer, 2); return body;
     }
     private void EditException(TunnelPolicy policy, bool apps, TunnelException? previous)
@@ -178,15 +167,23 @@ public sealed partial class MainWindow
         if (apps && previous == null) { var file = new OpenFileDialog { Filter = "Windows app (*.exe)|*.exe", CheckFileExists = true }; if (file.ShowDialog(this) != true) return; selected = file.FileName; }
         var panel = Stack(); panel.Children.Add(Text(apps ? "App executable" : "Target type", 13));
         var kind = Combo(apps ? new[] { "App" } : new[] { "Domain", "IP" }, previous?.Kind ?? (apps ? "App" : "Domain"), _ => { }); if (!apps) panel.Children.Add(kind);
-        var value = new TextBox { Text = previous?.Value ?? selected ?? "", MaxLength = apps ? 1024 : 253 }; panel.Children.Add(value);
-        panel.Children.Add(Text(apps ? "Full .exe path. Child processes need their own entry." : "Domain includes subdomains. IP accepts IPv4, IPv6 or CIDR.", 11, "#9BAECD")); panel.Children.Add(Text("Action", 13));
+        var name = new TextBox { Text = previous?.Name ?? "", MaxLength = 80 };
+        if (!apps) { panel.Children.Add(Text("Group name (optional)", 13)); panel.Children.Add(name); panel.Children.Add(Text("Targets", 13)); }
+        var value = new TextBox { Text = previous?.Value ?? selected ?? "", MaxLength = apps ? 1024 : SiteTargets.InputLimit, AcceptsReturn = !apps, MinHeight = apps ? 0 : 100, MaxHeight = 180, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }; panel.Children.Add(value);
+        panel.Children.Add(Text(apps ? "Full .exe path. Child processes need their own entry." : "Separate targets with commas or new lines. Domain includes subdomains. IP supports IPv4, IPv6, CIDR and trailing wildcards such as 2.2.2.*.", 11, "#9BAECD")); panel.Children.Add(Text("Action", 13));
         var action = Combo(new[] { "Tunnel", "Bypass", "Block" }, previous?.Action ?? "Tunnel", _ => { }); panel.Children.Add(action);
+        var error = Text("", 12, "#F29C9F"); panel.Children.Add(error);
         panel.Children.Add(Action("Save exception", () =>
         {
-            var next = new TunnelException { Kind = (string)kind.SelectedItem, Value = value.Text.Trim(), Action = (string)action.SelectedItem };
-            var candidate = new TunnelPolicy { Mode = policy.Mode, Entries = policy.Entries.Where(x => !ReferenceEquals(x, previous)).Append(next).ToList() }; Policy.ValidateTunnel(candidate, apps);
-            if (previous == null) policy.Entries.Add(next); else policy.Entries[policy.Entries.IndexOf(previous)] = next;
-            Changed(!apps || settings.CaptureMode == "TUN"); CloseSheet(); Navigate(apps ? "AppTunnel" : "SiteTunnel");
+            try
+            {
+                var next = new TunnelException { Kind = (string)kind.SelectedItem, Name = apps ? "" : name.Text.Trim(), Value = apps ? value.Text.Trim() : SiteTargets.Clean((string)kind.SelectedItem, value.Text), Action = (string)action.SelectedItem };
+                var entries = policy.Entries.ToList(); if (previous == null) entries.Add(next); else entries[entries.IndexOf(previous)] = next;
+                Policy.ValidateTunnel(new TunnelPolicy { Mode = policy.Mode, Entries = entries }, apps);
+                policy.Entries = entries;
+                Changed(!apps || settings.CaptureMode == "TUN"); CloseSheet(); Navigate(apps ? "AppTunnel" : "SiteTunnel");
+            }
+            catch (InvalidOperationException e) { error.Text = e.Message; }
         })); ShowSheet(previous == null ? "Add exception" : "Edit exception", panel);
     }
     internal FrameworkElement LayoutForTest(string target, Size size)

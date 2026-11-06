@@ -73,7 +73,7 @@ public static class TunPlan
     private static JsonArray Strings(IEnumerable<string> values) => new(values.Select(x => JsonValue.Create(x)).ToArray());
     private static JsonObject Rule(TunnelException entry, string field)
     {
-        var rule = new JsonObject { [field] = new JsonArray(field == "process_path_regex" ? PathPattern(entry.Value) : entry.Value), ["action"] = entry.Action == "Block" ? "reject" : "route" };
+        var rule = new JsonObject { [field] = field == "process_path_regex" ? new JsonArray(PathPattern(entry.Value)) : Strings(SiteTargets.Parse(entry.Kind,entry.Value)), ["action"] = entry.Action == "Block" ? "reject" : "route" };
         if (entry.Action != "Block") rule["outbound"] = Policy.Tag(entry.Action); return rule;
     }
 }

@@ -4,6 +4,32 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PolicyTest {
+    @Test fun namedGroupsCompileAllMembersAndPreserveLegacySettings() {
+        val p=profile()
+        val groups=Policy(Action.Tunnel,listOf(Rule("2.2.2.*,10.46.136.6,2.2.2.2",Action.Bypass,"IP","Private lab"),Rule("www.google.com,www.youtube.com",Action.Block,"Domain","Web services")))
+        val config=Config(listOf(p),p.id,sites=groups)
+        val native=JSONObject(EngineConfig.compile(config,"192.0.2.1"))
+        val rules=native.getJSONObject("route").getJSONArray("rules").objects()
+        assertEquals(listOf("2.2.2.0/24","10.46.136.6/32","2.2.2.2/32"),rules.first { it.has("ip_cidr") }.getJSONArray("ip_cidr").strings())
+        assertEquals(listOf("www.google.com","www.youtube.com"),rules.first { it.has("domain_suffix") }.getJSONArray("domain_suffix").strings())
+        assertEquals(config,Config.parse(config.json().toString()))
+        val old=Policy.parse(JSONObject("""{"mode":"Tunnel","rules":[{"target":"10.46.136.6","action":"Bypass","kind":"IP"}]}"""))
+        assertEquals("10.46.136.6",old.rules.single().displayName)
+        assertEquals("",old.rules.single().name)
+        assertFalse(native.toString().contains("Private lab"))
+        assertEquals("Example.com, www.youtube.com",SiteTargets.clean("Domain","Example.com\nexample.com;www.youtube.com"))
+        assertEquals("2001:db8:0:0:0:0:0:0/64",SiteTargets.normalize("IP","2001:db8::9/64"))
+        assertEquals("10.46.136.6/32",SiteTargets.normalize("IP","010.046.136.006"))
+        assertEquals("10.0.0.0/8",SiteTargets.normalize("IP","10.*.*.*"))
+    }
+    @Test fun invalidOrDuplicateSiteMembersCannotBeSaved() {
+        fun rejected(check: ()->Unit) { try { check();fail("Invalid target accepted") } catch(_: IllegalArgumentException) { } }
+        listOf("2.*.3.*","256.2.2.*","1.2.3.4/33","1.2.3","::g","1.2.3.4%eth0").forEach { bad -> rejected { SiteTargets.parse("IP",bad) } }
+        rejected { SiteTargets.parse("Domain","www.google.com,1.2.3.4") }
+        rejected { SiteTargets.parse("Domain","https://example.com") }
+        rejected { SiteTargets.parse("Domain",(0..500).joinToString(","){"site$it.example"}) }
+        rejected { SiteTargets.validate(Policy(rules=listOf(Rule("2.2.2.*",Action.Bypass,"IP"),Rule("2.2.2.1/24",Action.Tunnel,"IP")))) }
+    }
     @Test fun bulkAppActionsReplaceSelectedAndPreserveOtherExceptions() {
         val original = Policy(Action.Bypass, listOf(Rule("org.example.first", Action.Tunnel, "App"), Rule("org.example.kept", Action.Block, "App")))
         val updated = AppRules.apply(original, setOf("org.example.first", "org.example.second"), Action.Block)

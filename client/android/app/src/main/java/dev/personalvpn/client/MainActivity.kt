@@ -151,7 +151,7 @@ class MainActivity : ComponentActivity() {
                                     } }
                                 }
                                 "App Tunnel" -> AppTunnelPage(config.apps,state.active) { save(config.copy(apps = it)) }
-                                "Site Tunnel" -> SiteRulesPage(config.sites) { save(config.copy(sites = it)) }
+                                "Site Tunnel" -> SiteTunnelPage(config.sites) { save(config.copy(sites = it)) }
                                 "Backend logs" -> Logs { exportLogs.launch("personal-vpn-session.json") }
                             }
                         }
@@ -167,26 +167,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    @Composable private fun SiteRulesPage(policy: Policy, changed: (Policy) -> Unit) {
-        var adding by remember { mutableStateOf(false) }; var modeExpanded by remember { mutableStateOf(false) }
-        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(onClick={modeExpanded=true},modifier=Modifier.fillMaxWidth()) { Text(modeLabel(policy.mode)) }
-            Button(onClick = { adding = true }, Modifier.fillMaxWidth()) { Text("Add domain / IP") }
-            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) { items(policy.rules) { rule -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) { Text(rule.target, maxLines = 2); Row(verticalAlignment = Alignment.CenterVertically) { Text(rule.action.name, Modifier.weight(1f), color = MaterialTheme.colorScheme.primary); TextButton(onClick = { changed(policy.copy(rules = policy.rules.filterNot { it == rule })) }) { Text("Remove") } } } } } }
-            if (policy.mode == Action.Disabled) Text("Rules off · saved exceptions are ignored.", fontSize = 12.sp, color = Color(0xFF9CAEC8))
-        }
-        if(modeExpanded) VpnSheet("Default site action",{modeExpanded=false}) { Action.entries.forEach { mode -> TextButton(onClick={changed(policy.copy(mode=mode));modeExpanded=false},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text(modeLabel(mode)) } } }
-        if (adding) SiteRuleDialog({ adding = false }) { rule -> val next = policy.copy(rules = policy.rules.filterNot { it.target == rule.target } + rule); val c = Repository.config.value; try { EngineConfig.validate(c.copy(sites = next)); changed(next); adding = false } catch (e: Exception) { message = e.message ?: "Invalid rule." } }
-    }
-    @Composable private fun SiteRuleDialog(dismiss: () -> Unit, add: (Rule) -> Unit) {
-        var target by remember { mutableStateOf("") }; var action by remember { mutableStateOf(Action.Tunnel) }; var kind by remember { mutableStateOf("Domain") }
-        VpnSheet("Site exception",dismiss) {
-            Row { listOf(Action.Tunnel,Action.Bypass,Action.Block).forEach { value -> FilterChip(action==value,{action=value},label={Text(value.name)},modifier=Modifier.padding(end=4.dp).heightIn(min=48.dp)) } }
-            Row { listOf("Domain","IP").forEach { value -> FilterChip(kind==value,{kind=value},label={Text(value)}) } }
-            OutlinedTextField(target,{target=it.trim()},label={Text(if(kind=="Domain") "example.com" else "IP address or CIDR")},singleLine=true,modifier=Modifier.fillMaxWidth())
-            Button(onClick={add(Rule(target,action,kind))},enabled=target.isNotBlank(),modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Add") }
-        }
-    }
+
 }
 
 @Composable private fun Home(config: Config,state: TunnelState,dirty: Boolean,latencies: Map<String,LatencyResult>,refresh: (LatencyTarget)->Unit,profiles: ()->Unit,protocol: (String)->Unit,connect: ()->Unit) {
