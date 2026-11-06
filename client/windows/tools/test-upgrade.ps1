@@ -53,6 +53,7 @@ function VerifyInstalled {
         if ($iconPath -ne (Join-Path $root 'Assets/personal-vpn.ico')) { throw 'Shortcut icon is not a stable standalone ICO' }
         if (-not (Test-Path -LiteralPath $iconPath)) { throw 'Shortcut icon missing' }
     }
+    if (Test-Path -LiteralPath $legacyUserLink) { throw 'The owned legacy PersonalVPN.lnk was not consolidated' }
     $key = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{5A4D9679-160C-4DAA-A3E8-06409432D512}_is1'
     if ($key.DisplayVersion -ne $Version -or $key.InstallLocation.TrimEnd('\') -ne $root) { throw 'Stable uninstall registration mismatch' }
     foreach ($view in @([Microsoft.Win32.RegistryView]::Registry32,[Microsoft.Win32.RegistryView]::Registry64)) {
@@ -80,6 +81,8 @@ $note = Join-Path $oldRoot 'keep-user-note.txt'
 $userLink = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) 'Personal VPN.lnk'
 $shell = New-Object -ComObject WScript.Shell
 $link = $shell.CreateShortcut($userLink); $link.TargetPath=Join-Path $oldRoot 'PersonalVPN.exe'; $link.IconLocation=$link.TargetPath+',0'; $link.Save()
+$legacyUserLink = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) 'PersonalVPN.lnk'
+$link = $shell.CreateShortcut($legacyUserLink); $link.TargetPath=Join-Path $oldRoot 'PersonalVPN.exe'; $link.IconLocation=$link.TargetPath+',0'; $link.Save()
 $oldGui = LaunchIdle (Join-Path $oldRoot 'PersonalVPN.exe')
 $settingsHash = (Get-FileHash $settings).Hash
 Install $setup 'migrate-versioned-install'
@@ -93,5 +96,5 @@ $settingsHash = (Get-FileHash $settings).Hash
 Install $setup 'reinstall-in-place'
 if (-not $current.WaitForExit(15000)) { throw 'Previous GUI remained mapped across in-place update' }
 VerifyInstalled
-$report = [ordered]@{result='PASS';architecture=$Architecture;version=$Version;installed=$root;checks=@('versioned migration and old GUI closure','single stable directory and uninstall identity','same-version reinstall closes idle GUI','encrypted settings preserved','common and shadowing user shortcut repaired','standalone icon exists','owned old files retired; unowned file retained','persistent adapter service ready')}
+$report = [ordered]@{result='PASS';architecture=$Architecture;version=$Version;installed=$root;checks=@('versioned migration and old GUI closure','single stable directory and uninstall identity','same-version reinstall closes idle GUI','encrypted settings preserved','common and shadowing user shortcut repaired','legacy PersonalVPN.lnk consolidated','standalone icon exists','owned old files retired; unowned file retained','persistent adapter service ready')}
 $report | ConvertTo-Json -Depth 6 | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'upgrade.json')

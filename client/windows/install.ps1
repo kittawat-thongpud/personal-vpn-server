@@ -40,6 +40,16 @@ foreach ($shortcutPath in @((Join-Path ([Environment]::GetFolderPath('Desktop'))
     $shortcut.IconLocation = (Join-Path $destination 'Assets/personal-vpn.ico') + ',0'
     $shortcut.Description = 'Personal VPN - Administrator'
     $shortcut.Save()
+    $legacyPath = Join-Path (Split-Path $shortcutPath) 'PersonalVPN.lnk'
+    if (Test-Path -LiteralPath $legacyPath) {
+        $legacy = $shell.CreateShortcut($legacyPath)
+        $targets = @($legacy.TargetPath)
+        $program32 = ${env:ProgramFiles(x86)}
+        if ($program32 -and $legacy.TargetPath.StartsWith($program32+'\',[StringComparison]::OrdinalIgnoreCase)) { $targets += $programRoot + $legacy.TargetPath.Substring($program32.Length) }
+        foreach ($target in $targets) {
+            if ([IO.Path]::GetFileName($target) -eq 'PersonalVPN.exe' -and (Test-Path -LiteralPath (Join-Path (Split-Path $target) 'CLIENT-VERSION.txt'))) { Remove-Item -LiteralPath $legacyPath -Force; break }
+        }
+    }
 }
 $refresh = Start-Process -FilePath $executable -ArgumentList @('--refresh-shortcuts') -WindowStyle Hidden -PassThru -Wait
 if ($refresh.ExitCode -ne 0) { throw 'Shortcut cache refresh failed.' }

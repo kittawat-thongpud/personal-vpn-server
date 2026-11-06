@@ -140,8 +140,10 @@ begin
   FindRegisteredLegacy(HKLM32); if IsWin64 then FindRegisteredLegacy(HKLM64);
   FindOrphanedVersions(ExpandConstant('{commonpf32}\PersonalVPN'));
   if IsWin64 then FindOrphanedVersions(ExpandConstant('{commonpf64}\PersonalVPN'));
-  UserDesktopOwned := OwnedShortcut(ExpandConstant('{userdesktop}\Personal VPN.lnk'));
-  UserProgramsOwned := OwnedShortcut(ExpandConstant('{userprograms}\Personal VPN.lnk'));
+  UserDesktopOwned := OwnedShortcut(ExpandConstant('{userdesktop}\Personal VPN.lnk')) or
+    OwnedShortcut(ExpandConstant('{userdesktop}\PersonalVPN.lnk'));
+  UserProgramsOwned := OwnedShortcut(ExpandConstant('{userprograms}\Personal VPN.lnk')) or
+    OwnedShortcut(ExpandConstant('{userprograms}\PersonalVPN.lnk'));
   Result := True;
 end;
 
@@ -213,16 +215,22 @@ begin
 end;
 
 procedure RetireLegacy;
-var I, ResultCode: Integer; Links, Backups: TArrayOfString;
+var I, ResultCode: Integer; Links, Backups, OldLinks, OldHashes: TArrayOfString;
 begin
   SetArrayLength(Links, 4); SetArrayLength(Backups, 4);
+  SetArrayLength(OldLinks, 4); SetArrayLength(OldHashes, 4);
   Links[0] := ExpandConstant('{autodesktop}\Personal VPN.lnk');
   Links[1] := ExpandConstant('{group}\Personal VPN.lnk');
   Links[2] := ExpandConstant('{userdesktop}\Personal VPN.lnk');
   Links[3] := ExpandConstant('{userprograms}\Personal VPN.lnk');
+  OldLinks[0] := ExpandConstant('{autodesktop}\PersonalVPN.lnk');
+  OldLinks[1] := ExpandConstant('{group}\PersonalVPN.lnk');
+  OldLinks[2] := ExpandConstant('{userdesktop}\PersonalVPN.lnk');
+  OldLinks[3] := ExpandConstant('{userprograms}\PersonalVPN.lnk');
   for I := 0 to 3 do begin
     Backups[I] := ExpandConstant('{tmp}\PersonalVPN-link-') + IntToStr(I) + '.lnk';
     if FileExists(Links[I]) and not FileCopy(Links[I], Backups[I], False) then RaiseException('Could not preserve the updated shortcut.');
+    if OwnedShortcut(OldLinks[I]) then OldHashes[I] := GetSHA256OfFile(OldLinks[I]) else OldLinks[I] := '';
   end;
   try
     for I := 0 to GetArrayLength(LegacyUninstallers) - 1 do
@@ -239,6 +247,11 @@ begin
       ForceDirectories(ExtractFileDir(Links[I]));
       if not FileCopy(Backups[I], Links[I], False) then RaiseException('Could not restore the updated shortcut.');
     end;
+    // Earlier ZIP installs used PersonalVPN.lnk. Consolidate only recognized,
+    // unchanged links after the replacement shortcuts exist. Keep other files.
+    for I := 0 to 3 do if (OldLinks[I] <> '') and FileExists(OldLinks[I]) then
+      if GetSHA256OfFile(OldLinks[I]) = OldHashes[I] then
+        if not DeleteFile(OldLinks[I]) then RaiseException('Could not retire an outdated Personal VPN shortcut.');
   end;
   RemoveLegacyRegistrations(HKLM32); if IsWin64 then RemoveLegacyRegistrations(HKLM64);
 end;
