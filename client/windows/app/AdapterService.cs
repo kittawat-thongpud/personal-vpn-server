@@ -99,9 +99,7 @@ public static class AdapterService
     }
     public static void StopForUpgrade()
     {
-        foreach (var nic in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
-            if (nic.Name == AdapterName && System.Linq.Enumerable.Any(nic.GetIPProperties().UnicastAddresses, x => x.Address.ToString() == "172.28.255.1"))
-                throw new InvalidOperationException("Disconnect the active Personal VPN TUN session before updating its service.");
+        if (HasActiveCapture) throw new InvalidOperationException("Disconnect the active Personal VPN TUN session before updating its service.");
         IntPtr manager = OpenSCManager(null, null, 1);
         if (manager == IntPtr.Zero) throw new Win32Exception();
         IntPtr service = OpenService(manager, ServiceName, 0x24);
@@ -111,6 +109,16 @@ public static class AdapterService
             StopService(service);
         }
         finally { if (service != IntPtr.Zero) CloseServiceHandle(service); CloseServiceHandle(manager); }
+    }
+    public static bool HasActiveCapture
+    {
+        get
+        {
+            foreach (var nic in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+                if (nic.Name == AdapterName && System.Linq.Enumerable.Any(nic.GetIPProperties().UnicastAddresses, x => x.Address.ToString() == "172.28.255.1"))
+                    return true;
+            return false;
+        }
     }
     private static void StopService(IntPtr service)
     {

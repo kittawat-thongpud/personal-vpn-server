@@ -114,18 +114,4 @@ public sealed class TrayHost : IDisposable
     {
         if (disposed) return; disposed = true; popup.Dispose(); icon.Visible = false; icon.Dispose(); menu.Dispose(); foreach (var image in icons.Values) image.Dispose();
     }
-    private sealed class TrayColors : Forms.ProfessionalColorTable
-    {
-        public override Color ToolStripDropDownBackground => ColorTranslator.FromHtml("#152338");
-        public override Color MenuItemSelected => ColorTranslator.FromHtml("#2C405F");
-        public override Color MenuItemBorder => ColorTranslator.FromHtml("#41618A");
-        public override Color MenuBorder => ColorTranslator.FromHtml("#344662");
-        public override Color ImageMarginGradientBegin => ToolStripDropDownBackground;
-        public override Color ImageMarginGradientMiddle => ToolStripDropDownBackground;
-        public override Color ImageMarginGradientEnd => ToolStripDropDownBackground;
-        public override Color CheckBackground => MenuItemSelected;
-        public override Color CheckSelectedBackground => MenuItemSelected;
-        public override Color SeparatorDark => MenuBorder;
-        public override Color SeparatorLight => ToolStripDropDownBackground;
-    }
 }

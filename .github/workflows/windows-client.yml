@@ -1,5 +1,11 @@
 name: Windows client
 on:
+  workflow_dispatch:
+    inputs:
+      client_version:
+        description: Shared client version to qualify without publishing
+        required: true
+        type: string
   workflow_call:
     inputs:
       client_version:

@@ -15,6 +15,7 @@ internal sealed class NativeTrayMenu : Forms.NativeWindow, IDisposable
     private bool disposed;
     internal bool Tracking { get; private set; }
     internal IntPtr ActiveMenu { get; private set; }
+    internal string LastResult { get; private set; } = "not opened";
 
     internal NativeTrayMenu()
     {
@@ -63,11 +64,13 @@ internal sealed class NativeTrayMenu : Forms.NativeWindow, IDisposable
         try
         {
             ActiveMenu = menu; Tracking = true;
-            SetForegroundWindow(Handle);
+            bool foreground = SetForegroundWindow(Handle);
             // Return the selection exactly once; do not also send WM_COMMAND.
             uint flags = 0x100 | 0x80 | 2 | 0x20;
             if (GetSystemMetrics(40) != 0) flags |= 8;
+            Marshal.SetLastPInvokeError(0);
             uint selected = TrackPopupMenuEx(menu, flags, point.X, point.Y, Handle, IntPtr.Zero);
+            LastResult = "foreground=" + foreground + "; result=" + selected + "; error=" + Marshal.GetLastWin32Error();
             return commands.TryGetValue(selected, out string? command) ? command : null;
         }
         finally
@@ -91,7 +94,7 @@ internal sealed class NativeTrayMenu : Forms.NativeWindow, IDisposable
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern bool AppendMenu(IntPtr menu, uint flags, UIntPtr item, string? text);
     [DllImport("user32.dll")] private static extern bool DestroyMenu(IntPtr menu);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr window);
-    [DllImport("user32.dll")] private static extern uint TrackPopupMenuEx(IntPtr menu, uint flags, int x, int y, IntPtr window, IntPtr parameters);
+    [DllImport("user32.dll", SetLastError = true)] private static extern uint TrackPopupMenuEx(IntPtr menu, uint flags, int x, int y, IntPtr window, IntPtr parameters);
     [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
     [DllImport("user32.dll")] private static extern bool EndMenu();

@@ -3,6 +3,8 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using Forms = System.Windows.Forms;
 
 namespace PersonalVpn;
@@ -15,14 +17,23 @@ internal static class NativeTrayValidation
         using var outside = new Forms.Form { ShowInTaskbar = false, StartPosition = Forms.FormStartPosition.Manual,
             Bounds = new Rectangle(area.Right - 200, area.Bottom - 150, 180, 110), Text = "Isolated tray test" };
         outside.Show();
+        ShowWindow(outside.Handle, 5); // Override the CI launcher's initial SW_HIDE.
         var watch = Stopwatch.StartNew();
         using var timer = new Forms.Timer { Interval = 40 };
         int phase = 0; Exception? failure = null;
+        bool requested = false; Task? opened = null;
+        outside.MouseUp += (_, e) =>
+        {
+            if (e.Button != Forms.MouseButtons.Right || requested) return;
+            requested = true;
+            opened = tray.OpenMenu(Forms.Cursor.Position);
+        };
         timer.Tick += (_, _) =>
         {
             try
             {
                 if (watch.ElapsedMilliseconds > 3000) throw new InvalidOperationException("Native tray dismissal timed out: " + dismissal);
+                if (!requested) return;
                 if (phase == 2) return;
                 var gui = new GuiInfo { Size = (uint)Marshal.SizeOf<GuiInfo>() };
                 if (!GetGUIThreadInfo(GetCurrentThreadId(), ref gui) || (gui.Flags & 4) == 0 || gui.MenuOwner != tray.PopupForTest.Handle)
@@ -30,7 +41,7 @@ internal static class NativeTrayValidation
                 if (phase == 0)
                 {
                     // Moving away alone must never close the popup.
-                    if (!SetCursorPos(outside.Bounds.X + 50, outside.Bounds.Y + 65)) throw new Win32Exception();
+                    if (!SetCursorPos(area.Left + 20, area.Top + 15)) throw new Win32Exception();
                     phase = 1; watch.Restart(); return;
                 }
                 if (watch.ElapsedMilliseconds < 160) return;
@@ -42,10 +53,21 @@ internal static class NativeTrayValidation
             catch (Exception error) { failure = error; timer.Stop(); tray.PopupForTest.Cancel(); }
         };
         timer.Start();
-        try { tray.OpenMenu(new Point(area.Left + 18, area.Top + 38)).GetAwaiter().GetResult(); }
+        try
+        {
+            // The genuine right-click supplies foreground activation, as a
+            // shell tray callback does. Calling TrackPopupMenu from a hidden
+            // background test process is not an equivalent interaction.
+            if (!SetCursorPos(outside.Bounds.X + 50, outside.Bounds.Y + 65)) throw new Win32Exception();
+            Send(Mouse(8), Mouse(0x10));
+            var deadline = Stopwatch.StartNew();
+            while (opened == null && failure == null && deadline.ElapsedMilliseconds < 5000) { Forms.Application.DoEvents(); Thread.Sleep(10); }
+            if (opened == null) throw new InvalidOperationException("Right-click did not reach the isolated tray host.");
+            opened.GetAwaiter().GetResult();
+        }
         finally { timer.Stop(); outside.Close(); }
         if (failure != null) throw failure;
-        if (phase != 2 || tray.PopupForTest.Tracking) throw new InvalidOperationException("Native popup closed before the test input or failed to close.");
+        if (phase != 2 || tray.PopupForTest.Tracking) throw new InvalidOperationException("Native popup closed before test input: " + dismissal + "; phase=" + phase + "; " + tray.PopupForTest.LastResult);
     }
     private static Input Mouse(uint flags) => new() { Type = 0, Data = new InputData { Mouse = new MouseInput { Flags = flags } } };
     private static Input Key(ushort key, bool up = false) => new() { Type = 1, Data = new InputData { Keyboard = new KeyboardInput { Key = key, Flags = up ? 2u : 0u } } };
@@ -62,5 +84,6 @@ internal static class NativeTrayValidation
     [DllImport("user32.dll", SetLastError = true)] private static extern uint SendInput(uint count, Input[] events, int size);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] private static extern bool GetGUIThreadInfo(uint id, ref GuiInfo info);
+    [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr window, int command);
     [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
 }

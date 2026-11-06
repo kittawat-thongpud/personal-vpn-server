@@ -62,6 +62,7 @@ public static class PersonalVpnIconCheck {
 }
 '@
 # A real current-user DPAPI blob is retained byte-for-byte, not merely recreated.
+Add-Type -AssemblyName System.Security.Cryptography.ProtectedData
 $settings = Join-Path $env:LOCALAPPDATA 'PersonalVPN/settings.dpapi'
 New-Item -ItemType Directory -Force -Path (Split-Path $settings) | Out-Null
 $payload = [Text.Encoding]::UTF8.GetBytes('{"Traffic":"Global","Protocol":"Hysteria 2","CaptureMode":"Proxy","Profiles":[]}')

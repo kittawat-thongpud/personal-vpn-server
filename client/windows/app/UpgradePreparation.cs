@@ -18,7 +18,12 @@ internal static class UpgradePreparation
         }
         // Restart Manager can also close an older GUI/guard. Recover only our
         // abandoned leases before replacing binaries; never reset another VPN.
-        TunLease.RecoverAbandoned(); SystemProxyLease.RecoverAbandoned();
+        for (int i = 0; i < 100; i++)
+        {
+            TunLease.RecoverAbandoned(); SystemProxyLease.RecoverAbandoned();
+            if (!AdapterService.HasActiveCapture) break;
+            Thread.Sleep(100); // Allow an older owned guard to finish restoring.
+        }
         AdapterService.StopForUpgrade();
     }
     private static bool GuiRunning()
