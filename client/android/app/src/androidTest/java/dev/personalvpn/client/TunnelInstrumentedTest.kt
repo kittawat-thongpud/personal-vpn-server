@@ -53,6 +53,19 @@ class TunnelInstrumentedTest {
         }
         device.waitForIdle()
     }
+    private fun openSettingsDestination(label: String) {
+        val device=UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        try {
+            // A fresh Activity can replace the previous accessibility window
+            // between lookup and tap without a StaleObjectException. Confirm
+            // the navigation outcome before selecting a destination card.
+            waitFor("Open Settings",20) {
+                if(device.hasObject(By.text("CONNECTION & ROUTING")))true
+                else { try { device.findObject(By.text("Settings"))?.click() } catch(_:androidx.test.uiautomator.StaleObjectException) { };false }
+            }
+            clickFresh(By.text(label))
+        } catch(error: IllegalStateException) { throw IllegalStateException("Navigation to $label failed; ${uiHierarchy()}",error) }
+    }
     private fun searchApps(text: String) {
         val device=UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         waitFor("Set app search",20) {
@@ -88,8 +101,7 @@ class TunnelInstrumentedTest {
         try {
             launchHome().use {
                 val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-                clickFresh(By.text("Settings"))
-                clickFresh(By.text("App Tunnel"))
+                openSettingsDestination("App Tunnel")
                 searchApps("dev.personalvpn")
                 fun selectBoth() {
                     ids.forEach { id ->
@@ -224,7 +236,7 @@ class TunnelInstrumentedTest {
         Repository.save(original.copy(sites=Policy(Action.Tunnel)))
         try { launchHome().use { activity ->
             val device=UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-            clickFresh(By.text("Settings"));clickFresh(By.text("Site Tunnel"));clickFresh(By.text("Add site group"))
+            openSettingsDestination("Site Tunnel");clickFresh(By.text("Add site group"))
             fun hideKeyboard() { activity.onActivity { it.window.insetsController?.hide(android.view.WindowInsets.Type.ime()) };device.waitForIdle() }
             fun field(index: Int,value: String) {
                 waitFor("Edit site field",20) { try { device.findObjects(By.clazz("android.widget.EditText")).getOrNull(index)?.let { node->node.text=value;true }?:false } catch(_:androidx.test.uiautomator.StaleObjectException) { false } }
