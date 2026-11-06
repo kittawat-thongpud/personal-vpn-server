@@ -60,6 +60,19 @@ are off the Site default applies. With both modules off captured traffic tunnels
 Child/helper executables need their own entries. Private health and protocol core
 traffic have reserved control rules to keep verification and transport working.
 
+App exceptions show the local executable icon, filename and action in one row.
+Missing executables use a fallback icon. Site exceptions show a domain/network
+icon and an optional group name, followed by the action and Edit/Delete. Long
+summaries shorten with an ellipsis; hover or edit to see all targets.
+
+Each Site group has one type (Domain or IP) and one action. Paste multiple values
+separated by commas or new lines, such as `www.google.com,www.youtube.com` or
+`2.2.2.*,10.46.136.6,2.2.2.2`. Trailing IPv4 wildcards normalize to CIDR:
+`2.2.2.*` covers `2.2.2.0/24`. IPv6 and CIDR are also supported. Group names are
+optional and do not affect routing. Validation checks the entire edit before
+saving; up to 500 effective site targets are supported across groups. Existing
+single-target rules are retained. Windows keeps explicit Site Block rules first.
+
 Existing ZeroTier / Tailscale inner address prefixes are excluded from TUN routing.
 Their outer transport follows app rules. Mesh peers still require healthy service,
 membership authorization and OS firewall rules; merely excluding routes is not a

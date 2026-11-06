@@ -42,6 +42,16 @@ Applying exceptions while Rules off requires confirming that App rules should
 be enabled with Tunnel as the default. Saving rules marks a live VPN connection
 for Apply & reconnect, preserving the existing connection until confirmed.
 
+Site Tunnel groups multiple targets under one action. Tap Add site group, choose
+Domain or IP, optionally enter a group name, and paste comma-separated or
+newline-separated targets. For example `www.google.com,www.youtube.com` or
+`2.2.2.*,10.46.136.6,2.2.2.2`. Trailing IPv4 wildcards compile to CIDR:
+`2.2.2.*` means `2.2.2.0/24`. IPv6 and CIDR also work. A row shows the domain or
+network icon, name (or target summary), action, Edit and Delete. Long summaries
+ellipsize; edit to see the full list. Up to 500 effective targets can be saved
+across groups. Existing single-target rules are retained and Site rules keep
+their insertion order. Explicit App rules still take precedence.
+
 The foreground VPN service continues when the app UI is hidden. All entry points
 share its supervised connection controller. It uses physical-network snapshots,
 cancels DNS/HTTPS work from old network generations, protects outbound sockets
