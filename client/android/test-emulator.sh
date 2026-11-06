@@ -63,15 +63,18 @@ adb shell appops set dev.personalvpn.client ACTIVATE_VPN allow
 adb shell pm grant dev.personalvpn.client android.permission.POST_NOTIFICATIONS
 fixture=$(base64 -w 0 "$RUNNER_TEMP/fixture.json")
 mkdir -p "$project/app/build/emulator"
-timeout 480 "$adb_binary" shell am instrument -w -r -e fixture "$fixture" dev.personalvpn.client.test/androidx.test.runner.AndroidJUnitRunner | tee "$project/app/build/emulator/result.txt"
+instrument_status=0
+timeout 480 "$adb_binary" shell am instrument -w -r -e fixture "$fixture" dev.personalvpn.client.test/androidx.test.runner.AndroidJUnitRunner | tee "$project/app/build/emulator/result.txt" || instrument_status=$?
 # The test-only recovery progress is written to Android's System.out log.
 # Preserve it in the job log even when optional report storage is unavailable.
 adb logcat -d -s System.out:I AndroidRuntime:E '*:S' | tail -n 120
-grep -Eq '^OK \([0-9]+ tests?\)' "$project/app/build/emulator/result.txt"
-adb exec-out run-as dev.personalvpn.client cat files/app-tunnel.png > "$project/app/build/emulator/app-tunnel.png"
-adb exec-out run-as dev.personalvpn.client cat files/home-ui.png > "$project/app/build/emulator/home-ui.png"
-adb exec-out run-as dev.personalvpn.client cat files/home-large-font.png > "$project/app/build/emulator/home-large-font.png"
+if ! grep -Eq '^OK \([0-9]+ tests?\)' "$project/app/build/emulator/result.txt"; then instrument_status=1; fi
+for name in app-tunnel home-ui home-large-font; do
+  destination="$project/app/build/emulator/$name.png"
+  if ! adb exec-out run-as dev.personalvpn.client cat "files/$name.png" > "$destination"; then rm -f "$destination"; fi
+done
 adb shell am start -W -n dev.personalvpn.client/.MainActivity
 sleep 2
 adb exec-out screencap -p > "$project/app/build/emulator/home.png"
 adb logcat -d -t 300 > "$project/app/build/emulator/logcat.txt"
+exit "$instrument_status"

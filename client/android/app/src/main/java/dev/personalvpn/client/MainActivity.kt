@@ -70,11 +70,14 @@ class MainActivity : ComponentActivity() {
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handle(intent) }
     // Isolated instrumentation checks enlarged text without changing device settings.
-    internal fun previewFontScaleForTest(scale: Float) {
+    internal fun previewFontScaleForTest(scale: Float, applied: () -> Unit) {
         check(Repository.instrumentedDiagnostics)
         setContent {
             val density=androidx.compose.ui.platform.LocalDensity.current
-            CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density,scale)) { Client() }
+            CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density,scale)) {
+                Client()
+                LaunchedEffect(scale) { withFrameNanos { }; withFrameNanos { }; applied() }
+            }
         }
     }
     private fun handle(intent: Intent) {

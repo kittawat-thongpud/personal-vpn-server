@@ -212,10 +212,14 @@ class TunnelInstrumentedTest {
             assertEquals("Latency UI created a VPN interface",captureBefore,captureName())
             assertFalse("Latency UI started a tunnel",Repository.state.value.active)
             device.takeScreenshot(java.io.File(context.filesDir,"home-ui.png"))
-            activity.onActivity { it.previewFontScaleForTest(1.5f) }
+            val enlarged=java.util.concurrent.CountDownLatch(1)
+            activity.onActivity { it.previewFontScaleForTest(1.5f) { enlarged.countDown() } }
+            assertTrue("Enlarged composition did not draw",enlarged.await(10,java.util.concurrent.TimeUnit.SECONDS))
             device.waitForIdle()
-            val nav=device.wait(Until.findObject(By.text("Settings")),10000).visibleBounds
-            assertTrue("Root navigation clipped at enlarged text",nav.top>=0 && nav.bottom<=device.displayHeight)
+            waitFor("Root navigation clipped at enlarged text",10) {
+                val nav=try { device.findObject(By.text("Settings"))?.visibleBounds } catch(_: androidx.test.uiautomator.StaleObjectException) { null }
+                nav!=null && nav.height()>0 && nav.top>=0 && nav.bottom<=device.displayHeight
+            }
             device.takeScreenshot(java.io.File(context.filesDir,"home-large-font.png"))
         } } finally { Repository.save(original) }
     }

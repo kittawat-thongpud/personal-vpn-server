@@ -186,12 +186,14 @@ jobs:
       - name: Verify real Android 14 capture and application policy
         run: bash client/android/test-emulator.sh
       - name: Stage synthetic UI previews for review
-        if: ${{ inputs.stage_previews }}
+        if: ${{ always() && !cancelled() && inputs.stage_previews }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          shopt -s nullglob
           previews=(client/android/app/build/emulator/*.png)
-          gh release create "qa-android-${{ github.run_id }}" --draft --target "${{ github.sha }}" --title "Android $CLIENT_VERSION UI review" --notes "Synthetic emulator UI previews only; no production profiles. Stable Client release is unchanged." "${previews[@]}"
+          if [ "${#previews[@]}" -eq 0 ]; then exit 0; fi
+          gh release create "qa-android-${{ github.run_id }}" --draft --target "${{ github.sha }}" --title "Android $CLIENT_VERSION UI review" --notes "Synthetic emulator diagnostics only; no production profiles. See the run checks for qualification status. Stable Client release is unchanged." "${previews[@]}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         continue-on-error: true
