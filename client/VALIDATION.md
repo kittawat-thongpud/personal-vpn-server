@@ -1,9 +1,62 @@
+# Client 0.8.0 UI and latency — 2026-11-06
+
+Qualified source: `0b0f7788951e1325b8b4697531a4fdbe3ce7a651`.
+[Final all-platform publication run](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/42184305628)
+completed successfully. [Client 0.8.0](https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/client-v0.8.0)
+is stable, non-draft and Latest with 12 assets. Tag, base and release snapshot
+branches match the source above. The previous qualified 0.7.3 source is preserved
+in `legacy/client-v0.7.3`.
+
+- All eleven SHA256SUMS entries matched GitHub's uploaded-byte digests. The eight
+  platform assets matched the source manifest and sizes. The Android signer
+  matches the pinned existing certificate; v2 signature verification passed.
+  Large packages were not redundantly downloaded to the development host.
+- Windows x86/x64 passed driver installation, Proxy capture/restoration, native
+  TUN HTTPS/DNS, App-over-Site policy, UDP, repeated mode switches, core/parent
+  crash cleanup, persistent adapter identity, layout and installer gates. Setup
+  migration from published 0.7.2 and in-place reinstall preserved encrypted
+  settings and stable shortcuts/service paths.
+- Android JVM tests, lint, native checks, signing/ABI and Android 14 instrumentation
+  passed. Final instrumentation reported `OK (4 tests)` in **205.812 s**. The
+  preceding full qualification also passed (146.208 s).
+- UI tests select two apps across different searches, apply Block then Bypass,
+  remove exceptions using Use default, and retain the default mode. The action
+  bar is absent before selection. Enlarged-text testing uses a scoped Compose
+  density of 1.5 without changing Android system settings.
+- The foreground latency test connects to the controlled TCP fixture, displays
+  milliseconds, and asserts that it neither starts a VPN nor creates a capture
+  interface. Both protocols also passed target-failure recovery, automatic
+  Wi-Fi/cellular handover and separate-UID HTTPS while retaining TUN.
+- Windows Home (380x590, 438x750 and wide layout), Settings, Profiles, Site Tunnel
+  and Logs screenshots were reviewed. Android Home, 1.5x text and App Tunnel
+  screenshots were reviewed after correcting surface contrast. Graph curves,
+  common binary-unit scale, grid, time axis and bounded logs remained visible.
+  Preview traffic/latencies come from synthetic CI fixtures, not a Japan benchmark.
+- A separate read-only development-host TCP probe to the existing VPS accepted
+  source/interface binding and connected in 114 ms. It changed no routing/proxy
+  setting. This validates the socket method, not protocol health or throughput.
+- An earlier x64 isolated-fixture attempt timed out health verification; later
+  qualification and publication passed on fresh runners. Its root cause is
+  unproven. Fixture failures now retain the connection phase and bounded backend
+  diagnostics. Early UI automation attempts hit stale accessibility nodes after
+  filtering/recomposition; the final tests re-find those nodes while retaining
+  all policy and viewport assertions.
+
+Limits: no new physical Redmi/HyperOS acceptance or 0.8.0 host installation was
+performed. Actual Explorer overflow interaction is outside headless CI; the
+native tray implementation is retained from 0.7.3. This release changes no VPS
+configuration, mesh policy or production recovery algorithm. No throughput or
+Great Firewall resistance claim follows from these fixture tests. See
+[UI behavior and measurement limits](UI-DESIGN.md).
+
+---
+
 # Client 0.7.3 Windows installation and Shell — 2026-11-06
 
 Qualified source: `df9f4d339ddaa41a50fcfd5c1b77872a5f763467`.
 [Unified qualification and publication](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/42154976011)
 completed successfully. [Client 0.7.3](https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/client-v0.7.3)
-is stable, non-draft and Latest with all 12 assets. The tag and
+was stable, non-draft and Latest at publication with all 12 assets. The tag and
 `base/client-v0.7.3` / `release/client-v0.7.3` point to the qualified source;
 `legacy/client-v0.7.2` preserves its original qualified source.
 
@@ -111,7 +164,7 @@ emulator provisioning, redundant job inputs and device-operation timeouts.
 passed. [Unified qualification](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/41640656081)
 contains the Android APK and Windows x86/x64 installer gates.
 All qualification and publication jobs completed successfully. The unified
-[Client 0.7.1 release](https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/client-v0.7.1)
+[Client 0.7.1 source tag](https://github.com/kittawat-thongpud/personal-vpn-server/tree/client-v0.7.1)
 is stable, non-draft and explicitly Latest. All 12 assets are present, including
 the APK, both Windows setup EXEs/portable ZIPs, guides, signature and manifest.
 Downloaded release checksums and manifest agree with the qualified APK and
@@ -179,7 +232,7 @@ qualified binary or changing its signature/checksum. Future client publication
 uses stable Latest; development prereleases require explicit separate intent.
 
 [Unified CI run](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/41619670984)
-and [Client release](https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/client-v0.7.0).
+and [Client 0.7.0 source tag](https://github.com/kittawat-thongpud/personal-vpn-server/tree/client-v0.7.0).
 Qualified source: `a8065f73b0aba99633ec9c543401c0c3f36905d0`.
 
 All build and qualification jobs passed: bundle safeguards, Android native/app,

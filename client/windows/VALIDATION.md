@@ -1,12 +1,31 @@
 # Installed Windows preview validation
 
+## 0.8.0 UI release — 2026-11-06
+
+- Source `0b0f7788951e1325b8b4697531a4fdbe3ce7a651`,
+  [final publication](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/42184305628),
+  [stable Client release](https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/client-v0.8.0).
+- Both architectures passed the complete existing driver/Proxy/TUN/UDP/policy/
+  crash-cleanup and installer migration/reinstall gates. Mobile layouts retain
+  a readable Connect button and bounded graph/log viewports at minimum size.
+  Shared scale tests cover spikes, gradual settling and session reset while
+  same-session core recovery retains history. IPv6 endpoint parsing and TCP
+  Unavailable semantics are checked separately from VPN health.
+- Home/Settings/Profiles/Site Tunnel/Logs previews were visually reviewed. The
+  native tray/taskbar/install path behavior is retained; no physical 0.8.0 host
+  replacement was made while the user's working VPN was active.
+- An earlier x64 fixture health timeout was followed by successful full runs on
+  fresh runners. Cause remains unproven; bounded fixture diagnostics were added.
+- Release metadata, all eleven checksum entries and source/platform manifest
+  were verified. See the [shared report](../VALIDATION.md) for Android and limits.
+
 ## 0.7.3 stable installation and native menus — 2026-11-06
 
 - Qualified source `df9f4d339ddaa41a50fcfd5c1b77872a5f763467`;
   [unified Actions run](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/42154976011)
   completed successfully. The
   [Client 0.7.3 release](https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/client-v0.7.3)
-  is stable, non-draft and Latest, including Windows x86/x64 and Android.
+  was stable, non-draft and Latest at publication, including Windows x86/x64 and Android.
 - Both Windows matrices passed application/architecture checks, signed driver
   installation, Proxy restoration, real TUN capture, executable policy, UDP,
   crash cleanup, layout and native HMENU definition/command checks.
