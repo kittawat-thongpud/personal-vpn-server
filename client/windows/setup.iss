@@ -56,16 +56,32 @@ var AdapterPreparationFailed, UpgradePrepared: Boolean;
     UserDesktopOwned, UserProgramsOwned: Boolean;
 
 function OwnedShortcut(const Filename: String): Boolean;
-var Shell, Link: Variant; Target: String;
+var Shell, Link: Variant; Target, Candidate, FromRoot, ToRoot: String; I: Integer;
 begin
   Result := False;
   if not FileExists(Filename) then Exit;
   try
     Shell := CreateOleObject('WScript.Shell'); Link := Shell.CreateShortcut(Filename);
     Target := Link.TargetPath;
+    Log('Previous user shortcut: ' + Filename + ' -> ' + Target);
     Result := (CompareText(ExtractFileName(Target), 'PersonalVPN.exe') = 0) and
       FileExists(AddBackslash(ExtractFileDir(Target)) + 'CLIENT-VERSION.txt');
-  except Log('Could not inspect a previous user shortcut.'); end;
+    // A 32-bit Shell Link COM object can substitute the Program Files known
+    // folder alias when reading a link made by a 64-bit application. Verify
+    // the matching real installation before deciding it is an unowned link.
+    if not Result and IsWin64 and (CompareText(ExtractFileName(Target), 'PersonalVPN.exe') = 0) then
+      for I := 0 to 1 do begin
+        if I = 0 then begin FromRoot := ExpandConstant('{commonpf32}'); ToRoot := ExpandConstant('{commonpf64}'); end
+        else begin FromRoot := ExpandConstant('{commonpf64}'); ToRoot := ExpandConstant('{commonpf32}'); end;
+        FromRoot := AddBackslash(FromRoot); ToRoot := AddBackslash(ToRoot);
+        if CompareText(Copy(Target, 1, Length(FromRoot)), FromRoot) = 0 then begin
+          Candidate := ToRoot + Copy(Target, Length(FromRoot) + 1, Length(Target));
+          if FileExists(Candidate) and FileExists(AddBackslash(ExtractFileDir(Candidate)) + 'CLIENT-VERSION.txt') then begin
+            Result := True; Log('Mapped Program Files shortcut to recognized installation: ' + Candidate); Break;
+          end;
+        end;
+      end;
+  except Log('Could not inspect a previous user shortcut: ' + GetExceptionMessage); end;
 end;
 function RepairUserDesktop: Boolean; begin Result := UserDesktopOwned; end;
 function RepairUserPrograms: Boolean; begin Result := UserProgramsOwned; end;

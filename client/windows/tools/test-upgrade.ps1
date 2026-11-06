@@ -16,6 +16,7 @@ function Install([string]$Installer, [string]$Name, [string]$Directory='') {
     $process = Start-Process -FilePath $Installer -ArgumentList $arguments -PassThru -WindowStyle Hidden
     if (-not $process.WaitForExit(240000)) { $process.Kill(); throw "$Name installer timed out" }
     if ($process.ExitCode -ne 0) { Get-Content (Join-Path $env:RUNNER_TEMP ($Name+'.log')) -Tail 65; throw "$Name installer exit: $($process.ExitCode)" }
+    Select-String -LiteralPath (Join-Path $env:RUNNER_TEMP ($Name+'.log')) -Pattern 'Previous user shortcut:|Mapped Program Files shortcut' | ForEach-Object { Write-Output $_.Line }
 }
 function LaunchIdle([string]$Exe) {
     $process = Start-Process -FilePath $Exe -PassThru -WindowStyle Hidden
