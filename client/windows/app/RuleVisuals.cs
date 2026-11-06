@@ -112,6 +112,9 @@ public sealed partial class MainWindow
     private ListBox ExceptionList(TunnelPolicy policy,bool apps)
     {
         var list=new ListBox { ItemsSource=policy.Entries.ToArray(),Background=Brushes.Transparent,BorderThickness=new Thickness(0),Padding=new Thickness(0),HorizontalContentAlignment=HorizontalAlignment.Stretch };
+        // Keep the dark viewport when Proxy disables App Tunnel; the stock
+        // ListBox template otherwise substitutes the Windows system gray brush.
+        list.Template=(ControlTemplate)System.Windows.Markup.XamlReader.Parse("<ControlTemplate xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" TargetType=\"ListBox\"><Border Background=\"{TemplateBinding Background}\"><ScrollViewer CanContentScroll=\"True\" HorizontalScrollBarVisibility=\"Disabled\" VerticalScrollBarVisibility=\"Auto\" Focusable=\"False\"><ItemsPresenter/></ScrollViewer></Border></ControlTemplate>");
         ScrollViewer.SetCanContentScroll(list,true);ScrollViewer.SetHorizontalScrollBarVisibility(list,ScrollBarVisibility.Disabled);ScrollViewer.SetVerticalScrollBarVisibility(list,ScrollBarVisibility.Auto);
         VirtualizingStackPanel.SetIsVirtualizing(list,true);VirtualizingStackPanel.SetVirtualizationMode(list,VirtualizationMode.Recycling);
         var item=new FrameworkElementFactory(typeof(ContentControl));item.SetValue(ContentControl.HorizontalContentAlignmentProperty,HorizontalAlignment.Stretch);item.SetBinding(ContentControl.ContentProperty,new Binding{Converter=new RuleRowConverter(entry=>ExceptionRow(policy,apps,entry))});
