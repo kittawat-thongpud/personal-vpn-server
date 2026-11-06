@@ -71,7 +71,11 @@ adb logcat -d -s System.out:I AndroidRuntime:E '*:S' | tail -n 120
 if ! grep -Eq '^OK \([0-9]+ tests?\)' "$project/app/build/emulator/result.txt"; then instrument_status=1; fi
 for name in app-tunnel home-ui home-large-font; do
   destination="$project/app/build/emulator/$name.png"
-  if ! adb exec-out run-as dev.personalvpn.client cat "files/$name.png" > "$destination"; then rm -f "$destination"; fi
+  if ! adb exec-out run-as dev.personalvpn.client cat "files/$name.png" > "$destination"; then
+    rm -f "$destination"
+  elif ! head -c 8 "$destination" | cmp -s - <(printf '\x89PNG\r\n\x1a\n'); then
+    rm -f "$destination"
+  fi
 done
 adb shell am start -W -n dev.personalvpn.client/.MainActivity
 sleep 2

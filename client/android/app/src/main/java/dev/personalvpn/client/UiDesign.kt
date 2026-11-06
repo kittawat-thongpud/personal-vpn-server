@@ -31,7 +31,8 @@ import kotlin.math.max
 internal val VpnScheme = darkColorScheme(
     primary=Color(0xFF32D4B2), onPrimary=Color(0xFF042F2A), secondary=Color(0xFF80B4FA),
     background=Color(0xFF0B1424), surface=Color(0xFF17263B), surfaceContainer=Color(0xFF192B42),
-    surfaceContainerHigh=Color(0xFF233650), onSurface=Color(0xFFECF2FF), onSurfaceVariant=Color(0xFFA3B4CD),
+    surfaceContainerHigh=Color(0xFF233650), surfaceContainerHighest=Color(0xFF1A2B40), surfaceContainerLow=Color(0xFF142238), surfaceContainerLowest=Color(0xFF0D192A),
+    onSurface=Color(0xFFECF2FF), onBackground=Color(0xFFECF2FF), onSurfaceVariant=Color(0xFFA3B4CD), surfaceVariant=Color(0xFF233650),
     outline=Color(0xFF40546E), outlineVariant=Color(0xFF2D4058))
 internal val VpnBackground = Brush.verticalGradient(listOf(Color(0xFF17283F),Color(0xFF0B1424),Color(0xFF101D30)))
 

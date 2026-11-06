@@ -43,6 +43,24 @@ class TunnelInstrumentedTest {
         while (System.currentTimeMillis() < until) { if (check()) return; Thread.sleep(300) }
         error("$reason: ${Repository.state.value.status}; events=" + Repository.logs.value.takeLast(8).joinToString { "${it.code}:${it.detail}" })
     }
+    // Filtering and icon loading can replace accessibility nodes between lookup
+    // and input. Re-find only on StaleObjectException; retain every policy assertion.
+    private fun clickFresh(selector: androidx.test.uiautomator.BySelector) {
+        val device=UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        waitFor("Click $selector",20) {
+            try { device.findObject(selector)?.let { it.click();true }?:false }
+            catch(_: androidx.test.uiautomator.StaleObjectException) { false }
+        }
+        device.waitForIdle()
+    }
+    private fun searchApps(text: String) {
+        val device=UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        waitFor("Set app search",20) {
+            try { device.findObject(By.clazz("android.widget.EditText"))?.let { it.text=text;true }?:false }
+            catch(_: androidx.test.uiautomator.StaleObjectException) { false }
+        }
+        device.waitForIdle()
+    }
     private fun captureName() = NetworkInterface.getNetworkInterfaces().toList().firstOrNull { nic -> nic.inetAddresses.toList().any { it.hostAddress == "172.29.255.1" } }?.let { "${it.name}/${it.index}" }
     private fun probe(udp: Boolean = false): Boolean {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
@@ -61,33 +79,31 @@ class TunnelInstrumentedTest {
         try {
             launchHome().use {
                 val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-                val settings = device.wait(Until.findObject(By.text("Settings")), 15000)
-                    ?: error("Settings missing after fresh launch; ${uiHierarchy()}")
-                settings.click()
-                device.wait(Until.findObject(By.text("App Tunnel")), 15000).click()
-                device.wait(Until.findObject(By.clazz("android.widget.EditText")), 15000).text = "dev.personalvpn"
+                clickFresh(By.text("Settings"))
+                clickFresh(By.text("App Tunnel"))
+                searchApps("dev.personalvpn")
                 fun selectBoth() {
                     ids.forEach { id ->
-                        device.findObject(By.clazz("android.widget.EditText")).text=id
-                        device.wait(Until.findObject(By.desc("Select app $id")),20000).click()
+                        searchApps(id)
+                        clickFresh(By.desc("Select app $id"))
                     }
-                    device.findObject(By.clazz("android.widget.EditText")).text="dev.personalvpn"
+                    searchApps("dev.personalvpn")
                 }
                 assertNull("No action bar before selection",device.findObject(By.text("Choose action")))
                 selectBoth()
-                device.wait(Until.findObject(By.text("Choose action")),10000).click()
-                device.wait(Until.findObject(By.text("Block")),10000).click()
-                device.findObject(By.text("Apply to 2 apps")).click()
+                clickFresh(By.text("Choose action"))
+                clickFresh(By.text("Block"))
+                clickFresh(By.text("Apply to 2 apps"))
                 waitFor("Bulk App Block saved", 10) { Repository.config.value.apps.rules.size == 2 && Repository.config.value.apps.rules.all { it.action == Action.Block } }
                 device.takeScreenshot(java.io.File(context.filesDir, "app-tunnel.png"))
                 selectBoth()
-                device.wait(Until.findObject(By.text("Choose action")),10000).click()
-                device.wait(Until.findObject(By.text("Bypass")),10000).click()
-                device.findObject(By.text("Apply to 2 apps")).click()
+                clickFresh(By.text("Choose action"))
+                clickFresh(By.text("Bypass"))
+                clickFresh(By.text("Apply to 2 apps"))
                 waitFor("Bulk App Bypass replaces rules", 10) { Repository.config.value.apps.rules.size == 2 && Repository.config.value.apps.rules.all { it.action == Action.Bypass } }
                 selectBoth()
-                device.wait(Until.findObject(By.text("Choose action")),10000).click()
-                device.wait(Until.findObject(By.text("Use default")),10000).click()
+                clickFresh(By.text("Choose action"))
+                clickFresh(By.text("Use default"))
                 waitFor("Bulk exceptions removed", 10) { Repository.config.value.apps.rules.isEmpty() }
                 assertEquals(Action.Tunnel, Repository.config.value.apps.mode)
             }

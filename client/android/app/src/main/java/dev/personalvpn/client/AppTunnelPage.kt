@@ -107,7 +107,10 @@ import androidx.compose.ui.unit.sp
                                 if (!app.installed) Text("Not installed",fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
                                 else if (app.name in duplicateNames) Text(app.packageName,fontSize=10.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
                             }
-                            rules[app.packageName]?.let { rule -> Surface(color=MaterialTheme.colorScheme.primary.copy(alpha=.12f),shape=RoundedCornerShape(7.dp)) { Text(rule.action.name,Modifier.padding(6.dp),fontSize=11.sp,color=MaterialTheme.colorScheme.primary) } }
+                            rules[app.packageName]?.let { rule ->
+                                val tint=if(policy.mode==Action.Disabled) MaterialTheme.colorScheme.onSurfaceVariant else when(rule.action) { Action.Block->androidx.compose.ui.graphics.Color(0xFFF29C9F);Action.Bypass->MaterialTheme.colorScheme.secondary;else->MaterialTheme.colorScheme.primary }
+                                Surface(color=tint.copy(alpha=.12f),shape=RoundedCornerShape(7.dp)) { Text(rule.action.name,Modifier.padding(6.dp),fontSize=11.sp,color=tint) }
+                            }
                             TextButton(onClick={ details=app },modifier=Modifier.sizeIn(minWidth=48.dp,minHeight=48.dp).semantics { contentDescription="App details ${app.packageName}" },contentPadding=PaddingValues(0.dp)) { Text("ⓘ") }
                             Checkbox(app.packageName in chosen, null)
                         }

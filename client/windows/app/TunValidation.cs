@@ -51,7 +51,18 @@ internal static partial class Tests
         }
         await using (var backend = new Backend())
         {
-            await backend.ConnectAsync(settings);
+            int connectionAttempt=0;
+            async Task ConnectWithDiagnostics()
+            {
+                connectionAttempt++;
+                try { await backend.ConnectAsync(settings); }
+                catch (Exception error)
+                {
+                    string events=string.Join(" | ",backend.Log.Snapshot().TakeLast(12).Select(x=>x.Event+": "+x.Message));
+                    throw new InvalidOperationException("TUN fixture connect #"+connectionAttempt+" ("+settings.CaptureMode+"): "+error.Message+"; native="+backend.NativeTunDiagnostic+"; events="+events,error);
+                }
+            }
+            await ConnectWithDiagnostics();
             Assert(backend.State == "Connected" && backend.ExitIp == expected && NetworkInterface.GetAllNetworkInterfaces().Any(x => x.Name == TunLease.Name && x.OperationalStatus == OperationalStatus.Up), "TUN capture did not verify.");
             Assert(WindowsProxy.Matches(WindowsProxy.Read(), WindowsProxy.Direct()), "TUN must suspend Windows proxy / PAC capture.");
             Assert(AdapterService.CurrentId() == persistentId, "TUN replaced the persistent device.");
@@ -62,13 +73,13 @@ internal static partial class Tests
             checks.Add("IPv4 DNS default suppresses unusable AAAA; external default curl reaches Google without -4");
             await SocksUdpEcho(settings.SocksPort); checks.Add("native SOCKS UDP relay traverses Xray and Hysteria");
             settings.Apps = new TunnelPolicy { Mode = "Tunnel", Entries = new() { new() { Kind = "App", Value = curlPath, Action = "Block" } } };
-            await backend.ConnectAsync(settings);
+            await ConnectWithDiagnostics();
             int blockedCurl = await Curl();
             Assert(blockedCurl != 0 && backend.State == "Connected", "App Block result: curl=" + blockedCurl + "; state=" + backend.State + "; " + lastCurlError + "; " + backend.NativeTunDiagnostic);
             checks.Add("real executable Block rule enforced without blocking private health");
             settings.Apps.Entries[0].Action = "Tunnel";
             settings.Sites = new TunnelPolicy { Mode = "Block", Entries = new() { new() { Kind = "Domain", Value = "api.ipify.org", Action = "Block" } } };
-            await backend.ConnectAsync(settings);
+            await ConnectWithDiagnostics();
             int appTunnel = await Curl(); Assert(appTunnel == 0, "Explicit app Tunnel must win over site Block: curl=" + appTunnel + "; " + lastCurlError + "; " + backend.NativeTunDiagnostic);
             checks.Add("explicit App Tunnel overrides a conflicting Site Block on an external process");
             await backend.StopAsync();
@@ -77,9 +88,9 @@ internal static partial class Tests
             settings.Apps = new TunnelPolicy { Mode = "Disabled" }; settings.Sites = new TunnelPolicy { Mode = "Tunnel" };
             for (int i = 0; i < 3; i++)
             {
-                settings.CaptureMode = "Proxy"; await backend.ConnectAsync(settings);
+                settings.CaptureMode = "Proxy"; await ConnectWithDiagnostics();
                 Assert(WindowsProxy.Matches(WindowsProxy.Read(), WindowsProxy.ForPort(settings.HttpPort)), "Proxy switch did not capture.");
-                settings.CaptureMode = "TUN"; await backend.ConnectAsync(settings);
+                settings.CaptureMode = "TUN"; await ConnectWithDiagnostics();
                 Assert(backend.State == "Connected" && await Curl() == 0, "Repeated Proxy to TUN switch lost Internet.");
                 Assert(AdapterService.CurrentId() == persistentId && AdapterService.ProcessId == serviceId && NetworkInterface.GetAllNetworkInterfaces().Count(x => x.Name == TunLease.Name) == 1, "Mode switch duplicated the device.");
                 if (i == 0) { backend.KillOwnedCoreForTest(); await Task.Delay(2000); await WaitConnected(backend, 70); Assert(AdapterService.CurrentId() == persistentId && await Curl() == 0, "Core recovery lost Internet or replaced the adapter."); }
@@ -87,7 +98,7 @@ internal static partial class Tests
                 Assert(WindowsProxy.Matches(WindowsProxy.Read(), proxyBefore), "Mode switch failed to restore Windows proxy.");
             }
             WindowsProxy.Write(WindowsProxy.ForPort(settings.HttpPort)); // Simulate the stale loopback setting reported by the user.
-            await backend.ConnectAsync(settings);
+            await ConnectWithDiagnostics();
             Assert(WindowsProxy.Matches(WindowsProxy.Read(), WindowsProxy.Direct()) && await Curl() == 0, "Stale loopback proxy survived TUN capture.");
             await backend.StopAsync(); Assert(WindowsProxy.Matches(WindowsProxy.Read(), WindowsProxy.Direct()), "Disconnect restored a dead owned proxy.");
             WindowsProxy.Write(proxyBefore);

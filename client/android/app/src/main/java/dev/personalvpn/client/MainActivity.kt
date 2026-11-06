@@ -108,7 +108,7 @@ class MainActivity : ComponentActivity() {
             var editing by remember { mutableStateOf<Profile?>(null) }
             var confirmProtocol by remember { mutableStateOf<String?>(null) }
             BackHandler(page != "Home") { page = if (page == "Profiles") "Home" else "Settings" }
-            Surface(Modifier.fillMaxSize(),color=Color.Transparent) {
+            Surface(Modifier.fillMaxSize(),color=Color.Transparent,contentColor=MaterialTheme.colorScheme.onSurface) {
                 Box(Modifier.fillMaxSize().background(VpnBackground).systemBarsPadding().imePadding(), contentAlignment = Alignment.TopCenter) {
                     Column(Modifier.fillMaxHeight().widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(Modifier.fillMaxWidth().heightIn(min=48.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -197,7 +197,7 @@ class MainActivity : ComponentActivity() {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val compact=maxHeight<500.dp || androidx.compose.ui.platform.LocalDensity.current.fontScale>1.3f
         Column((if(compact)Modifier.fillMaxSize().verticalScroll(rememberScrollState()) else Modifier.fillMaxSize()),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(8.dp)) {
-            Card(onClick=profiles,modifier=Modifier.fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Color(0xFF233952)),border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFF3A506B))) {
+            Card(onClick=profiles,modifier=Modifier.fillMaxWidth(),elevation=CardDefaults.cardElevation(defaultElevation=2.dp),colors=CardDefaults.cardColors(containerColor=Color(0xFF233952)),border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFF3A506B))) {
                 Row(Modifier.fillMaxWidth().padding(14.dp),verticalAlignment=Alignment.CenterVertically) {
                     Text(profile?.let { flag(it.country) }?:"◎",fontSize=28.sp);Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) { Text(profile?.name?:"Add a server profile",maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis);Text("Server profiles",fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -209,7 +209,7 @@ class MainActivity : ComponentActivity() {
             Box(if(compact)Modifier.fillMaxWidth().height(166.dp)else Modifier.weight(1f).fillMaxWidth()) { PowerButton(state,dirty,connect) }
             Text("Exit IP: ${state.exitIp}",color=MaterialTheme.colorScheme.primary,fontSize=13.sp)
             Text(if(dirty) "Settings changed · reconnect to apply" else state.detail.ifBlank { "Android TUN" },fontSize=11.sp,maxLines=2,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            Card(Modifier.fillMaxWidth(),border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFF30465F))) {
+            Card(Modifier.fillMaxWidth(),elevation=CardDefaults.cardElevation(defaultElevation=2.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFF30465F))) {
                 Column(Modifier.padding(horizontal=14.dp,vertical=10.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                     Text("TUNNEL TRAFFIC",fontSize=10.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(Modifier.fillMaxWidth()) { Column(Modifier.weight(1f)) { Text("↑ ${bytes(state.uploadRate)}/s",color=Color(0xFF32D4B2),fontSize=18.sp);Text("${bytes(state.uploaded)} sent",fontSize=10.sp) };Column(Modifier.weight(1f)) { Text("↓ ${bytes(state.downloadRate)}/s",color=Color(0xFF80B4FA),fontSize=18.sp);Text("${bytes(state.downloaded)} received",fontSize=10.sp) } }
@@ -222,7 +222,7 @@ class MainActivity : ComponentActivity() {
     if(latencyInfo) VpnSheet("Server latency",{latencyInfo=false}) { Text(measured.detail);Button(onClick={target?.let(refresh);latencyInfo=false},enabled=target!=null,modifier=Modifier.fillMaxWidth()) { Text("Refresh latency") } }
 }
 @Composable private fun SettingsRow(title: String,detail: String,click: ()->Unit) {
-    Card(onClick=click,modifier=Modifier.fillMaxWidth(),border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFF30465F))) {
+    Card(onClick=click,modifier=Modifier.fillMaxWidth(),elevation=CardDefaults.cardElevation(defaultElevation=2.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFF30465F))) {
         Row(Modifier.fillMaxWidth().heightIn(min=72.dp).padding(12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
             MenuIcon(title);Column(Modifier.weight(1f)) { Text(title,fontSize=16.sp);if(detail.isNotEmpty())Text(detail,fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant) };Text("›",fontSize=24.sp)
         }
