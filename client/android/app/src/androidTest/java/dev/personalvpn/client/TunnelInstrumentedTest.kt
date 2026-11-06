@@ -62,6 +62,15 @@ class TunnelInstrumentedTest {
         device.waitForIdle()
     }
     private fun captureName() = NetworkInterface.getNetworkInterfaces().toList().firstOrNull { nic -> nic.inetAddresses.toList().any { it.hostAddress == "172.29.255.1" } }?.let { "${it.name}/${it.index}" }
+    private fun verifiedTransport(transport: String): Boolean {
+        val events=Repository.logs.value
+        val latest=events.lastOrNull { it.code=="network.changed" }?:return false
+        if(!latest.detail.contains("transport=$transport;"))return false
+        val generation=Regex("generation=([0-9]+);").find(latest.detail)?.groupValues?.get(1)?:return false
+        // A network callback can precede invalidation of the previous Connected
+        // label. Require health for the latest generation, not that stale label.
+        return Repository.state.value.status=="Connected" && events.any { it.code=="health.verified" && it.detail.startsWith("generation=$generation;") }
+    }
     private fun probe(udp: Boolean = false): Boolean {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         device.executeShellCommand("am force-stop dev.personalvpn.probe")
@@ -153,14 +162,14 @@ class TunnelInstrumentedTest {
                 waitFor("Physical network loss", 25) { Repository.state.value.status == "Waiting for network" }
                 assertEquals("Capture must remain during upstream loss", firstName, captureName())
                 device.executeShellCommand("svc data enable")
-                waitFor("Automatic recovery after physical network restoration") { Repository.state.value.status == "Connected" && Repository.state.value.detail == protocol }
+                waitFor("Automatic recovery after physical network restoration") { verifiedTransport("cellular") && Repository.state.value.detail == protocol }
                 assertEquals("Network recovery must reuse capture", firstName, captureName())
                 assertTrue("Companion traffic after recovery", probe())
                 println("Recovery verified: $protocol network loss to cellular restored separate-UID HTTPS and retained TUN")
                 val transitions = Repository.logs.value.count { it.code == "network.changed" }
                 device.executeShellCommand("svc wifi enable")
                 device.executeShellCommand("svc data disable")
-                waitFor("Automatic recovery back to Wi-Fi") { Repository.logs.value.count { it.code == "network.changed" } > transitions && Repository.state.value.status == "Connected" }
+                waitFor("Automatic recovery back to Wi-Fi") { Repository.logs.value.count { it.code == "network.changed" } > transitions && verifiedTransport("wifi") }
                 assertEquals(firstName, captureName())
                 println("Recovery verified: $protocol return to Wi-Fi retained TUN")
                 waitFor("Live tunnel counters", 10) { Repository.state.value.uploaded > 0 && Repository.state.value.downloaded > 0 }

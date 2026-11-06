@@ -28,9 +28,11 @@ internal static partial class Tests
         File.Move(ready + ".new", ready); // Publish only after the writer has closed.
         await Task.Delay(Timeout.Infinite); return 0;
     }
-    private static async Task<string[]> TunIntegration(string folder, string expected)
+    private static async Task<string[]> TunIntegration(string folder, string expected, string progressPath)
     {
         var checks = new List<string>();
+        void Progress(string phase,string detail="") => File.WriteAllText(progressPath,JsonSerializer.Serialize(new { phase, detail, time=DateTime.UtcNow, checks }));
+        Progress("adapter.prepare");
         AdapterService.EnsureRunning();
         Guid persistentId = AdapterService.CurrentId();
         uint serviceId = AdapterService.ProcessId;
@@ -44,6 +46,7 @@ internal static partial class Tests
         string lastCurlError = "";
         async Task<int> Curl(string url = "https://api.ipify.org/?format=json")
         {
+            Progress("external.curl",url);
             var info = new ProcessStartInfo(curlLaunch) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
             foreach (string arg in new[] { "--noproxy", "*", "--max-time", "8", "-fsS", "-o", "NUL", url }) info.ArgumentList.Add(arg);
             using var process = Process.Start(info)!; var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
@@ -55,10 +58,12 @@ internal static partial class Tests
             async Task ConnectWithDiagnostics()
             {
                 connectionAttempt++;
-                try { await backend.ConnectAsync(settings); }
+                Progress("connect."+connectionAttempt,settings.CaptureMode);
+                try { await backend.ConnectAsync(settings).WaitAsync(TimeSpan.FromSeconds(90));Progress("connected."+connectionAttempt,settings.CaptureMode); }
                 catch (Exception error)
                 {
                     string events=string.Join(" | ",backend.Log.Snapshot().TakeLast(12).Select(x=>x.Event+": "+x.Message));
+                    Progress("connect.failed."+connectionAttempt,backend.NativeTunDiagnostic+"; "+events);
                     throw new InvalidOperationException("TUN fixture connect #"+connectionAttempt+" ("+settings.CaptureMode+"): "+error.Message+"; native="+backend.NativeTunDiagnostic+"; events="+events,error);
                 }
             }
@@ -71,7 +76,7 @@ internal static partial class Tests
             Assert((await Dns.GetHostAddressesAsync("www.google.com")).All(x => x.AddressFamily == AddressFamily.InterNetwork), "IPv4-only DNS still advertises AAAA addresses.");
             Assert(await Curl("https://www.google.com/generate_204") == 0, "Default external curl failed Google HTTPS without a forced address family: " + lastCurlError);
             checks.Add("IPv4 DNS default suppresses unusable AAAA; external default curl reaches Google without -4");
-            await SocksUdpEcho(settings.SocksPort); checks.Add("native SOCKS UDP relay traverses Xray and Hysteria");
+            Progress("udp.echo");await SocksUdpEcho(settings.SocksPort); checks.Add("native SOCKS UDP relay traverses Xray and Hysteria");
             settings.Apps = new TunnelPolicy { Mode = "Tunnel", Entries = new() { new() { Kind = "App", Value = curlPath, Action = "Block" } } };
             await ConnectWithDiagnostics();
             int blockedCurl = await Curl();
@@ -106,6 +111,7 @@ internal static partial class Tests
         Assert(dnsBefore == DnsSnapshot(), "Physical-interface DNS changed.");
         checks.Add("repeated Proxy / TUN / Disconnect switches and core crash recovery retain one GUID and working Internet; stale owned proxy removed; physical DNS unchanged");
         string leaseFolder = Path.Combine(Store.Root, "runtime", Guid.NewGuid().ToString("N")); Store.SecureDirectory(leaseFolder);
+        Progress("crash.parent");
         string report = Path.Combine(leaseFolder, "child.json");
         var childInfo = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
         foreach (string arg in new[] { "--tun-lease-child", "--folder", leaseFolder, "--report", report }) childInfo.ArgumentList.Add(arg);
@@ -125,6 +131,7 @@ internal static partial class Tests
             finally { if (!child.HasExited) { child.Kill(); await child.WaitForExitAsync(); } TunLease.RecoverAbandoned(); }
         }
         checks.Add("independent recovery guard resets capture after abrupt parent death and retains the same adapter");
+        Progress("complete");
         return checks.ToArray();
     }
     private static string DnsSnapshot() => string.Join("|", NetworkInterface.GetAllNetworkInterfaces().Where(x => !x.Name.StartsWith("PersonalVPN", StringComparison.Ordinal)).OrderBy(x => x.Id).Select(x => x.Id + ":" + string.Join(",", x.GetIPProperties().DnsAddresses.Select(a => a.ToString()))));

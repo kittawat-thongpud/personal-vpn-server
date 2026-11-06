@@ -381,7 +381,7 @@ internal static partial class Tests
             using var direct = new HttpClient(new SocketsHttpHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(20) };
             string expected = JsonNode.Parse(await direct.GetStringAsync("https://api.ipify.org/?format=json"))!["ip"]!.GetValue<string>();
             string reportPath = Program.Option(args, "--report") ?? Path.Combine(root, "report.json");
-            if (args.Contains("--local-tun-integration")) return Report(args, new { result = "PASS", checks = await TunIntegration(root, expected) }, 0);
+            if (args.Contains("--local-tun-integration")) return Report(args, new { result = "PASS", checks = await TunIntegration(root, expected, reportPath + ".progress") }, 0);
             int result = await ProxyTest(new[] { "--profile-dir", root, "--expected-exit", expected, "--report", reportPath });
             if (result != 0) return result;
             var report = JsonNode.Parse(await File.ReadAllTextAsync(reportPath))!;
