@@ -29,7 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-@Composable fun AppTunnelPage(policy: Policy, changed: (Policy) -> Unit) {
+@Composable fun AppTunnelPage(policy: Policy, sessionActive: Boolean, changed: (Policy) -> Unit) {
     val context = LocalContext.current
     var refresh by remember { mutableIntStateOf(0) }
     val catalog by produceState(InstalledApps.peek(), refresh) { value = InstalledApps.load(context, refresh > 0) }
@@ -124,7 +124,7 @@ import androidx.compose.ui.unit.sp
                 Button(onClick={ actionsOpen=true }) { Text("Choose action") }
             }
         }
-        if (saved) Text(if(Repository.state.value.active) "Saved · reconnect to apply" else "Saved",fontSize=11.sp,color=MaterialTheme.colorScheme.primary)
+        if (saved) Text(if(sessionActive) "Saved · reconnect to apply" else "Saved",fontSize=11.sp,color=MaterialTheme.colorScheme.primary)
         if (policy.mode == Action.Disabled) Text("Rules off · app exceptions are paused", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     if (expanded) VpnSheet("Default app action",{ expanded=false }) { Action.entries.forEach { mode -> TextButton(onClick={ changed(policy.copy(mode=mode));expanded=false },modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text(modeLabel(mode)) } } }

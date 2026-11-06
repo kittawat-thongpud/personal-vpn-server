@@ -242,7 +242,7 @@ public sealed partial class MainWindow : Window
         tray?.Update(); RefreshCaptureChoices();
         if (!previewOnly) latency.Tick(IsVisible && WindowState != WindowState.Minimized);
         foreach (var label in latencyLabels) { var measured = latency.Get(label.Target); label.Text.Text = measured.Label; label.Text.ToolTip = measured.Detail; }
-        if (!IsVisible && !previewOnly) return;
+        if ((!IsVisible || WindowState == WindowState.Minimized) && !previewOnly) return;
         if (status != null) { status.Text = backend.State; status.Foreground = Color(backend.State == "Connected" ? "#57DCB5" : backend.Running ? "#EBC17A" : "#D7E4F8"); }
         if (detail != null) detail.Text = backend.Detail;
         if (status != null) status.ToolTip = backend.Detail;
@@ -257,7 +257,7 @@ public sealed partial class MainWindow : Window
             trafficStatus!.Text = sample.Available ? "Live · 1s · this connection" : backend.Running ? "Counters unavailable" : "Session totals · connect to see traffic";
             trafficChart?.Sample(sample);
         }
-        if (connect != null) { connect.Background = Color(backend.State == "Connected" ? "#29CDAA" : backend.State is "Error" or "Failed" ? "#EA929D" : backend.Running ? "#EBC17A" : "#73A9EB"); connect.BorderBrush = connect.Background; connect.Content = connectBusy ? "Connecting…" : backend.Running ? dirty ? "Apply &\nreconnect" : backend.State == "Proxy conflict" ? "Use proxy" : "Disconnect" : "Connect"; connect.IsEnabled = !connectBusy && settings.Profiles.Count > 0; }
+        if (connect != null) { string tint = backend.State == "Connected" ? "#29CDAA" : backend.State is "Error" or "Failed" ? "#EA929D" : backend.Running ? "#EBC17A" : "#73A9EB"; if (connect.Tag as string != tint) { connect.Background = Color(tint); connect.BorderBrush = connect.Background; connect.Tag = tint; } connect.Content = connectBusy ? "Connecting…" : backend.Running ? dirty ? "Apply &\nreconnect" : backend.State == "Proxy conflict" ? "Use proxy" : "Disconnect" : "Connect"; connect.IsEnabled = !connectBusy && settings.Profiles.Count > 0; }
         if (draftNotice != null) { draftNotice.Text = dirty ? "Settings changed · reconnect to apply" : ""; draftNotice.Visibility = dirty ? Visibility.Visible : Visibility.Collapsed; }
         if (page == "Diagnostics" && logText != null)
         {

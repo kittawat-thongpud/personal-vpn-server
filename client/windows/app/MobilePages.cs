@@ -40,14 +40,14 @@ public sealed partial class MainWindow
         flag.Child = profile?.Country == "JP" ? new System.Windows.Shapes.Ellipse { Width = 15, Height = 15, Fill = Color("#CC2944") } : new TextBlock { Text = profile?.Country ?? "+", Foreground = Color("#23334C"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.Bold };
         card.Children.Add(flag);
         var labels = Stack(); var name = Text(profile?.Name ?? "Add your server", 14); name.TextWrapping = TextWrapping.NoWrap; name.TextTrimming = TextTrimming.CharacterEllipsis; labels.Children.Add(name);
-        labels.Children.Add(Text(profile == null ? "Import a device profile" : DisplayEndpoint(profile), 11, "#9BAECD")); Grid.SetColumn(labels, 1); card.Children.Add(labels);
+        var endpointLabel = Text(profile == null ? "Import a device profile" : DisplayEndpoint(profile), 11, "#9BAECD"); endpointLabel.TextWrapping = TextWrapping.NoWrap; endpointLabel.TextTrimming = TextTrimming.CharacterEllipsis; endpointLabel.ToolTip = endpointLabel.Text; labels.Children.Add(endpointLabel); Grid.SetColumn(labels, 1); card.Children.Add(labels);
         if (profile != null) { var measured = LatencyLabel(profile); Grid.SetColumn(measured,2); card.Children.Add(measured); }
         var arrow = Text("›", 24, "#86B8FF"); arrow.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(arrow, 3); card.Children.Add(arrow);
-        var server = Action("", () => Navigate("Profiles")); server.Content = card; server.HorizontalContentAlignment = HorizontalAlignment.Stretch; server.Name = "ServerCard"; server.Height = compact ? 64 : 75; server.Margin = new Thickness(0, 0, 0, 8); Put(body, server, 0);
+        var server = Action("", () => Navigate("Profiles")); server.Content = card; server.HorizontalContentAlignment = HorizontalAlignment.Stretch; server.Name = "ServerCard"; server.Height = compact ? 60 : 75; if (compact) server.Padding = new Thickness(12,6,12,6); server.Margin = new Thickness(0, 0, 0, 8); Put(body, server, 0);
         var capture = Stack(); capture.Children.Add(CaptureSelector());
-        var protocol = Combo(new[] { "Hysteria 2", "REALITY" }, settings.Protocol, value => { settings.Protocol = value; Changed(); Navigate("Home"); }); protocol.Name = "HomeProtocol"; protocol.Margin = new Thickness(0, 1, 0, 3); capture.Children.Add(protocol); Put(body, capture, 1);
+        var protocol = Combo(new[] { "Hysteria 2", "REALITY" }, settings.Protocol, value => { settings.Protocol = value; Changed(); Navigate("Home"); }); protocol.Name = "HomeProtocol"; protocol.Margin = compact ? new Thickness(0) : new Thickness(0, 1, 0, 3); capture.Children.Add(protocol); Put(body, capture, 1);
         var center = PageRows(Auto, Star, Auto, Auto, Auto); center.Margin = new Thickness(0, 3, 0, 8);
-        status = Text(backend.State, 22); status.TextAlignment = TextAlignment.Center; Put(center, status, 0);
+        status = Text(backend.State, compact ? 20 : 22); if (compact) status.Margin = new Thickness(0); status.TextAlignment = TextAlignment.Center; Put(center, status, 0);
         connect = AsyncAction("Connect", ToggleConnection);
         connect.Name = "ConnectButton"; connect.Width = connect.Height = 172; connect.FontSize = 18; connect.Margin = new Thickness(0); connect.Background = Color("#14C7A0"); connect.Foreground = Color("#052D28");
         connect.Template = (ControlTemplate)XamlReader.Parse("""
@@ -57,13 +57,16 @@ public sealed partial class MainWindow
               <Ellipse Margin="9,12,9,6" Fill="#040C17"><Ellipse.Effect><DropShadowEffect BlurRadius="13" ShadowDepth="7" Opacity="0.65"/></Ellipse.Effect></Ellipse>
               <Ellipse Margin="10" Fill="{TemplateBinding Background}" Stroke="#70EBFFF5" StrokeThickness="1"/>
               <Ellipse Margin="11" IsHitTestVisible="False"><Ellipse.Fill><LinearGradientBrush StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#40FFFFFF" Offset="0"/><GradientStop Color="#00FFFFFF" Offset="0.5"/><GradientStop Color="#18000000" Offset="1"/></LinearGradientBrush></Ellipse.Fill></Ellipse>
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Path Data="M 12,1 L 12,11 M 5,5 C -1,11 3,22 12,22 C 21,22 25,11 19,5" Stroke="{TemplateBinding Foreground}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="25" Height="25" Stretch="Uniform" Margin="0,0,0,10"/>
+                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextBlock.TextAlignment="Center"/>
+              </StackPanel>
             </Grid><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Opacity" Value="0.9"/></Trigger><Trigger Property="IsPressed" Value="True"><Setter Property="Opacity" Value="0.75"/></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter Property="Foreground" Value="White"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.5"/></Trigger></ControlTemplate.Triggers>
           </ControlTemplate>
           """);
-        Put(center, new Viewbox { Child = connect, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, MaxHeight = compact ? 140 : 184, Margin = new Thickness(0, 4, 0, 5) }, 1);
+        Put(center, new Viewbox { Child = connect, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, MaxHeight = compact ? 140 : 184, Margin = compact ? new Thickness(0,2,0,3) : new Thickness(0, 4, 0, 5) }, 1);
         detail = Text(backend.Detail, 11, "#9BAECD"); detail.Visibility = compact ? Visibility.Collapsed : Visibility.Visible; detail.TextAlignment = TextAlignment.Center; detail.MaxHeight = 35; detail.TextTrimming = TextTrimming.CharacterEllipsis; Put(center, detail, 2);
-        exit = Text("Exit IP: —", 13, "#59DCB8"); exit.TextAlignment = TextAlignment.Center; Put(center, exit, 3);
+        exit = Text("Exit IP: —", 13, "#59DCB8"); if (compact) exit.Margin = new Thickness(0,2,0,2); exit.TextAlignment = TextAlignment.Center; Put(center, exit, 3);
         draftNotice = Text("", 11, "#F1C77A"); draftNotice.TextAlignment = TextAlignment.Center; Put(center, draftNotice, 4); Put(body, center, 2);
         var traffic = (FrameworkElement)TrafficPanel(compact); traffic.Name = "TrafficCard"; Put(body, traffic, 3); return body;
     }

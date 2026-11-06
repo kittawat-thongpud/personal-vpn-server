@@ -62,6 +62,7 @@ jobs:
     uses: ./.github/workflows/windows-client.yml
     with:
       client_version: ${{ needs.version.outputs.version }}
+      stage_installers: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish }}
   android:
     if: ${{ needs.version.outputs.build == 'true' }}
     needs: version

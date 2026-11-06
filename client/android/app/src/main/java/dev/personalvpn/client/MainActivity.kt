@@ -139,7 +139,7 @@ class MainActivity : ComponentActivity() {
                                         }
                                     } }
                                 }
-                                "App Tunnel" -> AppTunnelPage(config.apps) { save(config.copy(apps = it)) }
+                                "App Tunnel" -> AppTunnelPage(config.apps,state.active) { save(config.copy(apps = it)) }
                                 "Site Tunnel" -> SiteRulesPage(config.sites) { save(config.copy(sites = it)) }
                                 "Backend logs" -> Logs { exportLogs.launch("personal-vpn-session.json") }
                             }
@@ -189,7 +189,7 @@ class MainActivity : ComponentActivity() {
             Card(onClick=profiles,modifier=Modifier.fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Color(0xFF233952)),border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFF3A506B))) {
                 Row(Modifier.fillMaxWidth().padding(14.dp),verticalAlignment=Alignment.CenterVertically) {
                     Text(profile?.let { flag(it.country) }?:"◎",fontSize=28.sp);Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) { Text(profile?.name?:"Add a server profile",maxLines=1);Text("Server profiles",fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant) }
+                    Column(Modifier.weight(1f)) { Text(profile?.name?:"Add a server profile",maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis);Text("Server profiles",fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant) }
                     TextButton(onClick={latencyInfo=true},enabled=target!=null,modifier=Modifier.heightIn(min=48.dp)) { Text(measured.label,fontSize=12.sp) };Text("›",fontSize=24.sp)
                 }
             }
