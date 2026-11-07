@@ -2,24 +2,13 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
-using System.Linq;
-using System.Net.NetworkInformation;
 namespace PersonalVpn;
 internal static class TunReset
 {
-    public static void Capture(Guid id, bool skipIfIdle = false)
+    public static void Capture(Guid id)
     {
-        if (skipIfIdle)
-        {
-            var nic = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(x => Guid.TryParse(x.Id, out var current) && current == id);
-            if (nic != null)
-            {
-                var properties = nic.GetIPProperties();
-                bool captured = properties.UnicastAddresses.Any(x => x.Address.ToString() is "172.28.255.1" or "fd26:706e:1::1")
-                    || properties.DnsAddresses.Any(x => x.ToString() is "172.28.255.2" or "fd26:706e:1::2");
-                if (!captured) return; // A new / normally reset device needs no CIM mutation.
-            }
-        }
+        // Missing capture IP / DNS does not prove that capture routes are gone.
+        // Always let the GUID-scoped reset inspect and verify the route table.
         string system = !Environment.Is64BitProcess && Environment.Is64BitOperatingSystem ? "Sysnative" : "System32";
         var info = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), system, @"WindowsPowerShell\v1.0\powershell.exe"))
         { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true, RedirectStandardOutput = true };

@@ -16,17 +16,28 @@ internal static partial class Tests
     internal static async Task<int> TunLeaseChild(string[] args)
     {
         string folder = Program.Option(args, "--folder")!; Store.SecureDirectory(folder);
+        string ready = Program.Option(args, "--report")!;
+        try
+        {
         using var lease = await TunLease.Start(folder, CancellationToken.None);
         using var job = new ProcessJob();
         var settings = new Settings { CaptureMode = "TUN", Sites = new TunnelPolicy { Mode = "Tunnel" } };
         string path = Path.Combine(folder, "crash-tun.json");
         await File.WriteAllTextAsync(path, TunPlan.Compile(settings, new[] { "127.0.0.1" }, new[] { Backend.VerifyCore("xray.exe"), Backend.VerifyCore("hysteria.exe") }, lease.InterfaceName).ToJsonString());
         using var core = new OwnedCore(job, Backend.VerifyCore("sing-box.exe"), new[] { "run", "-c", path }, new SessionLog());
-        await TunSupport.WaitForAdapter(lease, CancellationToken.None);
-        string ready = Program.Option(args, "--report")!;
-        await File.WriteAllTextAsync(ready + ".new", JsonSerializer.Serialize(new { adapter = lease.AdapterId }));
+        try { await TunSupport.WaitForAdapter(lease, CancellationToken.None, () => core.Exited ? "Recovery child native core exited: " + core.StartupDiagnostic : null); }
+        catch (Exception error) { throw new InvalidOperationException(error.Message + "; native=" + core.StartupDiagnostic, error); }
+        await File.WriteAllTextAsync(ready + ".new", JsonSerializer.Serialize(new { adapter = lease.AdapterId, guard = lease.GuardId }));
         File.Move(ready + ".new", ready); // Publish only after the writer has closed.
         await Task.Delay(Timeout.Infinite); return 0;
+        }
+        catch (Exception error)
+        {
+            // A failed child must never publish the readiness file. Preserve a
+            // separate diagnostic so CI reports the real guard/native failure.
+            await File.WriteAllTextAsync(ready + ".error", JsonSerializer.Serialize(new { reason=error.Message, kind=error.GetType().Name, guard=File.Exists(Path.Combine(folder,"tun-error.txt")) ? await File.ReadAllTextAsync(Path.Combine(folder,"tun-error.txt")) : "" }));
+            return 1;
+        }
     }
     private static async Task<string[]> TunIntegration(string folder, string expected, string progressPath)
     {
@@ -37,6 +48,7 @@ internal static partial class Tests
         Guid persistentId = AdapterService.CurrentId();
         uint serviceId = AdapterService.ProcessId;
         var dnsBefore = DnsSnapshot();
+        var physicalBefore = PhysicalSnapshot();
         var proxyBefore = WindowsProxy.Read();
         var profile = Store.Import(folder);
         var settings = new Settings { Profiles = new() { profile }, SelectedId = profile.Id, CaptureMode = "TUN", SystemProxy = false, HttpPort = Port(), SocksPort = Port(), Sites = new TunnelPolicy { Mode = "Tunnel" } };
@@ -87,6 +99,15 @@ internal static partial class Tests
             await ConnectWithDiagnostics();
             int appTunnel = await Curl(); Assert(appTunnel == 0, "Explicit app Tunnel must win over site Block: curl=" + appTunnel + "; " + lastCurlError + "; " + backend.NativeTunDiagnostic);
             checks.Add("explicit App Tunnel overrides a conflicting Site Block on an external process");
+            settings.Apps.Entries[0].Action = "Bypass";
+            await ConnectWithDiagnostics();
+            Assert(await Curl() == 0 && backend.State == "Connected", "Real Direct HTTPS failed or App Bypass did not override Site Block.");
+            checks.Add("external curl performs real Direct HTTPS through physical egress; explicit App Bypass overrides Site Block");
+            settings.Apps.Entries[0].Action = "Block";
+            settings.Sites = new TunnelPolicy { Mode = "Bypass", Entries = new() { new() { Kind = "Domain", Value = "api.ipify.org", Action = "Bypass" } } };
+            await ConnectWithDiagnostics();
+            Assert(await Curl() != 0 && backend.State == "Connected", "Site Bypass overrode an explicit App Block.");
+            checks.Add("explicit App Block overrides Site Bypass; no global bypass host routes introduced");
             await backend.StopAsync();
             Assert(AdapterService.CurrentId() == persistentId, "Disconnect replaced or removed the adapter.");
             Assert(!NetworkInterface.GetAllNetworkInterfaces().Single(x => x.Name == TunLease.Name).GetIPProperties().UnicastAddresses.Any(x => x.Address.ToString() == "172.28.255.1"), "Capture IP remained after stop.");
@@ -98,7 +119,20 @@ internal static partial class Tests
                 settings.CaptureMode = "TUN"; await ConnectWithDiagnostics();
                 Assert(backend.State == "Connected" && await Curl() == 0, "Repeated Proxy to TUN switch lost Internet.");
                 Assert(AdapterService.CurrentId() == persistentId && AdapterService.ProcessId == serviceId && NetworkInterface.GetAllNetworkInterfaces().Count(x => x.Name == TunLease.Name) == 1, "Mode switch duplicated the device.");
-                if (i == 0) { backend.KillOwnedCoreForTest(); await Task.Delay(2000); await WaitConnected(backend, 70); Assert(AdapterService.CurrentId() == persistentId && await Curl() == 0, "Core recovery lost Internet or replaced the adapter."); }
+                if (i == 0)
+                {
+                    int started = backend.Log.Snapshot().Count(x => x.Event == "backend.core_started" && x.Message.StartsWith("sing-box "));
+                    backend.KillOwnedCoreForTest();
+                    var recovery = Stopwatch.StartNew();
+                    while (backend.Log.Snapshot().Count(x => x.Event == "backend.core_started" && x.Message.StartsWith("sing-box ")) <= started)
+                    {
+                        Assert(recovery.Elapsed < TimeSpan.FromSeconds(70), "Killed capture core did not start a new instance.");
+                        await Task.Delay(200);
+                    }
+                    await WaitConnected(backend, 70);
+                    Assert(AdapterService.CurrentId() == persistentId && await Curl() == 0, "Core recovery lost Internet or replaced the adapter.");
+                    checks.Add("killed capture core starts a new instance and freshly verifies captured HTTPS before recovery passes");
+                }
                 await backend.StopAsync();
                 Assert(WindowsProxy.Matches(WindowsProxy.Read(), proxyBefore), "Mode switch failed to restore Windows proxy.");
             }
@@ -109,6 +143,7 @@ internal static partial class Tests
             WindowsProxy.Write(proxyBefore);
         }
         Assert(dnsBefore == DnsSnapshot(), "Physical-interface DNS changed.");
+        Assert(physicalBefore == PhysicalSnapshot(), "Physical interface properties changed across mode switches / core crash / disconnect.");
         checks.Add("repeated Proxy / TUN / Disconnect switches and core crash recovery retain one GUID and working Internet; stale owned proxy removed; physical DNS unchanged");
         string leaseFolder = Path.Combine(Store.Root, "runtime", Guid.NewGuid().ToString("N")); Store.SecureDirectory(leaseFolder);
         Progress("crash.parent");

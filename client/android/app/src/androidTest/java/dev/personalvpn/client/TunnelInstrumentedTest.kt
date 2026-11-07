@@ -43,14 +43,23 @@ class TunnelInstrumentedTest {
         while (System.currentTimeMillis() < until) { if (check()) return; Thread.sleep(300) }
         error("$reason: ${Repository.state.value.status}; events=" + Repository.logs.value.takeLast(8).joinToString { "${it.code}:${it.detail}" })
     }
-    // Filtering and icon loading can replace accessibility nodes between lookup
-    // and input. Re-find only on StaleObjectException; retain every policy assertion.
+    private fun refreshAccessibility() {
+        // Compose filtering can leave removed lazy-list nodes in the Android
+        // accessibility cache without throwing StaleObjectException. API 34's
+        // public cache invalidation fetches the current tree before input.
+        // https://developer.android.com/reference/android/app/UiAutomation#clearCache()
+        if (android.os.Build.VERSION.SDK_INT >= 34) {
+            InstrumentationRegistry.getInstrumentation().uiAutomation.clearCache()
+        }
+    }
+    // Re-query the current tree after filtering; retain every policy assertion.
     private fun clickFresh(selector: androidx.test.uiautomator.BySelector) {
         val device=UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        waitFor("Click $selector",20) {
+        try { waitFor("Click $selector",20) {
+            refreshAccessibility()
             try { device.findObject(selector)?.let { it.click();true }?:false }
             catch(_: androidx.test.uiautomator.StaleObjectException) { false }
-        }
+        } } catch(error: IllegalStateException) { throw IllegalStateException("Input target $selector unavailable; ${uiHierarchy()}",error) }
         device.waitForIdle()
     }
     private fun openSettingsDestination(label: String) {
@@ -69,6 +78,7 @@ class TunnelInstrumentedTest {
     private fun searchApps(text: String) {
         val device=UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         waitFor("Set app search",20) {
+            refreshAccessibility()
             try { device.findObject(By.clazz("android.widget.EditText"))?.let { it.text=text;true }?:false }
             catch(_: androidx.test.uiautomator.StaleObjectException) { false }
         }
@@ -99,16 +109,33 @@ class TunnelInstrumentedTest {
         val ids = listOf("dev.personalvpn.probe", "dev.personalvpn.client.test")
         Repository.save(original.copy(apps = Policy(Action.Tunnel)))
         try {
-            launchHome().use {
+            launchHome().use { activity ->
                 val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
                 openSettingsDestination("App Tunnel")
-                searchApps("dev.personalvpn")
-                fun selectBoth() {
-                    ids.forEach { id ->
-                        searchApps(id)
-                        clickFresh(By.desc("Select app $id"))
+                fun filterApps(text: String) {
+                    searchApps(text)
+                    // ACTION_SET_TEXT can leave the IME covering the lazy app
+                    // list. Dismiss it like a user before selecting result rows;
+                    // keep every selection/action/persistence assertion below.
+                    activity.onActivity { it.window.insetsController?.hide(android.view.WindowInsets.Type.ime()) }
+                    device.waitForIdle()
+                    waitFor("App search committed: $text",10) {
+                        refreshAccessibility()
+                        try { device.findObject(By.clazz("android.widget.EditText"))?.text==text }
+                        catch(_:androidx.test.uiautomator.StaleObjectException) { false }
                     }
-                    searchApps("dev.personalvpn")
+                }
+                filterApps("dev.personalvpn")
+                fun selectBoth() {
+                    ids.forEachIndexed { index, id ->
+                        filterApps(id)
+                        clickFresh(By.desc("Select app $id"))
+                        waitFor("App selection applied: $id",10) {
+                            refreshAccessibility()
+                            device.hasObject(By.text("${index + 1} selected"))
+                        }
+                    }
+                    filterApps("dev.personalvpn")
                 }
                 assertNull("No action bar before selection",device.findObject(By.text("Choose action")))
                 selectBoth()

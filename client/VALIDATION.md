@@ -1,4 +1,39 @@
-# Client 0.9.0 compact rules and site groups - 2026-11-06
+# Client 0.9.1 LAN / Wi-Fi recovery - 2026-11-08
+
+Qualified source: `77340fffc7a79bcc2cbb2ec89f97b97f8c99998b`.
+[Final publication run](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/42395956271)
+completed successfully. [Client 0.9.1](https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/client-v0.9.1)
+is stable, non-draft and Latest at publication, with Windows x86/x64 and Android
+installers together in 12 assets. Source tag and immutable base/release branches
+match; 0.9.0 source is preserved in its legacy branch and remains a rollback release.
+
+- All 11 checksum entries match GitHub uploaded-byte digests; all eight platform
+  manifest entries match sizes and hashes. The downloaded x64 Setup and three
+  verification files also match their own digests. The Android signing
+  certificate matches the pinned existing certificate.
+- Windows x86/x64 passed route selection, independent physical-flag recovery,
+  forced owner/guard death, real captured HTTPS/DNS/UDP, external Direct HTTPS,
+  App precedence in both directions, fresh core restart, repeated mode switches,
+  settings-preserving migration and in-place reinstall. See
+  [Windows validation](windows/VALIDATION.md) and [LAN recovery](windows/LAN-RECOVERY.md).
+- Android native/JVM/lint/signature/ABI checks passed. Android 14 instrumentation
+  reports `OK (5 tests)`, including bulk app selection/editing, grouped site
+  rules, both protocol network-loss/cellular/Wi-Fi recovery and separate-UID
+  captured HTTPS with a retained TUN descriptor. Android production VPN code is
+  unchanged; test input now refreshes stale accessibility nodes after filtering
+  and confirms the selected count before proceeding.
+
+Builds and native integration tests ran in Actions. Source-matched native caches
+did not skip downstream qualification. These are CI/emulator results, not a new
+measurement on the Redmi, university LAN or China-to-VPS path. The workstation
+VPN session, VPS and paused P2P sector were preserved. Installation and physical
+LAN/Wi-Fi/portal acceptance remain pending with a backup connection available.
+
+---
+
+The following records the previous qualification at its publication time.
+
+## Client 0.9.0 compact rules and site groups - 2026-11-06
 
 Qualified release source: `3755ee772d248f2da868d104885b858ddb89c822`.
 [Final publication run, attempt 2](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/42212778404)

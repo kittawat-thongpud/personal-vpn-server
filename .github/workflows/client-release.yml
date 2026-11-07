@@ -7,6 +7,7 @@ on:
       - 'client/Directory.Build.props'
       - 'client/release/**'
       - 'client/windows/app/**'
+      - 'client/windows/native/**'
       - 'client/windows/*.ps1'
       - 'client/windows/setup.iss'
       - 'client/windows/tools/test-upgrade.ps1'

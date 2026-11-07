@@ -43,6 +43,7 @@ public static class Program
             catch { return 1; } // Recovery record remains for the next application startup.
         }
         if (arguments.Contains("--tun-lease-child")) return Tests.TunLeaseChild(arguments).GetAwaiter().GetResult();
+        if (arguments.Contains("--network-recovery-integration")) return Tests.NetworkRecoveryIntegration(arguments).GetAwaiter().GetResult();
         if (arguments.Contains("--system-tun-test")) return Tests.HostTunTest(arguments).GetAwaiter().GetResult();
         if (arguments.Contains("--local-tun-integration")) return Tests.LocalProxyIntegration(arguments).GetAwaiter().GetResult();
         if (arguments.Contains("--proxy-lease-child")) return Tests.LeaseChild(arguments);
@@ -88,7 +89,7 @@ public static class Program
             // A previous crash may leave plaintext runtime configs. Only our fixed runtime child is cleaned.
             string runtime = Path.GetFullPath(Path.Combine(Store.Root, "runtime"));
             if (Path.GetDirectoryName(runtime) != Path.GetFullPath(Store.Root)) throw new InvalidOperationException("Invalid application runtime path.");
-            if (Directory.Exists(runtime)) Directory.Delete(runtime, true);
+            if (Directory.Exists(runtime)) foreach (string child in Directory.GetDirectories(runtime)) TunLease.CleanRuntimeFolder(child);
             var app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
             app.DispatcherUnhandledException += (_, args) =>
             {
@@ -137,6 +138,7 @@ internal static partial class Tests
         try
         {
             var log = new SessionLog();
+            NetworkRecoveryPolicy(); passed.Add("physical binding ABI, durable journal and field-scoped conditional recovery");
             for (int i = 0; i < 5000; i++) { log.Add("INFO", "backend.retry", i + new string('x', 10000)); log.Add("INFO", "ui.click", "ignored"); }
             Assert(log.Snapshot().Length == 1000 && log.Bytes <= 1048576, "Log bounds failed.");
             Assert(log.Snapshot().All(x => x.Message.Length <= 512 && x.Event == "backend.retry"), "Backend-only log filter / truncation failed.");
@@ -388,7 +390,7 @@ internal static partial class Tests
             foreach (string check in await SiteRoutingTest(root, expected)) report["checks"]!.AsArray().Add(check);
             await File.WriteAllTextAsync(reportPath, report.ToJsonString(Store.JsonOptions)); return 0;
         }
-        catch (Exception error) { return Report(args, new { result = "FAIL", error = error.GetType().Name, reason = error is InvalidOperationException || Environment.GetEnvironmentVariable("CI") == "true" ? error.Message : "Local proxy integration failed.", stack = Environment.GetEnvironmentVariable("CI") == "true" ? error.StackTrace : null }, 1); }
+        catch (Exception error) { return Report(args, new { result = "FAIL", error = error.GetType().Name, reason = Environment.GetEnvironmentVariable("CI") == "true" ? error.ToString() : error is InvalidOperationException ? error.Message : "Local proxy integration failed.", stack = Environment.GetEnvironmentVariable("CI") == "true" ? error.StackTrace : null }, 1); }
         finally
         {
             server?.Dispose();

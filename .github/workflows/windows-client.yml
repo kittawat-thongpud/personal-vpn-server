@@ -48,11 +48,21 @@ jobs:
         with:
           go-version: '1.27.3'
           cache: false
-      - name: Prepare qualified native cores (source build if recipe changes)
+      - name: Restore source-matched native build candidate
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: dist/windows/cores
+          key: windows-native-v2-${{ matrix.arch }}-${{ hashFiles('client/windows/package.ps1', 'client/windows/build-tun-core.ps1', 'client/windows/native/**') }}
+      - name: Prepare native cores (source build if recipe changes)
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: ./client/windows/package.ps1 -Architecture ${{ matrix.arch }}
+      - name: Cache source-matched native candidate; release gates still required
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: dist/windows/cores
+          key: windows-native-v2-${{ matrix.arch }}-${{ hashFiles('client/windows/package.ps1', 'client/windows/build-tun-core.ps1', 'client/windows/native/**') }}
       - name: Publish architecture-matched Administrator application with embedded TUN hash
         shell: pwsh
         run: |
@@ -64,6 +74,8 @@ jobs:
       - name: Check policy, logs and architecture-matched binary integrity
         shell: pwsh
         run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File client/windows/tools/test-capture-reset.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Capture reset ownership / orphan resource tests failed' }
           $report = "$env:RUNNER_TEMP/self-test.json"
           $p = Start-Process (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--self-test','--report',$report) -PassThru -Wait -WindowStyle Hidden
           Get-Content $report
@@ -93,16 +105,29 @@ jobs:
           & ./dist/windows/cores/sing-box.exe check -c "$output/tun-plan.json"
           if ($LASTEXITCODE -ne 0) { throw 'TUN config check failed' }
           Compress-Archive "$output/*.png" "dist/PersonalVPN-ui-preview-$env:CLIENT_VERSION-${{ matrix.arch }}.zip"
-      - name: Verify real TUN capture, app policy, UDP and crash cleanup on isolated runner
+      - name: Verify physical flags, crash recovery and real TUN capture on isolated runner
         shell: pwsh
         run: |
-          $report = "$env:RUNNER_TEMP/tun-integration.json"
-          $p = Start-Process (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--local-tun-integration','--report',$report) -PassThru -WindowStyle Hidden
-          $finished = $p.WaitForExit(420000)
-          if (Test-Path "$report.progress") { Get-Content "$report.progress" }
-          if (-not $finished) { $p.Kill(); Start-Sleep -Seconds 5; throw 'TUN integration exceeded its deadline' }
-          Get-Content $report
-          if ($p.ExitCode -ne 0) { throw 'TUN integration failed' }
+          # This fixture deliberately enables forwarding to reproduce the LAN
+          # binding failure. Hosted runners can have unrelated sharing services
+          # running; isolate those here, never weaken the production conflict guard.
+          $services = @(Get-Service -Name SharedAccess,icssvc,RemoteAccess -ErrorAction SilentlyContinue | Where-Object Status -eq Running)
+          try {
+            foreach ($service in $services) { Stop-Service -Name $service.Name -Force -ErrorAction Stop }
+            $report = "$env:RUNNER_TEMP/network-recovery.json"
+            $p = Start-Process (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--network-recovery-integration','--report',$report) -PassThru -Wait -WindowStyle Hidden
+            Get-Content $report
+            if ($p.ExitCode -ne 0) { throw 'Physical network recovery failed' }
+            $report = "$env:RUNNER_TEMP/tun-integration.json"
+            $p = Start-Process (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--local-tun-integration','--report',$report) -PassThru -WindowStyle Hidden
+            $finished = $p.WaitForExit(420000)
+            if (Test-Path "$report.progress") { Get-Content "$report.progress" }
+            if (-not $finished) { $p.Kill(); Start-Sleep -Seconds 5; throw 'TUN integration exceeded its deadline' }
+            Get-Content $report
+            if ($p.ExitCode -ne 0) { throw 'TUN integration failed' }
+          } finally {
+            foreach ($service in $services | Sort-Object { if ($_.Name -eq 'SharedAccess') { 0 } else { 1 } }) { Start-Service -Name $service.Name -ErrorAction Continue }
+          }
       - name: Build Windows installer
         # Compilation is independent of UI input tests. Keep its diagnostics
         # available on failed qualifications; release still requires all gates.

@@ -16,6 +16,14 @@ using System.Threading.Tasks;
 
 namespace PersonalVpn;
 
+// Only teardown failures may keep capture recovery blocked. A core exit racing
+// with a cancelled connection attempt is an ordinary runtime result, not proof
+// that routes / DNS / proxy failed to restore.
+internal sealed class CaptureCleanupException : Exception
+{
+    internal CaptureCleanupException(string message, Exception error) : base(message, error) { }
+}
+
 // All children belong to a kill-on-close job: a GUI crash must not leave listeners behind.
 public sealed class ProcessJob : IDisposable
 {
@@ -102,6 +110,11 @@ public sealed class OwnedCore : IDisposable
             {
                 var line = new string(buffer, 0, count).ToLowerInvariant();
                 if (Name == "sing-box" && Environment.GetEnvironmentVariable("CI") == "true") startupDiagnostic = (startupDiagnostic + line)[^Math.Min(4096, startupDiagnostic.Length + line.Length)..];
+                if (Name == "sing-box" && (line.Contains("forwarding") || line.Contains("weak host") || line.Contains("unsafe interface binding")))
+                {
+                    if (Interlocked.Increment(ref errorCount) <= 20) log.Add("WARN", "backend.interface_binding", "Physical interface binding conflict; capture cannot safely bypass this interface. Inspect network sharing and reconnect.");
+                    continue;
+                }
                 if (!(line.Contains("error") || line.Contains("fatal") || line.Contains("failed"))) continue;
                 if (Interlocked.Increment(ref errorCount) > 20) continue;
                 string category = line.Contains("certificate") || line.Contains("pinsha") ? "TLS / certificate verification failed."
@@ -159,7 +172,7 @@ public sealed class Backend : IAsyncDisposable
     }
     private void ScheduleNetworkCheck()
     {
-        try { networkDebounce.Change(1200, Timeout.Infinite); } catch (ObjectDisposedException) { }
+        try { networkDebounce.Change(1200, Running ? 3000 : Timeout.Infinite); } catch (ObjectDisposedException) { }
     }
     private void OnNetworkChange(object? sender, EventArgs args) => ScheduleNetworkCheck();
     private void OnAvailabilityChange(object? sender, NetworkAvailabilityEventArgs args) => ScheduleNetworkCheck();
@@ -167,14 +180,14 @@ public sealed class Backend : IAsyncDisposable
     {
         try
         {
-            return string.Join("|", NetworkInterface.GetAllNetworkInterfaces()
+            return PhysicalNetwork.Signature() + "|" + string.Join("|", NetworkInterface.GetAllNetworkInterfaces()
         .Where(x => !x.Name.StartsWith("PersonalVPN", StringComparison.Ordinal))
         .OrderBy(x => x.Id).Select(x => x.Id + ":" + x.OperationalStatus + ":" +
             string.Join(",", x.GetIPProperties().UnicastAddresses.Select(a => a.Address + "/" + a.PrefixLength).OrderBy(a => a)) + ":" +
             string.Join(",", x.GetIPProperties().GatewayAddresses.Select(a => a.Address.ToString()).OrderBy(a => a)) + ":" +
             string.Join(",", x.GetIPProperties().DnsAddresses.Select(a => a.ToString()).OrderBy(a => a))));
         }
-        catch (NetworkInformationException) { return ""; }
+        catch (Exception error) when (error is NetworkInformationException or Win32Exception) { return ""; }
     }
     private void NetworkChanged()
     {
@@ -207,6 +220,8 @@ public sealed class Backend : IAsyncDisposable
         try
         {
             await StopInternal();
+            // A failed prior worker must recover before a new owner launches.
+            TunLease.RecoverAbandoned(); SystemProxyLease.RecoverAbandoned();
             Traffic.Reset();
             lock (gate)
             {
@@ -216,6 +231,7 @@ public sealed class Backend : IAsyncDisposable
                 state = "Connecting"; detail = settings.CaptureMode == "TUN" ? "Starting TUN; authentication, adapter and capture checks required." : "Starting tunnel and selecting Personal VPN system proxy."; exit = "—";
                 worker = Task.Run(() => Run(snapshot, token));
             }
+            networkDebounce.Change(1200, 3000); // Includes metric changes without an address event.
         }
         finally { lifecycle.Release(); }
     }
@@ -325,9 +341,12 @@ public sealed class Backend : IAsyncDisposable
     {
         Task? pending;
         lock (gate) { session?.Cancel(); cycle?.Cancel(); pending = worker; }
+        networkDebounce.Change(Timeout.Infinite, Timeout.Infinite);
         Exception? failure = null;
         try { if (pending != null) await pending; }
         catch (Exception error) { failure = error; Log.Add("ERROR", "backend.session_cleanup_failed", "Previous session failed during cleanup (" + error.GetType().Name + "). Capture state will be reset before reuse."); }
+        try { TunLease.RecoverAbandoned(); } // Includes a previously unplugged NIC that has returned.
+        catch (Exception error) { failure ??= error; }
         try { proxyLease?.Dispose(); proxyLease = null; }
         catch { SetState("Error", "Windows proxy restore failed. Retry Disconnect; the recovery record was retained."); throw; }
         finally
@@ -335,7 +354,7 @@ public sealed class Backend : IAsyncDisposable
             lock (gate) { session?.Dispose(); session = null; worker = null; active = null; captureStatus = "Not captured"; lastTunnelExit = "—"; }
             Traffic.Unavailable();
         }
-        if (failure != null) { SetState("Error", "Previous capture cleanup failed. Retry to reset the retained adapter."); return; }
+        if (failure != null) { SetState("Error", "Previous capture cleanup failed. Retry to reset the retained adapter."); throw new InvalidOperationException("Previous capture cleanup failed; recovery must finish before a new connection.", failure); }
         SetState("Disconnected", "Capture stopped; previous Windows proxy restored. Adapter retained for reuse.");
     }
     private async Task Run(Settings settings, CancellationToken token)
@@ -357,6 +376,13 @@ public sealed class Backend : IAsyncDisposable
                 await RunCycle(settings, attemptGeneration, attempt.Token);
             }
             catch (OperationCanceledException) when (attempt.IsCancellationRequested) { }
+            catch (Exception error) when (attempt.IsCancellationRequested && error is not CaptureCleanupException)
+            {
+                // RunCycle's finally has completed successfully before this
+                // filter runs. Never carry a stale runtime result into Stop or
+                // a newer network generation as a false cleanup failure.
+                Log.Add("INFO", "backend.cancelled_core_result", "Connection attempt cancelled (" + error.GetType().Name + "); capture teardown completed.");
+            }
             catch (Exception error)
             {
                 if (token.IsCancellationRequested) { SetState("Error", "Capture reset failed; retry Disconnect or Connect to recover."); Log.Add("ERROR", "backend.cleanup_failed", "Capture teardown failed (" + error.GetType().Name + "). Retry Disconnect; the recovery record was retained."); throw; }
@@ -387,6 +413,8 @@ public sealed class Backend : IAsyncDisposable
     };
     private async Task RunCycle(Settings settings, long expected, CancellationToken token)
     {
+        TunLease.RecoverAbandoned();
+        if (proxyLease != null) { proxyLease.Dispose(); proxyLease = null; }
         string runtimeRoot = Path.Combine(Store.Root, "runtime");
         Store.SecureDirectory(runtimeRoot);
         string folder = Path.Combine(runtimeRoot, Guid.NewGuid().ToString("N"));
@@ -473,6 +501,7 @@ public sealed class Backend : IAsyncDisposable
                     {
                         SetState("Verifying", "Authenticated server verified; preparing TUN adapter and checking the captured path.", expected);
                         adapterLease = await TunLease.Start(folder, token);
+                        foreach (var (nic, row) in PhysicalNetwork.Rows()) Log.Add("INFO", "backend.physical_link", nic.Name + " · " + (row.Family == 2 ? "IPv4" : "IPv6") + " · index " + row.Index + " · metric " + row.Metric + " · MTU " + row.Mtu + "; strong-host binding prepared. Direct uses destination routes, not a fixed Wi-Fi/LAN preference.");
                         Log.Add("INFO", "backend.adapter_reused", "Persistent adapter opened: " + adapterLease.AdapterId + ". No device creation or deletion for this session.");
                         var plan = TunPlan.Compile(settings, transports.Select(x => x.ToString()), new[] { VerifyCore("xray.exe"), VerifyCore("hysteria.exe") }, adapterLease.InterfaceName, TunSupport.MeshPrefixes(), Environment.ProcessPath);
                         if (Environment.GetEnvironmentVariable("CI") == "true") plan["log"]!["level"] = "debug";
@@ -522,18 +551,29 @@ public sealed class Backend : IAsyncDisposable
         }
         finally
         {
+            var cleanupErrors = new List<Exception>();
             trafficCancellation.Cancel();
-            if (trafficTask != null) await trafficTask;
+            try { if (trafficTask != null) await trafficTask; } catch (Exception error) { cleanupErrors.Add(error); }
             Traffic.Unavailable();
             lock (gate) cores.Clear();
-            for (int i = owned.Count - 1; i >= 0; i--) owned[i].Dispose();
-            if (adapterLease != null)
+            // Cleanup steps are independent; one exception cannot strand another
+            // core, the TUN/physical journal, or the proxy recovery lease.
+            for (int i = owned.Count - 1; i >= 0; i--)
             {
-                adapterLease.Dispose(); Log.Add("INFO", "backend.tun_stopped", "Capture routes and DNS released; persistent adapter retained.");
+                try { owned[i].Dispose(); } catch (Exception error) { cleanupErrors.Add(error); }
             }
+            try { adapterLease?.Dispose(); if (adapterLease != null) Log.Add("INFO", "backend.tun_stopped", "Capture routes / DNS released and active physical binding flags restored; persistent adapter retained."); }
+            catch (Exception error) { cleanupErrors.Add(error); }
+            try { proxyLease?.Dispose(); proxyLease = null; }
+            catch (Exception error) { cleanupErrors.Add(error); }
+            if (cleanupErrors.Count != 0) throw new CaptureCleanupException("Capture cleanup is incomplete; recovery records were retained.", new AggregateException(cleanupErrors));
             // Only a freshly generated child of our protected runtime directory is removed.
-            if (Path.GetDirectoryName(Path.GetFullPath(folder)) != Path.GetFullPath(runtimeRoot)) throw new InvalidOperationException("Invalid runtime cleanup path.");
-            if (Directory.Exists(folder)) Directory.Delete(folder, true);
+            try
+            {
+                if (Path.GetDirectoryName(Path.GetFullPath(folder)) != Path.GetFullPath(runtimeRoot)) throw new InvalidOperationException("Invalid runtime cleanup path.");
+                TunLease.CleanRuntimeFolder(folder);
+            }
+            catch (Exception error) { throw new CaptureCleanupException("Runtime cleanup failed; recovery data was retained.", error); }
         }
     }
     private async Task CollectTraffic(int port, CancellationToken token)
@@ -610,8 +650,8 @@ public sealed class Backend : IAsyncDisposable
     {
         NetworkChange.NetworkAddressChanged -= OnNetworkChange;
         NetworkChange.NetworkAvailabilityChanged -= OnAvailabilityChange;
-        await networkDebounce.DisposeAsync();
-        await StopAsync(); lifecycle.Dispose();
+        try { await StopAsync(); }
+        finally { await networkDebounce.DisposeAsync(); lifecycle.Dispose(); }
     }
 }
 public sealed record ProtocolProbeResult(string Protocol, bool Success, string ExitIp, string Reason, long ElapsedMs);
