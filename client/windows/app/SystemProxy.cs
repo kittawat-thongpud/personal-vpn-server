@@ -183,7 +183,11 @@ public sealed class SystemProxyLease : IDisposable
     {
         // Do not overwrite a newer proxy choice made by the user / another VPN.
         bool ours = WindowsProxy.Matches(WindowsProxy.Read(), lease.Applied);
-        if (ours) WindowsProxy.Write(lease.Before);
+        if (ours)
+        {
+            WindowsProxy.Write(lease.Before);
+            if (!WindowsProxy.Matches(WindowsProxy.Read(), lease.Before)) throw new InvalidOperationException("Windows proxy restore did not verify; the recovery record was retained.");
+        }
         File.Delete(LeasePath);
         return ours;
     }

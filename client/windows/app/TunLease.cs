@@ -79,14 +79,27 @@ public sealed class TunLease : IDisposable
             if (!acquired) throw new InvalidOperationException("Another Personal VPN TUN session is still active.");
             try
             {
-            TunReset.Capture(record.AdapterId, skipIfIdle: true);
-            File.WriteAllText(Path.Combine(folder, "tun-ready"), "ready");
+            var physical = new PhysicalNetworkLease(folder);
             try
             {
+                TunReset.Capture(record.AdapterId);
+                physical.Prepare();
+                File.WriteAllText(Path.Combine(folder, "tun-ready"), "ready");
+                int ticks = 0;
                 while (!parent.WaitForExit(250))
+                {
                     if (File.Exists(Path.Combine(folder, "tun-stop"))) break;
+                    if (++ticks % 4 == 0) physical.Prepare(); // Hot-plugged links; native dial fails safely until prepared.
+                }
             }
-            finally { TunReset.Capture(record.AdapterId); File.WriteAllText(Path.Combine(folder, "tun-reset-done"), "done"); }
+            finally
+            {
+                // Independent attempts: a TUN reset failure must not skip the
+                // physical-interface restore, or the other way around.
+                try { TunReset.Capture(record.AdapterId); }
+                finally { physical.Restore(); }
+            }
+            File.WriteAllText(Path.Combine(folder, "tun-reset-done"), "done");
             }
             finally { mutex.ReleaseMutex(); }
             return 0;
@@ -106,9 +119,35 @@ public sealed class TunLease : IDisposable
         int code = guard.HasExited ? guard.ExitCode : -1; guard.Dispose();
         // The independent guard resets capture even after a killed GUI. A device
         // remaining here is expected: the Windows service owns its lifetime.
-        if ((!exited || code != 0) && File.Exists(Path.Combine(folder, "tun-ready"))) TunReset.Capture(record.AdapterId);
+        if (!exited || code != 0)
+        {
+            // Never reset another session when preparation failed on the mutex.
+            // A journal belongs to this guard; ready means it owned capture.
+            if (File.Exists(Path.Combine(folder, "physical-network.json")) || File.Exists(Path.Combine(folder, "tun-ready")))
+            {
+                using var mutex = new Mutex(false, @"Global\PersonalVPN-TUN");
+                bool acquired; try { acquired = mutex.WaitOne(0); } catch (AbandonedMutexException) { acquired = true; }
+                if (!acquired) throw new InvalidOperationException("Capture recovery is still active; recovery data was retained.");
+                try { try { TunReset.Capture(record.AdapterId); } finally { new PhysicalNetworkLease(folder).Restore(); } }
+                finally { mutex.ReleaseMutex(); }
+            }
+        }
         // If preparation never published ready, Start retains its original error.
         // There is no active capture to reset, and another owner must be untouched.
+    }
+    internal static void CleanRuntimeFolder(string folder)
+    {
+        folder = ValidFolder(folder);
+        if (!Directory.Exists(folder)) return;
+        if (File.Exists(Path.Combine(folder, "physical-network.json")))
+        {
+            // An unplugged USB NIC can defer a field restore. Preserve just the
+            // recovery metadata; remove all plaintext credentials/configs.
+            var retained = new[] { "tun-lease.json", "physical-network.json", "tun-stop", "tun-reset-done" };
+            foreach (string file in Directory.GetFiles(folder)) if (!retained.Contains(Path.GetFileName(file))) File.Delete(file);
+            return;
+        }
+        Directory.Delete(folder, true);
     }
     public static void RecoverAbandoned()
     {
@@ -120,14 +159,19 @@ public sealed class TunLease : IDisposable
             if (record.Name != Name && record.Name != LegacyName) throw new InvalidOperationException("Adapter recovery ownership mismatch.");
             bool alive = false;
             try { using var process = Process.GetProcessById(record.ParentId); alive = process.StartTime.ToUniversalTime().Ticks == record.ParentStarted; } catch (ArgumentException) { }
-            if (alive) continue;
+            if (alive && !File.Exists(Path.Combine(folder, "tun-stop"))) continue;
             File.WriteAllText(Path.Combine(folder, "tun-stop"), "stop");
             if (record.Name == Name)
             {
                 using var mutex = new Mutex(false, @"Global\PersonalVPN-TUN");
                 bool acquired; try { acquired = mutex.WaitOne(0); } catch (AbandonedMutexException) { acquired = true; }
-                if (!acquired) continue;
-                try { TunReset.Capture(record.AdapterId); } finally { mutex.ReleaseMutex(); }
+                if (!acquired)
+                {
+                    if (File.Exists(Path.Combine(folder, "tun-reset-done"))) continue; // Only a deferred, absent-device journal remains.
+                    throw new InvalidOperationException("Previous capture recovery is still active. Retry after it finishes; recovery data was retained.");
+                }
+                try { try { TunReset.Capture(record.AdapterId); } finally { new PhysicalNetworkLease(folder).Restore(); } }
+                finally { mutex.ReleaseMutex(); }
             }
             else if (WintunAdapter.Exists(record.AdapterId)) WintunAdapter.RemoveOrphan(record.AdapterId, record.Name); // One-time legacy migration only.
         }

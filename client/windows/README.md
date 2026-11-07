@@ -88,10 +88,13 @@ Direct traffic is excluded; health traffic is included. These are not billing
 totals. Reconnect retains session totals and marks unavailable counters explicitly.
 
 Native downloads are checksum pinned. CI builds a pinned sing-box source revision
-with an OpenAdapter-only patch and embeds its resulting hash in the application. Wintun's vendor
+with persistent-adapter and per-destination egress patches and embeds its resulting hash in the application. Wintun's vendor
 signature is checked during packaging. No shared Wintun driver is uninstalled.
 The independent guard resets only the owned interface routes, addresses and DNS
 on normal stop or parent exit. It never deletes the persistent adapter.
+The guard also journals and conditionally restores physical strong-host binding
+flags by GUID / family. The native core does not modify physical interfaces.
+Internet sharing conflicts are reported; DNS, DHCP, MTU and metrics are preserved.
 The service creates the device only if missing. Disconnect, reconnect and mode
 changes reuse its GUID. TUN suspends manual / PAC proxy capture and conditionally
 restores the previous snapshot on exit, excluding a stale owned loopback proxy.

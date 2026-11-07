@@ -1,5 +1,6 @@
 param([ValidateSet('x64','x86')][string]$Architecture, [string]$Destination)
 $ErrorActionPreference = 'Stop'
+$patchRoot = Join-Path $PSScriptRoot 'native'
 $commit = 'c005f35300ce76427dc285481ec5695f5b179cd2'
 $source = Join-Path $env:RUNNER_TEMP ('personal-vpn-sing-box-' + $Architecture)
 git clone --filter=blob:none https://github.com/SagerNet/sing-box.git $source
@@ -26,10 +27,27 @@ try {
 '@
     $text = $text.Substring(0,$start) + $replacement + $text.Substring($end)
     [IO.File]::WriteAllText($file, $text)
+    # Pinned Windows socket egress: per-destination non-capture route lookup.
+    # Strong-host mutations belong exclusively to the durable managed guard.
+    $networkFile = Join-Path $source 'route/network.go'
+    $networkText = [IO.File]::ReadAllText($networkFile) -replace '\r\n',"$([char]10)"
+    $needle = "`t`t`tdefaultInterface := r.interfaceMonitor.DefaultInterface()"
+    if (($networkText.Split([string[]]@($needle),[StringSplitOptions]::None)).Count -ne 2) { throw 'Upstream socket routing source changed; patch requires review' }
+    $networkText = $networkText.Replace($needle,"`t`t`tif remoteAddr.IsValid() { return tun.PersonalVPNBypassInterface(remoteAddr, r.interfaceMonitor.MyInterfaces()) }`n" + $needle)
+    [IO.File]::WriteAllText($networkFile,$networkText)
+    $native = Join-Path $source 'vendor/github.com/sagernet/sing-tun'
+    foreach ($name in @('personalvpn_route_windows.go','personalvpn_route_windows_test.go','tun_bind_windows.go')) {
+        Copy-Item -LiteralPath (Join-Path $patchRoot $name) -Destination (Join-Path $native $name)
+    }
     gofmt -w $file
     if ($LASTEXITCODE -ne 0) { throw 'TUN patch formatting failed' }
+    gofmt -w $networkFile $native/personalvpn_route_windows.go $native/personalvpn_route_windows_test.go $native/tun_bind_windows.go
+    if ($LASTEXITCODE -ne 0) { throw 'Route patch formatting failed' }
     Copy-Item $file (Join-Path (Split-Path $Destination) 'TUN-SOURCE.txt')
+    foreach ($name in @('personalvpn_route_windows.go','tun_bind_windows.go')) { Copy-Item (Join-Path $native $name) (Join-Path (Split-Path $Destination) ($name + '.txt')) }
     $env:GOOS='windows'; $env:GOARCH=if ($Architecture -eq 'x86') { '386' } else { 'amd64' }; $env:CGO_ENABLED='0'
-    go build -mod=vendor -trimpath -tags with_gvisor -ldflags '-s -w -X github.com/sagernet/sing-box/constant.Version=1.14.4-personalvpn.1' -o $Destination ./cmd/sing-box
+    go test -mod=vendor -tags with_gvisor ./vendor/github.com/sagernet/sing-tun -run TestPersonalVPN -count=1 -v
+    if ($LASTEXITCODE -ne 0) { throw 'Windows native egress regression tests failed' }
+    go build -mod=vendor -trimpath -tags with_gvisor -ldflags '-s -w -X github.com/sagernet/sing-box/constant.Version=1.14.4-personalvpn.2' -o $Destination ./cmd/sing-box
     if ($LASTEXITCODE -ne 0) { throw 'TUN core build failed' }
 } finally { Pop-Location }

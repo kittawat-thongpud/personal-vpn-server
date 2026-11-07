@@ -56,7 +56,7 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'app/Assets/personal-vpn.ico') -
 Native components: verified downloads and a pinned source build with embedded runtime hash:
 Xray-core v26.10.31, MPL-2.0: https://github.com/XTLS/Xray-core/tree/v26.10.31
 Hysteria app/v2.13.0, MIT: https://github.com/HyNetworks/hysteria/tree/app/v2.13.0
-sing-box v1.14.4 + Personal VPN OpenAdapter-only patch (build-tun-core.ps1), GPL-3.0: https://github.com/SagerNet/sing-box/tree/v1.14.4
+sing-box v1.14.4 + Personal VPN persistent-adapter / destination-egress patches (build-tun-core.ps1 and native/), GPL-3.0: https://github.com/SagerNet/sing-box/tree/v1.14.4
 Wintun 0.14.1, signed redistributable license: https://www.wintun.net/
 .NET runtime / WPF: https://github.com/dotnet/runtime and https://github.com/dotnet/wpf
 Application source: https://github.com/kittawat-thongpud/personal-vpn-server/tree/main/client/windows/app

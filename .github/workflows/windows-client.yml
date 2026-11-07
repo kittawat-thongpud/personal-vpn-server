@@ -93,6 +93,13 @@ jobs:
           & ./dist/windows/cores/sing-box.exe check -c "$output/tun-plan.json"
           if ($LASTEXITCODE -ne 0) { throw 'TUN config check failed' }
           Compress-Archive "$output/*.png" "dist/PersonalVPN-ui-preview-$env:CLIENT_VERSION-${{ matrix.arch }}.zip"
+      - name: Verify physical interface flags and independent crash recovery on isolated runner
+        shell: pwsh
+        run: |
+          $report = "$env:RUNNER_TEMP/network-recovery.json"
+          $p = Start-Process (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--network-recovery-integration','--report',$report) -PassThru -Wait -WindowStyle Hidden
+          Get-Content $report
+          if ($p.ExitCode -ne 0) { throw 'Physical network recovery failed' }
       - name: Verify real TUN capture, app policy, UDP and crash cleanup on isolated runner
         shell: pwsh
         run: |

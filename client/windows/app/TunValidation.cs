@@ -37,6 +37,7 @@ internal static partial class Tests
         Guid persistentId = AdapterService.CurrentId();
         uint serviceId = AdapterService.ProcessId;
         var dnsBefore = DnsSnapshot();
+        var physicalBefore = PhysicalSnapshot();
         var proxyBefore = WindowsProxy.Read();
         var profile = Store.Import(folder);
         var settings = new Settings { Profiles = new() { profile }, SelectedId = profile.Id, CaptureMode = "TUN", SystemProxy = false, HttpPort = Port(), SocksPort = Port(), Sites = new TunnelPolicy { Mode = "Tunnel" } };
@@ -87,6 +88,11 @@ internal static partial class Tests
             await ConnectWithDiagnostics();
             int appTunnel = await Curl(); Assert(appTunnel == 0, "Explicit app Tunnel must win over site Block: curl=" + appTunnel + "; " + lastCurlError + "; " + backend.NativeTunDiagnostic);
             checks.Add("explicit App Tunnel overrides a conflicting Site Block on an external process");
+            settings.Apps.Entries[0].Action = "Block";
+            settings.Sites = new TunnelPolicy { Mode = "Bypass", Entries = new() { new() { Kind = "Domain", Value = "api.ipify.org", Action = "Bypass" } } };
+            await ConnectWithDiagnostics();
+            Assert(await Curl() != 0 && backend.State == "Connected", "Site Bypass overrode an explicit App Block.");
+            checks.Add("explicit App Block overrides Site Bypass; no global bypass host routes introduced");
             await backend.StopAsync();
             Assert(AdapterService.CurrentId() == persistentId, "Disconnect replaced or removed the adapter.");
             Assert(!NetworkInterface.GetAllNetworkInterfaces().Single(x => x.Name == TunLease.Name).GetIPProperties().UnicastAddresses.Any(x => x.Address.ToString() == "172.28.255.1"), "Capture IP remained after stop.");
@@ -109,6 +115,7 @@ internal static partial class Tests
             WindowsProxy.Write(proxyBefore);
         }
         Assert(dnsBefore == DnsSnapshot(), "Physical-interface DNS changed.");
+        Assert(physicalBefore == PhysicalSnapshot(), "Physical interface properties changed across mode switches / core crash / disconnect.");
         checks.Add("repeated Proxy / TUN / Disconnect switches and core crash recovery retain one GUID and working Internet; stale owned proxy removed; physical DNS unchanged");
         string leaseFolder = Path.Combine(Store.Root, "runtime", Guid.NewGuid().ToString("N")); Store.SecureDirectory(leaseFolder);
         Progress("crash.parent");

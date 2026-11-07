@@ -1,3 +1,13 @@
+Client 0.9.1: LAN / Wi-Fi destination egress and crash-safe physical binding recovery.
+
+See ../RELEASE-NOTES.md for the current unified client release. Destination-aware
+Direct sockets preserve App precedence without global Site host routes. Physical
+binding changes have a durable GUID/family journal owned by the independent guard;
+native code no longer changes these flags implicitly. Cleanup verifies capture
+routes/DNS and proxy restoration and retains recovery data on failure.
+
+Historical notes follow (installation now uses the stable main folder):
+
 Windows 0.6.3: tray menu opens on the first request and dismisses normally.
 
 Fixes an initially empty WinForms menu inheriting Cancel=true before its Opening handler populates the actions, which required a second right-click. Also removes the blanket AppFocusChange cancellation so clicking another application dismisses the popup. Pointer movement alone uses the standard shell menu behavior. Regression checks open the initially empty native popup and verify focus-change, outside-click, Escape and action close reasons.
