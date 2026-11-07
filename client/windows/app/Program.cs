@@ -390,7 +390,7 @@ internal static partial class Tests
             foreach (string check in await SiteRoutingTest(root, expected)) report["checks"]!.AsArray().Add(check);
             await File.WriteAllTextAsync(reportPath, report.ToJsonString(Store.JsonOptions)); return 0;
         }
-        catch (Exception error) { return Report(args, new { result = "FAIL", error = error.GetType().Name, reason = error is InvalidOperationException || Environment.GetEnvironmentVariable("CI") == "true" ? error.Message : "Local proxy integration failed.", stack = Environment.GetEnvironmentVariable("CI") == "true" ? error.StackTrace : null }, 1); }
+        catch (Exception error) { return Report(args, new { result = "FAIL", error = error.GetType().Name, reason = Environment.GetEnvironmentVariable("CI") == "true" ? error.ToString() : error is InvalidOperationException ? error.Message : "Local proxy integration failed.", stack = Environment.GetEnvironmentVariable("CI") == "true" ? error.StackTrace : null }, 1); }
         finally
         {
             server?.Dispose();
