@@ -16,6 +16,14 @@ using System.Threading.Tasks;
 
 namespace PersonalVpn;
 
+// Only teardown failures may keep capture recovery blocked. A core exit racing
+// with a cancelled connection attempt is an ordinary runtime result, not proof
+// that routes / DNS / proxy failed to restore.
+internal sealed class CaptureCleanupException : Exception
+{
+    internal CaptureCleanupException(string message, Exception error) : base(message, error) { }
+}
+
 // All children belong to a kill-on-close job: a GUI crash must not leave listeners behind.
 public sealed class ProcessJob : IDisposable
 {
@@ -368,6 +376,13 @@ public sealed class Backend : IAsyncDisposable
                 await RunCycle(settings, attemptGeneration, attempt.Token);
             }
             catch (OperationCanceledException) when (attempt.IsCancellationRequested) { }
+            catch (Exception error) when (attempt.IsCancellationRequested && error is not CaptureCleanupException)
+            {
+                // RunCycle's finally has completed successfully before this
+                // filter runs. Never carry a stale runtime result into Stop or
+                // a newer network generation as a false cleanup failure.
+                Log.Add("INFO", "backend.cancelled_core_result", "Connection attempt cancelled (" + error.GetType().Name + "); capture teardown completed.");
+            }
             catch (Exception error)
             {
                 if (token.IsCancellationRequested) { SetState("Error", "Capture reset failed; retry Disconnect or Connect to recover."); Log.Add("ERROR", "backend.cleanup_failed", "Capture teardown failed (" + error.GetType().Name + "). Retry Disconnect; the recovery record was retained."); throw; }
@@ -551,10 +566,14 @@ public sealed class Backend : IAsyncDisposable
             catch (Exception error) { cleanupErrors.Add(error); }
             try { proxyLease?.Dispose(); proxyLease = null; }
             catch (Exception error) { cleanupErrors.Add(error); }
-            if (cleanupErrors.Count != 0) throw new AggregateException("Capture cleanup is incomplete; recovery records were retained.", cleanupErrors);
+            if (cleanupErrors.Count != 0) throw new CaptureCleanupException("Capture cleanup is incomplete; recovery records were retained.", new AggregateException(cleanupErrors));
             // Only a freshly generated child of our protected runtime directory is removed.
-            if (Path.GetDirectoryName(Path.GetFullPath(folder)) != Path.GetFullPath(runtimeRoot)) throw new InvalidOperationException("Invalid runtime cleanup path.");
-            TunLease.CleanRuntimeFolder(folder);
+            try
+            {
+                if (Path.GetDirectoryName(Path.GetFullPath(folder)) != Path.GetFullPath(runtimeRoot)) throw new InvalidOperationException("Invalid runtime cleanup path.");
+                TunLease.CleanRuntimeFolder(folder);
+            }
+            catch (Exception error) { throw new CaptureCleanupException("Runtime cleanup failed; recovery data was retained.", error); }
         }
     }
     private async Task CollectTraffic(int port, CancellationToken token)
