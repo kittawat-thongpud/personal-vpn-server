@@ -1,5 +1,28 @@
 # Installed Windows preview validation
 
+## 0.9.1 LAN / Wi-Fi and durable recovery — 2026-11-08
+
+- Qualified source `77340fffc7a79bcc2cbb2ec89f97b97f8c99998b`; the
+  [complete shared run](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/42395956271)
+  passed Windows x86/x64, Android and final publication. See
+  [LAN recovery](LAN-RECOVERY.md) for the reproduction and implementation.
+- Both Windows architectures pass native route selection, six mocked reset
+  cases, actual physical flag/journal recovery and preservation of stable native
+  properties, DHCP and DNS. Forced GUI death and GUI + guard death recover.
+- Real captured DNS/HTTPS, SOCKS UDP over both protocols, external Direct HTTPS,
+  both conflicting App-over-Site cases, repeated Proxy/TUN/Disconnect and fresh
+  capture-core restart pass. Tests require a new core and successful captured
+  HTTPS after killing it, rather than accepting a previous Connected label.
+- Installer migration and in-place reinstall pass with settings, stable paths,
+  shortcut icons and one persistent adapter/service preserved. x86 is tested
+  under WOW64, not physical 32-bit Windows. Physical Explorer tray mouse
+  interaction is not established by these CI checks.
+- Downloaded x64 Setup SHA-256:
+  `9eb086804367f60ff48940cfb7ced262fe3bf481592383c530811e3142521b8a`.
+  All published checksum/manifest entries match GitHub digests. No local app or
+  native build was used. No 0.9.1 workstation installation or physical LAN
+  switch is claimed yet; the active connection was preserved.
+
 ## 0.8.0 UI release — 2026-11-06
 
 - Source `0b0f7788951e1325b8b4697531a4fdbe3ce7a651`,
