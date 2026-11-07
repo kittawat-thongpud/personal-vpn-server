@@ -50,8 +50,12 @@ internal static class PhysicalNetwork
     }
     internal static Row? Read(Guid id, ushort family)
     {
+        if (id == Guid.Empty || family is not (2 or 23)) throw new ArgumentException("Invalid physical interface identity / family.");
         uint code = ConvertInterfaceGuidToLuid(ref id, out ulong luid);
         if (code is 2 or 1168) return null;
+        // ConvertInterfaceGuidToLuid reports INVALID_PARAMETER for a GUID that
+        // disappeared (e.g. unplugged USB Ethernet), not only NOT_FOUND.
+        if (code == 87 && !NetworkInterface.GetAllNetworkInterfaces().Any(x => Guid.TryParse(x.Id,out var present) && present == id)) return null;
         if (code != 0) throw new Win32Exception((int)code, "Read physical interface identity failed.");
         var row = new Row { Family = family, Luid = luid };
         code = GetIpInterfaceEntry(ref row);

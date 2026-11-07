@@ -25,6 +25,7 @@ internal static partial class Tests
         var journal = new PhysicalNetworkLease.Entry { Id = Guid.NewGuid(), Family = 23, WeakHostSend = true };
         var copy = JsonSerializer.Deserialize<PhysicalNetworkLease.Entry>(JsonSerializer.Serialize(journal))!;
         Assert(copy.Id == journal.Id && copy.Family == 23 && copy.WeakHostSend && !copy.Forwarding, "Physical recovery journal lost ownership fields.");
+        Assert(PhysicalNetwork.Read(Guid.NewGuid(),2) == null,"A removed interface must defer recovery without an invalid-parameter crash.");
     }
     private static string PhysicalSnapshot() => string.Join("|", PhysicalNetwork.Rows(false).Select(x =>
     {

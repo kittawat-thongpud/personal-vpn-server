@@ -129,7 +129,11 @@ public sealed class TunLease : IDisposable
                 using var mutex = new Mutex(false, @"Global\PersonalVPN-TUN");
                 bool acquired; try { acquired = mutex.WaitOne(0); } catch (AbandonedMutexException) { acquired = true; }
                 if (!acquired) throw new InvalidOperationException("Capture recovery is still active; recovery data was retained.");
-                try { try { TunReset.Capture(record.AdapterId); } finally { new PhysicalNetworkLease(folder).Restore(); } }
+                try
+                {
+                    try { TunReset.Capture(record.AdapterId); } finally { new PhysicalNetworkLease(folder).Restore(); }
+                    File.WriteAllText(Path.Combine(folder,"tun-reset-done"),"done");
+                }
                 finally { mutex.ReleaseMutex(); }
             }
         }
@@ -171,7 +175,11 @@ public sealed class TunLease : IDisposable
                     if (File.Exists(Path.Combine(folder, "tun-reset-done"))) continue; // Only a deferred, absent-device journal remains.
                     throw new InvalidOperationException("Previous capture recovery is still active. Retry after it finishes; recovery data was retained.");
                 }
-                try { try { TunReset.Capture(record.AdapterId); } finally { new PhysicalNetworkLease(folder).Restore(); } }
+                try
+                {
+                    try { TunReset.Capture(record.AdapterId); } finally { new PhysicalNetworkLease(folder).Restore(); }
+                    File.WriteAllText(Path.Combine(folder,"tun-reset-done"),"done");
+                }
                 finally { mutex.ReleaseMutex(); }
             }
             else if (WintunAdapter.Exists(record.AdapterId)) WintunAdapter.RemoveOrphan(record.AdapterId, record.Name); // One-time legacy migration only.
