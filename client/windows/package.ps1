@@ -17,7 +17,17 @@ $is32 = $Architecture -eq 'x86'
 Set-Content -LiteralPath (Join-Path $packageRoot ('architecture-' + $Architecture + '.txt')) -Value $Architecture -Encoding ascii
 # Reuse binaries already built and qualified by Actions for an identical recipe.
 $recipe = (Get-FileHash (Join-Path $PSScriptRoot 'build-tun-core.ps1')).Hash
-if ($env:GITHUB_ACTIONS -eq 'true' -and $recipe -eq '01DA964D441ABA83F168380862E70AF72405A5EFA99CF411F6E3C1A0A2598120') {
+$sourceRecipe = $recipe + ':' + $Architecture + ':' + (Get-FileHash (Join-Path $PSScriptRoot 'package.ps1')).Hash + ':' + ((Get-ChildItem (Join-Path $PSScriptRoot 'native') -File | Sort-Object Name | ForEach-Object { $_.Name + ':' + (Get-FileHash $_.FullName).Hash }) -join ':')
+$cacheMetadata = Join-Path $cores 'native-candidate.json'
+$candidate = if ($env:GITHUB_ACTIONS -eq 'true' -and (Test-Path $cacheMetadata)) { Get-Content $cacheMetadata -Raw | ConvertFrom-Json } else { $null }
+$nativeNames = @('sing-box.exe','xray.exe','hysteria.exe','wintun.dll')
+$cached = $null -ne $candidate -and $candidate.recipe -eq $sourceRecipe
+if ($cached) {
+    foreach ($name in $nativeNames) {
+        if (-not (Test-Path (Join-Path $cores $name)) -or (Get-FileHash (Join-Path $cores $name)).Hash -ne $candidate.hashes.$name) { throw 'Native build candidate checksum mismatch' }
+    }
+    Write-Output 'Reusing source-matched native candidate. Managed / native integration and installer gates still run.'
+} elseif ($env:GITHUB_ACTIONS -eq 'true' -and $recipe -eq '01DA964D441ABA83F168380862E70AF72405A5EFA99CF411F6E3C1A0A2598120') {
     $asset = 'PersonalVPN-windows-' + $Architecture + '-0.6.0.zip'
     $archive = Join-Path $temporary $asset
     gh release download windows-v0.6.0 --repo $env:GITHUB_REPOSITORY --pattern $asset --dir $temporary
@@ -49,6 +59,8 @@ Copy-Item -LiteralPath $driver -Destination $cores
 Copy-Item -LiteralPath (Join-Path $wintun 'wintun/LICENSE.txt') -Destination (Join-Path $cores 'LICENSE-Wintun.txt')
 }
 if ((Get-AuthenticodeSignature -LiteralPath (Join-Path $cores 'wintun.dll')).Status -ne 'Valid') { throw 'Packaged Wintun signature verification failed' }
+$candidateHashes = @{}; foreach ($name in $nativeNames) { $candidateHashes[$name] = (Get-FileHash (Join-Path $cores $name)).Hash }
+@{ recipe=$sourceRecipe; hashes=$candidateHashes } | ConvertTo-Json -Depth 3 | Set-Content $cacheMetadata -Encoding utf8
 foreach ($file in @('install.ps1','README.md','reset-tun.ps1')) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $packageRoot }
 New-Item -ItemType Directory -Force -Path (Join-Path $packageRoot 'Assets') | Out-Null
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'app/Assets/personal-vpn.ico') -Destination (Join-Path $packageRoot 'Assets/personal-vpn.ico')

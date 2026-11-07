@@ -16,17 +16,28 @@ internal static partial class Tests
     internal static async Task<int> TunLeaseChild(string[] args)
     {
         string folder = Program.Option(args, "--folder")!; Store.SecureDirectory(folder);
+        string ready = Program.Option(args, "--report")!;
+        try
+        {
         using var lease = await TunLease.Start(folder, CancellationToken.None);
         using var job = new ProcessJob();
         var settings = new Settings { CaptureMode = "TUN", Sites = new TunnelPolicy { Mode = "Tunnel" } };
         string path = Path.Combine(folder, "crash-tun.json");
         await File.WriteAllTextAsync(path, TunPlan.Compile(settings, new[] { "127.0.0.1" }, new[] { Backend.VerifyCore("xray.exe"), Backend.VerifyCore("hysteria.exe") }, lease.InterfaceName).ToJsonString());
         using var core = new OwnedCore(job, Backend.VerifyCore("sing-box.exe"), new[] { "run", "-c", path }, new SessionLog());
-        await TunSupport.WaitForAdapter(lease, CancellationToken.None);
-        string ready = Program.Option(args, "--report")!;
+        try { await TunSupport.WaitForAdapter(lease, CancellationToken.None, () => core.Exited ? "Recovery child native core exited: " + core.StartupDiagnostic : null); }
+        catch (Exception error) { throw new InvalidOperationException(error.Message + "; native=" + core.StartupDiagnostic, error); }
         await File.WriteAllTextAsync(ready + ".new", JsonSerializer.Serialize(new { adapter = lease.AdapterId, guard = lease.GuardId }));
         File.Move(ready + ".new", ready); // Publish only after the writer has closed.
         await Task.Delay(Timeout.Infinite); return 0;
+        }
+        catch (Exception error)
+        {
+            // A failed child must never publish the readiness file. Preserve a
+            // separate diagnostic so CI reports the real guard/native failure.
+            await File.WriteAllTextAsync(ready + ".error", JsonSerializer.Serialize(new { reason=error.Message, kind=error.GetType().Name, guard=File.Exists(Path.Combine(folder,"tun-error.txt")) ? await File.ReadAllTextAsync(Path.Combine(folder,"tun-error.txt")) : "" }));
+            return 1;
+        }
     }
     private static async Task<string[]> TunIntegration(string folder, string expected, string progressPath)
     {

@@ -48,11 +48,21 @@ jobs:
         with:
           go-version: '1.27.3'
           cache: false
-      - name: Prepare qualified native cores (source build if recipe changes)
+      - name: Restore source-matched native build candidate
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: dist/windows/cores
+          key: windows-native-v2-${{ matrix.arch }}-${{ hashFiles('client/windows/package.ps1', 'client/windows/build-tun-core.ps1', 'client/windows/native/**') }}
+      - name: Prepare native cores (source build if recipe changes)
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: ./client/windows/package.ps1 -Architecture ${{ matrix.arch }}
+      - name: Cache source-matched native candidate; release gates still required
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: dist/windows/cores
+          key: windows-native-v2-${{ matrix.arch }}-${{ hashFiles('client/windows/package.ps1', 'client/windows/build-tun-core.ps1', 'client/windows/native/**') }}
       - name: Publish architecture-matched Administrator application with embedded TUN hash
         shell: pwsh
         run: |

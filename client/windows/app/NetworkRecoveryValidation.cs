@@ -71,7 +71,7 @@ internal static partial class Tests
             using var child = Process.Start(start)!;
             try
             {
-                for (int i = 0; i < 500 && !File.Exists(ready); i++) { Assert(!child.HasExited, "Network guard child failed before readiness."); await Task.Delay(100); }
+                for (int i = 0; i < 500 && !File.Exists(ready); i++) { Assert(!child.HasExited, "Network guard child failed before readiness: " + (File.Exists(ready+".error") ? File.ReadAllText(ready+".error") : "no diagnostic")); await Task.Delay(100); }
                 Assert(File.Exists(ready), "Network guard fixture timed out.");
                 Assert(PhysicalNetwork.Read(id,2)!.Value.Forwarding == 0, "Guard did not lease the physical interface.");
                 child.Kill(); await child.WaitForExitAsync();
@@ -90,7 +90,7 @@ internal static partial class Tests
             using var second = Process.Start(start)!;
             try
             {
-                for (int i=0;i<500 && !File.Exists(ready);i++) { Assert(!second.HasExited,"Second recovery child failed."); await Task.Delay(100); }
+                for (int i=0;i<500 && !File.Exists(ready);i++) { Assert(!second.HasExited,"Second recovery child failed: " + (File.Exists(ready+".error") ? File.ReadAllText(ready+".error") : "no diagnostic")); await Task.Delay(100); }
                 Assert(File.Exists(ready),"Second recovery child timed out.");
                 int guardId=JsonDocument.Parse(await File.ReadAllTextAsync(ready)).RootElement.GetProperty("guard").GetInt32();
                 using(var guard=Process.GetProcessById(guardId)) { guard.Kill(); await guard.WaitForExitAsync(); }
