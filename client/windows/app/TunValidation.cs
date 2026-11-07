@@ -88,6 +88,10 @@ internal static partial class Tests
             await ConnectWithDiagnostics();
             int appTunnel = await Curl(); Assert(appTunnel == 0, "Explicit app Tunnel must win over site Block: curl=" + appTunnel + "; " + lastCurlError + "; " + backend.NativeTunDiagnostic);
             checks.Add("explicit App Tunnel overrides a conflicting Site Block on an external process");
+            settings.Apps.Entries[0].Action = "Bypass";
+            await ConnectWithDiagnostics();
+            Assert(await Curl() == 0 && backend.State == "Connected", "Real Direct HTTPS failed or App Bypass did not override Site Block.");
+            checks.Add("external curl performs real Direct HTTPS through physical egress; explicit App Bypass overrides Site Block");
             settings.Apps.Entries[0].Action = "Block";
             settings.Sites = new TunnelPolicy { Mode = "Bypass", Entries = new() { new() { Kind = "Domain", Value = "api.ipify.org", Action = "Bypass" } } };
             await ConnectWithDiagnostics();
