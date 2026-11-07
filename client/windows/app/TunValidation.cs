@@ -119,7 +119,20 @@ internal static partial class Tests
                 settings.CaptureMode = "TUN"; await ConnectWithDiagnostics();
                 Assert(backend.State == "Connected" && await Curl() == 0, "Repeated Proxy to TUN switch lost Internet.");
                 Assert(AdapterService.CurrentId() == persistentId && AdapterService.ProcessId == serviceId && NetworkInterface.GetAllNetworkInterfaces().Count(x => x.Name == TunLease.Name) == 1, "Mode switch duplicated the device.");
-                if (i == 0) { backend.KillOwnedCoreForTest(); await Task.Delay(2000); await WaitConnected(backend, 70); Assert(AdapterService.CurrentId() == persistentId && await Curl() == 0, "Core recovery lost Internet or replaced the adapter."); }
+                if (i == 0)
+                {
+                    int started = backend.Log.Snapshot().Count(x => x.Event == "backend.core_started" && x.Message.StartsWith("sing-box "));
+                    backend.KillOwnedCoreForTest();
+                    var recovery = Stopwatch.StartNew();
+                    while (backend.Log.Snapshot().Count(x => x.Event == "backend.core_started" && x.Message.StartsWith("sing-box ")) <= started)
+                    {
+                        Assert(recovery.Elapsed < TimeSpan.FromSeconds(70), "Killed capture core did not start a new instance.");
+                        await Task.Delay(200);
+                    }
+                    await WaitConnected(backend, 70);
+                    Assert(AdapterService.CurrentId() == persistentId && await Curl() == 0, "Core recovery lost Internet or replaced the adapter.");
+                    checks.Add("killed capture core starts a new instance and freshly verifies captured HTTPS before recovery passes");
+                }
                 await backend.StopAsync();
                 Assert(WindowsProxy.Matches(WindowsProxy.Read(), proxyBefore), "Mode switch failed to restore Windows proxy.");
             }
