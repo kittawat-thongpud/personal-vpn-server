@@ -2,12 +2,10 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
-using System.Linq;
-using System.Net.NetworkInformation;
 namespace PersonalVpn;
 internal static class TunReset
 {
-    public static void Capture(Guid id, bool skipIfIdle = false)
+    public static void Capture(Guid id)
     {
         // Missing capture IP / DNS does not prove that capture routes are gone.
         // Always let the GUID-scoped reset inspect and verify the route table.

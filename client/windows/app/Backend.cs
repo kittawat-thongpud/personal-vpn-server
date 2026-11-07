@@ -631,8 +631,8 @@ public sealed class Backend : IAsyncDisposable
     {
         NetworkChange.NetworkAddressChanged -= OnNetworkChange;
         NetworkChange.NetworkAvailabilityChanged -= OnAvailabilityChange;
-        await networkDebounce.DisposeAsync();
-        await StopAsync(); lifecycle.Dispose();
+        try { await StopAsync(); }
+        finally { await networkDebounce.DisposeAsync(); lifecycle.Dispose(); }
     }
 }
 public sealed record ProtocolProbeResult(string Protocol, bool Success, string ExitIp, string Reason, long ElapsedMs);
