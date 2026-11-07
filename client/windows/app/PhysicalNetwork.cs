@@ -1,12 +1,15 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text;
+using System.Threading.Tasks;
 
 namespace PersonalVpn;
 
@@ -117,7 +120,7 @@ internal sealed class PhysicalNetworkLease
                 continue;
             }
             if (original.Forwarding == 0 && original.WeakHostSend == 0) continue;
-            if (original.Forwarding != 0 && SharingActive()) throw new InvalidOperationException("Internet sharing / routing is active on a physical interface. Stop sharing before TUN; Personal VPN did not change it.");
+            if (original.Forwarding != 0 && SharingActive(id)) throw new InvalidOperationException("Internet sharing / routing is active on a physical interface. Stop sharing before TUN; Personal VPN did not change it.");
             var entry = new Entry { Id = id, Family = original.Family, Forwarding = original.Forwarding != 0, WeakHostSend = original.WeakHostSend != 0 };
             entries.Add(entry); Save();
             var current = PhysicalNetwork.Read(id, original.Family) ?? throw new InvalidOperationException("Physical interface disappeared during preparation.");
@@ -158,22 +161,50 @@ internal sealed class PhysicalNetworkLease
         if (entry.WeakHostSend && row.WeakHostSend == 0) { row.WeakHostSend = 1; changed = true; }
         return changed;
     }
-    private static bool SharingActive()
+    private static bool SharingActive(Guid id)
     {
         IntPtr manager = OpenSCManager(null, null, 1);
         if (manager == IntPtr.Zero) throw new Win32Exception();
         try
         {
-            foreach (string name in new[] { "SharedAccess", "icssvc", "RemoteAccess" })
+            foreach (string name in new[] { "RemoteAccess" })
             {
                 IntPtr service = OpenService(manager, name, 4);
                 if (service == IntPtr.Zero) { if (Marshal.GetLastWin32Error() == 1060) continue; throw new Win32Exception(); }
                 try { if (!QueryServiceStatus(service, out var status)) throw new Win32Exception(); if (status.State != 1) return true; }
                 finally { CloseServiceHandle(service); }
             }
-            return false;
         }
         finally { CloseServiceHandle(manager); }
+        // SharedAccess/icssvc can be running without sharing this NIC (including
+        // after a CIM query). Query the documented per-connection ICS property;
+        // do not infer enabled sharing from the service's process state.
+        const string query = """
+        $ErrorActionPreference='Stop'
+        try {
+            $manager=New-Object -ComObject HNetCfg.HNetShare
+            foreach($connection in $manager.EnumEveryConnection) {
+                $properties=$manager.NetConnectionProps.Invoke($connection)
+                if([Guid]$properties.Guid -eq $target) {
+                    $configuration=$manager.INetSharingConfigurationForINetConnection.Invoke($connection)
+                    if($configuration.SharingEnabled) { 'shared' } else { 'not-shared' }
+                    exit 0
+                }
+            }
+            exit 2
+        } catch { exit 1 }
+        """;
+        string script = "$target=[Guid]'" + id.ToString("D") + "'\n" + query;
+        string system = !Environment.Is64BitProcess && Environment.Is64BitOperatingSystem ? "Sysnative" : "System32";
+        var start = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),system,@"WindowsPowerShell\v1.0\powershell.exe")) { UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true };
+        foreach(var value in new[] { "-NoProfile","-NonInteractive","-EncodedCommand",Convert.ToBase64String(Encoding.Unicode.GetBytes(script)) }) start.ArgumentList.Add(value);
+        using var process=Process.Start(start) ?? throw new InvalidOperationException("Internet sharing inspection did not start; physical flags were not changed.");
+        var output=process.StandardOutput.ReadToEndAsync(); var error=process.StandardError.ReadToEndAsync();
+        if(!process.WaitForExit(20000)) { process.Kill(true); throw new InvalidOperationException("Internet sharing inspection timed out; physical flags were not changed."); }
+        Task.WaitAll(new Task[] {output,error},2000);
+        string result=output.GetAwaiter().GetResult().Trim();
+        if(process.ExitCode != 0 || result is not ("shared" or "not-shared")) throw new InvalidOperationException("Cannot verify sharing on the physical interface; no binding flags were changed.");
+        return result == "shared";
     }
     [StructLayout(LayoutKind.Sequential)] private struct Status { public uint Type, State, Accepted, Exit, SpecificExit, Checkpoint, WaitHint; }
     [DllImport("advapi32.dll", EntryPoint = "OpenSCManagerW", CharSet = CharSet.Unicode, SetLastError = true)] private static extern IntPtr OpenSCManager(string? machine, string? database, uint access);
