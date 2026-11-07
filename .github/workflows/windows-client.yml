@@ -74,6 +74,8 @@ jobs:
       - name: Check policy, logs and architecture-matched binary integrity
         shell: pwsh
         run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File client/windows/tools/test-capture-reset.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Capture reset ownership / orphan resource tests failed' }
           $report = "$env:RUNNER_TEMP/self-test.json"
           $p = Start-Process (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--self-test','--report',$report) -PassThru -Wait -WindowStyle Hidden
           Get-Content $report
