@@ -24,7 +24,7 @@ internal static partial class Tests
         using var core = new OwnedCore(job, Backend.VerifyCore("sing-box.exe"), new[] { "run", "-c", path }, new SessionLog());
         await TunSupport.WaitForAdapter(lease, CancellationToken.None);
         string ready = Program.Option(args, "--report")!;
-        await File.WriteAllTextAsync(ready + ".new", JsonSerializer.Serialize(new { adapter = lease.AdapterId }));
+        await File.WriteAllTextAsync(ready + ".new", JsonSerializer.Serialize(new { adapter = lease.AdapterId, guard = lease.GuardId }));
         File.Move(ready + ".new", ready); // Publish only after the writer has closed.
         await Task.Delay(Timeout.Infinite); return 0;
     }

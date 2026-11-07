@@ -30,7 +30,10 @@ internal static partial class Tests
     {
         var r = x.Value;
         var ip = x.Nic.GetIPProperties();
-        return x.Nic.Id + ":" + r.Family + ":" + r.Forwarding + ":" + r.WeakHostSend + ":" + r.WeakHostReceive + ":" + r.AutomaticMetric + ":" + r.Metric + ":" + r.Mtu + ":" + r.DisableDefaultRoutes + ":" + r.RouterDiscovery + ":" + r.ManagedAddress + ":" + r.OtherStateful + ":" + r.NeighborDetection + ":" + (r.Family == 2 ? ip.GetIPv4Properties().IsDhcpEnabled.ToString() : "IPv6") + ":" + string.Join(",",ip.DnsAddresses);
+        // Include the whole stable native property region, not only the fields
+        // managed code names; this catches accidental resets of hidden fields.
+        var bytes = MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref r,1));
+        return x.Nic.Id + ":" + r.Family + ":" + Convert.ToHexString(bytes[24..156]) + ":" + r.DisableDefaultRoutes + ":" + (r.Family == 2 ? ip.GetIPv4Properties().IsDhcpEnabled.ToString() : "IPv6") + ":" + string.Join(",",ip.DnsAddresses);
     }).OrderBy(x => x));
     // Deliberate fixture writes are isolated CI only. Never enable forwarding
     // in a workstation self-test or in the operator's host diagnostic.
@@ -44,6 +47,7 @@ internal static partial class Tests
             Assert(Environment.GetEnvironmentVariable("CI") == "true", "Network mutation fixture runs only on an isolated CI runner.");
             var target = PhysicalNetwork.Rows().First(x => x.Value.Family == 2 && x.Value.Connected != 0);
             id = Guid.Parse(target.Nic.Id); original = target.Value;
+            Assert(target.Value.Index == target.Nic.GetIPProperties().GetIPv4Properties().Index && target.Value.Mtu == target.Nic.GetIPProperties().GetIPv4Properties().Mtu, "Native physical property layout disagrees with Windows adapter APIs.");
             var fixture = target.Value; fixture.Forwarding = 1; fixture.WeakHostSend = 1; PhysicalNetwork.Write(ref fixture);
             string before = PhysicalSnapshot();
             Store.SecureDirectory(folder);
@@ -75,6 +79,27 @@ internal static partial class Tests
             }
             finally { if (!child.HasExited) { child.Kill(); await child.WaitForExitAsync(); } }
             checks.Add("forced GUI/native death: guard restores physical flags and releases TUN routes/DNS");
+            // Also lose the guard itself. Startup recovery must not require a
+            // live original process to restore its on-disk journal.
+            TunLease.CleanRuntimeFolder(folder);
+            folder = Path.Combine(Store.Root,"runtime",Guid.NewGuid().ToString("N")); Store.SecureDirectory(folder);
+            ready = Path.Combine(folder,"ready.json");
+            start.ArgumentList.Clear();
+            foreach (var value in new[] { "--tun-lease-child", "--folder", folder, "--report", ready }) start.ArgumentList.Add(value);
+            using var second = Process.Start(start)!;
+            try
+            {
+                for (int i=0;i<500 && !File.Exists(ready);i++) { Assert(!second.HasExited,"Second recovery child failed."); await Task.Delay(100); }
+                Assert(File.Exists(ready),"Second recovery child timed out.");
+                int guardId=JsonDocument.Parse(await File.ReadAllTextAsync(ready)).RootElement.GetProperty("guard").GetInt32();
+                using(var guard=Process.GetProcessById(guardId)) { guard.Kill(); await guard.WaitForExitAsync(); }
+                second.Kill(); await second.WaitForExitAsync();
+                TunLease.RecoverAbandoned();
+                Assert(before == PhysicalSnapshot(),"Startup recovery after GUI + guard death changed physical settings.");
+                Assert(!File.Exists(Path.Combine(folder,"physical-network.json")),"Successful recovery retained an unnecessary physical journal.");
+            }
+            finally { if(!second.HasExited) { second.Kill(); await second.WaitForExitAsync(); } }
+            checks.Add("GUI + guard death: next-start recovery restores durable physical journal and clears capture");
             return Report(args,new { result="PASS", checks },0);
         }
         catch(Exception error) { return Report(args,new { result="FAIL", checks, reason=error.Message },1); }

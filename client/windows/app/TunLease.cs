@@ -26,6 +26,7 @@ public sealed class TunLease : IDisposable
     private bool disposed;
     public string InterfaceName => record.Name;
     public Guid AdapterId => record.AdapterId;
+    internal int GuardId => guard.Id;
     internal void ObserveAdapter(Guid id) { record.AdapterId = id; }
     public bool Exited => guard.HasExited;
     public static string Name => AdapterService.AdapterName;
