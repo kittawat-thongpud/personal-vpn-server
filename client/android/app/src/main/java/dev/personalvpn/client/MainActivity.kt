@@ -118,7 +118,13 @@ class MainActivity : ComponentActivity() {
                         }
                         Box(Modifier.weight(1f)) {
                             when (page) {
-                                "Home" -> Home(config, state, dirty, latencyResults, { target -> latency.refresh(only=target) }, { page = "Profiles" }, { protocol -> if (state.active) confirmProtocol = protocol else save(config.copy(protocol = protocol)) }, { if (state.active && !dirty) TunnelService.command(this@MainActivity, TunnelService.DISCONNECT) else connect() })
+                                "Home" -> Home(config, state, dirty, latencyResults, { target -> latency.refresh(only=target) }, { page = "Profiles" }, { protocol -> if (state.active) confirmProtocol = protocol else save(config.copy(protocol = protocol)) }, {
+                                    when(connectionAction(state,dirty)) {
+                                        ConnectionAction.Cancel,ConnectionAction.Disconnect -> TunnelService.command(this@MainActivity,TunnelService.DISCONNECT)
+                                        ConnectionAction.Connect,ConnectionAction.Apply -> connect()
+                                        ConnectionAction.Stopping -> Unit
+                                    }
+                                })
                                 "Settings" -> Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     Text("CONNECTION & ROUTING",fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
                                     SettingsRow("VPN configure", "Server, credentials and protocol settings") { page = "Profiles" }
@@ -186,7 +192,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
             OutlinedButton(onClick={expanded=true},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text(config.protocol,Modifier.weight(1f));Text("⌄") }
-            Text(state.status,fontSize=23.sp,color=when { state.status=="Connected"->MaterialTheme.colorScheme.primary;state.active->Color(0xFFF2C577);else->MaterialTheme.colorScheme.onSurface })
+            Text(state.status,fontSize=23.sp,color=when { state.status=="Connected"->MaterialTheme.colorScheme.primary;state.active->Color(0xFFAFD5FF);else->MaterialTheme.colorScheme.onSurface })
             Box(if(compact)Modifier.fillMaxWidth().height(166.dp)else Modifier.weight(1f).fillMaxWidth()) { PowerButton(state,dirty,connect) }
             Text("Exit IP: ${state.exitIp}",color=MaterialTheme.colorScheme.primary,fontSize=13.sp)
             Text(if(dirty) "Settings changed · reconnect to apply" else state.detail.ifBlank { "Android TUN" },fontSize=11.sp,maxLines=2,color=MaterialTheme.colorScheme.onSurfaceVariant)

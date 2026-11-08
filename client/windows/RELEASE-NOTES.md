@@ -1,3 +1,6 @@
+Client 0.9.3: shared Client release for Android Cancel, contrast and task-removal cleanup.
+Windows retains its existing VPN runtime and includes the fixes below.
+
 Client 0.9.2: shared Client release for the Android shared-UID App routing fix.
 Windows retains its 0.9.1 VPN runtime and LAN / Wi-Fi recovery behavior below.
 

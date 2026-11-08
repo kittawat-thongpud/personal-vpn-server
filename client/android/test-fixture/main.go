@@ -13,6 +13,7 @@ import (
  "encoding/hex"
  "encoding/json"
  "encoding/pem"
+ "fmt"
  "math/big"
  "log"
  "net"
@@ -22,6 +23,7 @@ import (
  "os/signal"
  "path/filepath"
  "syscall"
+ "sync/atomic"
  "time"
  box "github.com/sagernet/sing-box"
  "github.com/sagernet/sing-box/include"
@@ -32,14 +34,24 @@ import (
 func main() {
  lifetime,cancel:=signal.NotifyContext(context.Background(),os.Interrupt,syscall.SIGTERM);defer cancel()
  key,_:=ecdsa.GenerateKey(elliptic.P256(),rand.Reader)
- template:=&x509.Certificate{SerialNumber:big.NewInt(1),DNSNames:[]string{"fixture.local"},NotBefore:time.Now().Add(-time.Hour),NotAfter:time.Now().Add(time.Hour),KeyUsage:x509.KeyUsageDigitalSignature,ExtKeyUsage:[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+ template:=&x509.Certificate{SerialNumber:big.NewInt(1),DNSNames:[]string{"fixture.local"},IPAddresses:[]net.IP{net.ParseIP("10.0.2.2")},NotBefore:time.Now().Add(-time.Hour),NotAfter:time.Now().Add(time.Hour),KeyUsage:x509.KeyUsageDigitalSignature,ExtKeyUsage:[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
  der,_:=x509.CreateCertificate(rand.Reader,template,template,&key.PublicKey,key);digest:=sha256.Sum256(der)
  keyDER,_:=x509.MarshalECPrivateKey(key)
  certPEM:=string(pem.EncodeToMemory(&pem.Block{Type:"CERTIFICATE",Bytes:der}));keyPEM:=string(pem.EncodeToMemory(&pem.Block{Type:"EC PRIVATE KEY",Bytes:keyDER}))
  // REALITY's test target is a real, controlled TLS 1.3 endpoint. Avoid an
  // unrelated public CDN's routing, availability and anti-bot policy in CI.
  targetListener,err:=net.Listen("tcp","0.0.0.0:18445");if err!=nil{panic(err)}
- target:=&http.Server{TLSConfig:&tls.Config{MinVersion:tls.VersionTLS13,Certificates:[]tls.Certificate{{Certificate:[][]byte{der},PrivateKey:key}}},Handler:http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){log.Printf("fixture HTTP %s %s %s",r.Method,r.URL.Path,r.Proto);if r.URL.Path=="/ip" {w.Write([]byte("198.18.0.1"))} else if r.URL.Path=="/fail" {w.WriteHeader(503)} else {w.WriteHeader(204)}})}
+ var slow atomic.Int32
+ target:=&http.Server{TLSConfig:&tls.Config{MinVersion:tls.VersionTLS13,Certificates:[]tls.Certificate{{Certificate:[][]byte{der},PrivateKey:key}}},Handler:http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  log.Printf("fixture HTTP %s %s %s",r.Method,r.URL.Path,r.Proto)
+  switch r.URL.Path {
+  case "/ip":w.Write([]byte("198.18.0.1"))
+  case "/fail":w.WriteHeader(503)
+  case "/slow-count":fmt.Fprint(w,slow.Load())
+  case "/slow":slow.Add(1);defer slow.Add(-1);select {case <-r.Context().Done():case <-time.After(30*time.Second):w.WriteHeader(503)}
+  default:w.WriteHeader(204)
+  }
+ })}
  go target.ServeTLS(targetListener,"","")
  defer target.Close()
  reality,_:=ecdh.X25519().GenerateKey(rand.Reader)

@@ -16,7 +16,9 @@
         <!-- Configured VPNs qualify for systemExempted without exact-alarm
              permission. prepare() is checked before startForeground().
              https://developer.android.com/develop/background-work/services/fgs/service-types#system-exempted -->
-        <service android:name=".TunnelService" android:permission="android.permission.BIND_VPN_SERVICE" android:foregroundServiceType="systemExempted" android:exported="true" tools:ignore="ForegroundServicePermission">
+        <!-- Receive onTaskRemoved and finish the shared cancellation/cleanup
+             path before stopping; ordinary Home/backgrounding keeps VPN active. -->
+        <service android:name=".TunnelService" android:permission="android.permission.BIND_VPN_SERVICE" android:foregroundServiceType="systemExempted" android:exported="true" android:stopWithTask="false" tools:ignore="ForegroundServicePermission">
             <intent-filter><action android:name="android.net.VpnService"/></intent-filter>
         </service>
         <service android:name=".VpnTile" android:label="Personal VPN" android:icon="@drawable/ic_notification" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE" android:exported="true">

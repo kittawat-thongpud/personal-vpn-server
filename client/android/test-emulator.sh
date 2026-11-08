@@ -70,7 +70,7 @@ timeout 480 "$adb_binary" shell am instrument -w -r -e fixture "$fixture" dev.pe
 # Preserve it in the job log even when optional report storage is unavailable.
 adb logcat -d -s System.out:I AndroidRuntime:E '*:S' | tail -n 120
 if ! grep -Eq '^OK \([0-9]+ tests?\)' "$project/app/build/emulator/result.txt"; then instrument_status=1; fi
-for name in app-tunnel site-tunnel home-ui home-large-font; do
+for name in app-tunnel site-tunnel home-ui home-large-font home-pending; do
   destination="$project/app/build/emulator/$name.png"
   if ! adb exec-out run-as dev.personalvpn.client cat "files/$name.png" > "$destination"; then
     rm -f "$destination"

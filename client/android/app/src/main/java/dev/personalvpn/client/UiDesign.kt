@@ -71,16 +71,24 @@ internal val VpnBackground = Brush.verticalGradient(listOf(Color(0xFF17283F),Col
     }
 }
 
+internal data class PowerAppearance(val tint: Color,val content: Color)
+internal fun powerAppearance(state: TunnelState): PowerAppearance = when {
+    state.status=="Connected" -> PowerAppearance(VpnScheme.primary,Color(0xFF082B31))
+    state.status=="Error" -> PowerAppearance(Color(0xFFF38F98),Color(0xFF082B31))
+    state.active -> PowerAppearance(Color(0xFF235E8C),Color(0xFFF5F8FF))
+    else -> PowerAppearance(VpnScheme.secondary,Color(0xFF082B31))
+}
 @Composable internal fun PowerButton(state: TunnelState,dirty: Boolean,click: () -> Unit) {
-    val tint=when { state.status=="Connected"->VpnScheme.primary;state.status=="Error"->Color(0xFFF38F98);state.active->Color(0xFFF2C577);else->VpnScheme.secondary }
+    val appearance=powerAppearance(state);val tint=appearance.tint
+    val action=connectionAction(state,dirty)
     Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center) {
         Box(Modifier.sizeIn(maxWidth=202.dp,maxHeight=202.dp).aspectRatio(1f).background(Brush.radialGradient(listOf(tint.copy(alpha=.24f),Color.Transparent)),CircleShape).padding(12.dp)) {
-            Button(onClick=click,enabled=!state.busy,contentPadding=PaddingValues(10.dp),shape=CircleShape,
-                modifier=Modifier.fillMaxSize().shadow(12.dp,CircleShape).background(Brush.verticalGradient(listOf(lerp(tint,Color.White,.2f),tint,lerp(tint,Color.Black,.12f))),CircleShape).border(1.dp,Color.White.copy(alpha=.28f),CircleShape),
-                colors=ButtonDefaults.buttonColors(containerColor=Color.Transparent,contentColor=Color(0xFF082B31))) {
+            Button(onClick=click,enabled=action!=ConnectionAction.Stopping,contentPadding=PaddingValues(10.dp),shape=CircleShape,
+                modifier=Modifier.fillMaxSize().shadow(12.dp,CircleShape).background(Brush.verticalGradient(listOf(lerp(tint,Color.White,.12f),tint,lerp(tint,Color.Black,.12f))),CircleShape).border(1.dp,Color.White.copy(alpha=.28f),CircleShape),
+                colors=ButtonDefaults.buttonColors(containerColor=Color.Transparent,contentColor=appearance.content,disabledContainerColor=Color.Transparent,disabledContentColor=appearance.content)) {
                 Column(horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(10.dp)) {
                     Icon(painterResource(R.drawable.ic_notification),null,Modifier.size(34.dp))
-                    Text(if(dirty&&state.active) "Apply & reconnect" else if(state.active) "Disconnect" else "Connect",fontSize=19.sp,textAlign=androidx.compose.ui.text.style.TextAlign.Center)
+                    Text(action.label,fontSize=19.sp,fontWeight=FontWeight.SemiBold,textAlign=androidx.compose.ui.text.style.TextAlign.Center)
                 }
             }
         }
