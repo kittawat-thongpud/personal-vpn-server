@@ -8,7 +8,7 @@ sheets contain only measured issues. Configured/unavailable checks and previous
 process exit records do not trigger a pop-up. A Recent Apps/history entry, notification
 or widget command does not request this review. Pending connection work defers
 the sheet so Cancel remains reachable. Fixing the detected issues and returning
-from Settings or checking again dismisses the automatic review.
+from Settings or checking again dismisses recurring automatic reviews.
 
 Settings → Background reliability keeps optional device checks, configured
 settings, unavailable readings and last-exit evidence in separate collapsed
@@ -16,7 +16,7 @@ sections. Each actionable check uses two or three numbered steps. Opening manual
 tips explicitly also counts as the one-time display. Nothing is marked shown
 while busy work defers the sheet. Remembering display never claims a manual
 setting is configured, relabels a measured restriction as safe or changes VPN configuration.
-All reads run away from the UI thread; the compatibility status request has a
+System checks run away from the UI thread; the compatibility status request has a
 two-second bound.
 
 | Item | What can be read | User action |
@@ -73,11 +73,13 @@ Verifying problem and intermittent REALITY disconnects need backend phase/result
 logs to establish their network cause. Startup guidance supplements cancellation
 and recovery; it does not silently switch protocol or fall back to Direct.
 
-Framework qualification runs on Android 14 (API 34) and Android 17 (API 37.0
-official system-image package). UI cases check Launcher filtering, explicit
-manual review, one-time display across Activity recreation without confirmation, numbered
-instructions and dismissal after a simulated restriction is resolved, without
-changing device settings. Existing cancellation/capture/handovers remain enabled.
+Framework qualification passes all seven instrumentation tests on Android 14
+(API 34) and Android 17 (API 37.0 official system-image package), source
+`ff318448da67f61ba6f62b033954a257e0e5a021`. UI cases check Launcher filtering,
+explicit manual review, one-time display across Activity recreation without
+confirmation, numbered instructions and dismissal after a simulated restriction
+is resolved, without changing device settings. Existing cancellation/capture/
+handover tests remain enabled and pass.
 Physical Samsung and Redmi behavior still requires acceptance. Source/status is
 recorded in [Client validation](../VALIDATION.md).
 

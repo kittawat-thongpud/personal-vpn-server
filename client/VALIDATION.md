@@ -1,4 +1,42 @@
-# Client 0.9.3 Android cancellation and background guidance - 2026-11-08
+# Client 0.9.4 focused background guidance - 2026-11-08
+
+Qualified source `ff318448da67f61ba6f62b033954a257e0e5a021`;
+[complete publication run, attempt 2](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/42494061917/attempts/2)
+passed every required platform and publication gate. [Client 0.9.4](https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/client-v0.9.4)
+is stable, non-draft and Latest at publication, with 12 assets. All 11 checksums
+and eight manifest entries match GitHub uploaded-byte digests. The downloaded
+APK and three verification files also match; the APK retains the pinned signing
+certificate and both native ABIs. The tag and immutable base/release branches
+match the qualified source; legacy/client-v0.9.3 preserves its previous source.
+
+- Android unit tests/lint/native/signature checks pass. Android 14 / API 34 reports
+  `OK (7 tests)` in 275.191 seconds; Android 17 / API 37 reports `OK (7 tests)`
+  in 264.007 seconds using the official API 37.0 system-image package.
+- Instrumentation verifies that manufacturer manual tips display once, are
+  remembered automatically without confirmation, and do not repeat on the next
+  Launcher entry. Explicit Settings access remains available. Opening manual
+  tips there also records display, without changing VPN configuration.
+- With the one-time tips already shown, a synthetic Battery saver restriction
+  opens a compact review containing only that detected issue. Configured,
+  unavailable and manual rows stay out. Resolving that fixture and checking
+  again dismisses the review; the next Launcher entry does not reopen it. Unit
+  cases also cover unknown readings and old exit evidence without false warnings.
+- Numbered instructions, one-time/explicit-manual/compact-issue screenshots were
+  reviewed on both APIs. All existing cancellation, task removal, shared-UID
+  policy, captured traffic and network handover tests remain enabled and pass.
+- Windows x86/x64 pass native Proxy/TUN capture and restoration, physical
+  recovery, tray/UI and upgrade/reinstall gates. The first x86 job stalled and
+  was cancelled without a completed report; rerunning that job with identical
+  source passed. The successful Android/x64 qualification was retained by the
+  supported job rerun. No gate was removed or weakened.
+
+All builds ran in Actions. Physical Samsung/Redmi menu wording and background
+behavior still require device acceptance. The workstation/VPS network and VPN
+backend runtimes were preserved, and P2P remains paused. See [Background reliability](android/BACKGROUND-RELIABILITY.md).
+
+---
+
+## Client 0.9.3 Android cancellation and background guidance - 2026-11-08
 
 Qualified source `a64b83d29e98fa17e9d302270765b6cacec10115`;
 [complete publication run](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/42488257325)
