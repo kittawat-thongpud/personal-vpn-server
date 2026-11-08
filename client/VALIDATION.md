@@ -1,4 +1,37 @@
-# Client 0.9.1 LAN / Wi-Fi recovery - 2026-11-08
+# Client 0.9.2 Android shared-UID routing - 2026-11-08
+
+Qualified source `498ca03d64fec25fe2dbb991569cca5517c48f54`;
+[complete publication run](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/42451577781)
+passed every required platform and publication gate. [Client 0.9.2](https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/client-v0.9.2)
+is stable, non-draft and Latest at publication, with 12 assets. All 11 checksum
+entries and eight manifest entries match GitHub uploaded-byte digests. The
+downloaded Android APK and three verification files also match; its signing
+certificate matches the pinned existing certificate, and both native ABIs are
+present. Base/release source snapshots are preserved by the publisher.
+
+- Android unit tests, lint, native qualification, signing and ABI checks pass.
+  Android 14 instrumentation reports `OK (5 tests)` in 145.3 seconds.
+- Two actual debug companion packages share one OS UID. Both Hysteria 2 and
+  REALITY carry their HTTPS under Tunnel by default, unrelated App Bypass and
+  Site Bypass for `2.2.2.2` / `10.184.6.32`. An exception on either package
+  matches; explicit Block beats a shared package's Bypass in both saved orders.
+  Existing handover, captured DNS/HTTPS/UDP, App-over-Site, encrypted storage,
+  grouped site and bulk-selection assertions remain enabled and pass.
+- Missing ownership remains rejected when App rules are enabled. Unit cases
+  verify that behavior and rate-limited backend notices. See
+  [Android routing](android/ROUTING.md) for the defect and remaining limits.
+- Windows x86/x64 retain the 0.9.1 runtime and pass the complete native capture,
+  route/recovery, policy, persistent adapter and upgrade/reinstall gates again.
+
+All builds ran in Actions. The shared-UID defect is established in source and
+the isolated fixture; physical Redmi YouTube login/data acceptance remains
+pending. The live workstation VPN, VPS and paused P2P sector were preserved.
+
+---
+
+The following records previous qualification at its publication time.
+
+## Client 0.9.1 LAN / Wi-Fi recovery - 2026-11-08
 
 Qualified source: `77340fffc7a79bcc2cbb2ec89f97b97f8c99998b`.
 [Final publication run](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/42395956271)

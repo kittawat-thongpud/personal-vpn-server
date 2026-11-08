@@ -39,7 +39,8 @@ class TunnelService : VpnService() {
     private var cycle: Job? = null
     @Volatile private var core: Core? = null
     @Volatile private var tun: ParcelFileDescriptor? = null
-    @Volatile private var strictApps = false
+    @Volatile private var appRulesEnabled = false
+    @Volatile private var ownerNotices = OwnerNotices()
     @Volatile private var desired = false
     @Volatile private var destroyed = false
     @Volatile private var networkEpoch = NetworkEpoch()
@@ -87,7 +88,8 @@ class TunnelService : VpnService() {
         desired = true; cancelPending(); worker?.cancel()
         worker = scope.launch { lifecycle.withLock {
             val config = Repository.config.value
-            strictApps = config.apps.mode != Action.Disabled
+            appRulesEnabled = config.apps.mode != Action.Disabled
+            ownerNotices = OwnerNotices()
             while (currentCoroutineContext().isActive && desired && !destroyed) { try {
                 try { EngineConfig.validate(config) } catch (_: Exception) { throw SessionBlocked("configuration") }
                 superviseRecovery({ desired && !destroyed }, { runSession(config) }, { attempt, error ->
@@ -326,12 +328,14 @@ class TunnelService : VpnService() {
         val underlying = networkEpoch.physical?.network ?: error("Underlying network unavailable")
         ParcelFileDescriptor.fromFd(fd).use { underlying.bindSocket(it.fileDescriptor) }
     }
-    private fun owner(protocol: Int, source: String, sourcePort: Int, destination: String, destinationPort: Int): String = try {
-        val uid = cm.getConnectionOwnerUid(protocol, InetSocketAddress(InetAddress.getByName(source), sourcePort), InetSocketAddress(InetAddress.getByName(destination), destinationPort))
-        val packages = packageManager.getPackagesForUid(uid)?.toList().orEmpty()
-        val safe = if (uid < 0 || (strictApps && packages.size != 1)) listOf("__unresolved__") else packages
-        JSONObject().put("uid", uid).put("packages", JSONArray(safe)).toString()
-    } catch (_: Exception) { "{\"uid\":-1,\"packages\":[\"__unresolved__\"]}" }
+    private fun owner(protocol: Int, source: String, sourcePort: Int, destination: String, destinationPort: Int): String {
+        val owner = try {
+            val uid = cm.getConnectionOwnerUid(protocol, InetSocketAddress(InetAddress.getByName(source), sourcePort), InetSocketAddress(InetAddress.getByName(destination), destinationPort))
+            AppOwnership.resolve(uid, if (uid >= 0) packageManager.getPackagesForUid(uid)?.toList().orEmpty() else emptyList())
+        } catch (error: Exception) { AppOwnership.resolve(-1, emptyList(), error.javaClass.simpleName) }
+        if (appRulesEnabled) ownerNotices.next(owner, SystemClock.elapsedRealtime())?.let { (code, detail) -> Repository.log(if (owner.unresolved) "WARN" else "INFO", code, detail) }
+        return JSONObject().put("uid", owner.uid).put("packages", JSONArray(owner.packages)).toString()
+    }
     private fun defaultInterface(): String {
         val physical = networkEpoch.physical; val name = physical?.links?.interfaceName.orEmpty()
         return JSONObject().put("name", name).put("index", runCatching { NetworkInterface.getByName(name)?.index ?: -1 }.getOrDefault(-1)).put("expensive", physical?.choice?.metered ?: false).toString()

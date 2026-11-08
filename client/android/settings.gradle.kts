@@ -3,3 +3,4 @@ dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_P
 rootProject.name = "PersonalVPN"
 include(":app")
 include(":probe")
+include(":probeAlias")

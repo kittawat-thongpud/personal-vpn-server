@@ -1,6 +1,6 @@
 # Personal VPN Android client
 
-Install `PersonalVPN-Android-<client-version>.apk` from the unified private Client release on the
+Install `PersonalVPN-Android-<client-version>.apk` from the unified Client release on the
 phone. This is a signed APK installer, not an Android Studio project you must
 compile. Android 10+ is required; the APK contains arm64-v8a and x86_64 native
 libraries. The first physical target is Redmi Note 13 Pro+ 5G / Android 14.
@@ -26,9 +26,14 @@ backups are disabled. No profile, VPS password or user logs are bundled.
 App rules select installed package IDs. Explicit App exceptions precede Site
 exceptions. Tunnel, Bypass and Block defaults and Rules off are supported;
 Rules off retains the list but ignores that category. Block is rejected inside
-the core, not implemented by excluding the app from VPN. With App rules enabled,
-unresolved/shared-UID ownership is conservatively rejected. Services/helper
-packages may need separate rules. The app's own control/health traffic is reserved.
+the core, not implemented by excluding the app from VPN. Android can assign one
+UID to several packages. Every known package participates in App matching;
+conflicting exceptions on the same UID use Block, then Tunnel, then Bypass.
+These packages share socket ownership and cannot be routed separately by UID.
+With App rules enabled, genuinely unresolved ownership is rejected and produces
+a bounded `policy.owner_unresolved` notice. A known shared UID produces
+`policy.shared_uid`. Services/helper packages may need separate rules. The app's
+own control/health traffic is reserved. See [Android routing recovery](ROUTING.md).
 Domain matching is limited for independent encrypted DNS or opaque traffic.
 
 App Tunnel displays installed app names and icons. Search, select any number of

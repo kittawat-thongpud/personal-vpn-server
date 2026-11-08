@@ -1,3 +1,6 @@
+Client 0.9.2: shared Client release for the Android shared-UID App routing fix.
+Windows retains its 0.9.1 VPN runtime and LAN / Wi-Fi recovery behavior below.
+
 Client 0.9.1: LAN / Wi-Fi destination egress and crash-safe physical binding recovery.
 
 See ../RELEASE-NOTES.md for the current unified client release. Destination-aware
