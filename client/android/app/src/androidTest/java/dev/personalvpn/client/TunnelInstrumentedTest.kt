@@ -162,11 +162,19 @@ class TunnelInstrumentedTest {
         val fixture = fixture()
         val profile = Profile(name = "CI fixture", reality = fixture.getJSONObject("reality").toString(), hysteria = fixture.getJSONObject("hysteria").toString())
         var config = Config(listOf(profile), profile.id)
+        val probeUid=context.packageManager.getApplicationInfo("dev.personalvpn.probe",0).uid
+        assertEquals("The real companion apps must share an Android UID",probeUid,context.packageManager.getApplicationInfo("dev.personalvpn.probe.alias",0).uid)
+        assertTrue(context.packageManager.getPackagesForUid(probeUid)!!.toSet().containsAll(listOf("dev.personalvpn.probe","dev.personalvpn.probe.alias")))
         var firstName: String? = null
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         try {
             for (protocol in listOf("Hysteria 2", "REALITY")) {
-                config = config.copy(protocol = protocol, apps = Policy(), sites = Policy(Action.Tunnel))
+                // Reproduce the reported policy: Tunnel by default, an unrelated
+                // App Bypass, and only two IP Bypass exceptions. A genuine shared
+                // UID must use the tunnel instead of becoming __unresolved__.
+                config = config.copy(protocol = protocol,
+                    apps = Policy(Action.Tunnel,listOf(Rule("dev.personalvpn.client.test",Action.Bypass,"App"))),
+                    sites = Policy(Action.Tunnel,listOf(Rule("2.2.2.2,10.184.6.32",Action.Bypass,"IP"))))
                 Personalvpn.check(EngineConfig.compile(config, "10.0.2.2", true))
                 Repository.save(config)
                 TunnelService.command(context, if (Repository.state.value.active) TunnelService.RECONNECT else TunnelService.CONNECT)
@@ -175,6 +183,8 @@ class TunnelInstrumentedTest {
                 val name = captureName(); assertNotNull(name)
                 if (firstName == null) firstName = name else assertEquals("Transport changes must retain TUN", firstName, name)
                 assertTrue("External application HTTPS capture", probe())
+                assertTrue("Real shared UID must be recognized",Repository.logs.value.any { it.code=="policy.shared_uid" })
+                println("Policy verified: $protocol shared UID uses default Tunnel with unrelated App/Site Bypass")
                 // Make only the first real HTTPS target fail. Fallback must
                 // preserve the same core and independently prove OS capture.
                 val stopped = Repository.logs.value.count { it.code == "core.stopped" }
@@ -233,6 +243,18 @@ class TunnelInstrumentedTest {
             Repository.save(config); TunnelService.command(context, TunnelService.RECONNECT)
             waitFor("Apply App Bypass") { Repository.state.value.status == "Connected" && Repository.state.value.appliedConfig == config.fingerprint() }
             assertTrue("Explicit App Bypass must use a working protected Direct socket", probe())
+            for (reverse in listOf(false,true)) {
+                val exceptions=listOf(Rule("dev.personalvpn.probe",Action.Bypass,"App"),Rule("dev.personalvpn.probe.alias",Action.Block,"App"))
+                config=config.copy(apps=Policy(Action.Tunnel,if(reverse)exceptions.reversed() else exceptions))
+                Repository.save(config);TunnelService.command(context,TunnelService.RECONNECT)
+                waitFor("Apply shared-UID conflict") { Repository.state.value.status=="Connected" && Repository.state.value.appliedConfig==config.fingerprint() }
+                assertFalse("A Block exception on a shared UID beats Bypass regardless of edit order",probe())
+            }
+            config=config.copy(apps=Policy(Action.Block,listOf(Rule("dev.personalvpn.probe.alias",Action.Tunnel,"App"))))
+            Repository.save(config);TunnelService.command(context,TunnelService.RECONNECT)
+            waitFor("Apply shared package exception") { Repository.state.value.status=="Connected" && Repository.state.value.appliedConfig==config.fingerprint() }
+            assertTrue("Exception on the other package of the same UID must match",probe())
+            println("Policy verified: real shared UID retains App priority and Block wins in either edit order")
             assertEquals(firstName, captureName())
         } finally {
             device.executeShellCommand("svc data enable"); device.executeShellCommand("svc wifi enable")

@@ -131,8 +131,8 @@ object EngineConfig {
         // The app's health/control traffic cannot be overridden by user rules.
         rules.put(JSONObject().put("package_name", JSONArray().put(APP)).put("outbound", "tunnel"))
         if (config.apps.mode != Action.Disabled) {
-            rules.put(JSONObject().put("package_name", JSONArray().put("__unresolved__")).put("action", "reject"))
-            config.apps.rules.forEach { rules.put(rule(it, "package_name")) }
+            rules.put(JSONObject().put("package_name", JSONArray().put(AppOwnership.UNRESOLVED)).put("action", "reject"))
+            AppOwnership.orderedRules(config.apps.rules).forEach { rules.put(rule(it, "package_name")) }
         }
         if (config.sites.mode != Action.Disabled) config.sites.rules.forEach { rules.put(rule(it, if (it.kind == "Domain") "domain_suffix" else "ip_cidr")) }
         val fallback = if (config.apps.mode != Action.Disabled) config.apps.mode else if (config.sites.mode != Action.Disabled) config.sites.mode else Action.Tunnel

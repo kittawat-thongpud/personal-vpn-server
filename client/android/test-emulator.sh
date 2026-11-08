@@ -59,6 +59,7 @@ adb shell wm dismiss-keyguard
 adb install -r "$project/app/build/outputs/apk/debug/app-debug.apk"
 adb install -r "$project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
 adb install -r "$project/probe/build/outputs/apk/debug/probe-debug.apk"
+adb install -r "$project/probeAlias/build/outputs/apk/debug/probeAlias-debug.apk"
 adb shell appops set dev.personalvpn.client ACTIVATE_VPN allow
 adb shell pm grant dev.personalvpn.client android.permission.POST_NOTIFICATIONS
 fixture=$(base64 -w 0 "$RUNNER_TEMP/fixture.json")

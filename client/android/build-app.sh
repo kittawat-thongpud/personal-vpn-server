@@ -9,4 +9,4 @@ unzip -q "$archive" -d "$RUNNER_TEMP"
 cd "$project"
 mkdir -p app/src/main/assets
 cp app/libs/LICENSE-sing-box.txt app/src/main/assets/LICENSE-sing-box.txt
-"$RUNNER_TEMP/gradle-8.11.1/bin/gradle" --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease :probe:assembleDebug
+"$RUNNER_TEMP/gradle-8.11.1/bin/gradle" --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease :probe:assembleDebug :probeAlias:assembleDebug

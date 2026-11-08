@@ -1,0 +1,6 @@
+<!-- Isolated CI companion only. The same debug signing key and sharedUserId as
+     :probe exercise real multi-package UID lookup through ConnectivityManager. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sharedUserId="dev.personalvpn.probes">
+    <application android:label="VPN CI shared UID" android:allowBackup="false"/>
+</manifest>

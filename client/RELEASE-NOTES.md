@@ -1,4 +1,25 @@
-Client 0.9.1 fixes Windows LAN / Wi-Fi Direct egress and capture recovery.
+Client 0.9.2 fixes Android App Tunnel rejecting known shared-UID connections.
+
+With App rules enabled, a UID associated with several packages previously became
+an unresolved owner and was rejected even with Tunnel by default. Known shared
+UIDs now keep all package names for normal App matching. Conflicting exceptions
+on the same UID use Block > Tunnel > Bypass, independent of edit order. App
+exceptions still precede Site rules. Android identifies these sockets by UID;
+packages sharing it cannot be routed independently.
+
+Genuinely missing owners remain rejected while App rules are enabled. Bounded
+backend notices distinguish shared ownership from a failed owner lookup, with
+at most one notice of each kind per minute. Existing session log limits remain.
+Android 14 regression qualification uses two actual shared-UID companion apps,
+both VPN protocols and default Tunnel with unrelated App/private-IP Bypass.
+
+Windows includes the existing 0.9.1 LAN/Wi-Fi and recovery fixes below; its VPN
+runtime is unchanged in 0.9.2. The shared release contains the signed Android APK
+and Windows x86/x64 installers, built and qualified in GitHub Actions. The VPS
+and P2P sector are unchanged. YouTube login/data loading on the physical Redmi
+still needs acceptance with the user's saved rules after updating the APK.
+
+Previous fix baseline (0.9.1): Windows LAN / Wi-Fi Direct egress and capture recovery.
 
 Direct sockets now choose the longest matching destination route on connected
 Ethernet / Wi-Fi, then route + interface metric. A fixed default-interface bind
@@ -25,8 +46,8 @@ New isolated Windows CI cases cover destination selection, physical flag recover
 forced owner death and App Block over Site Bypass. A university captive portal
 still requires its own sign-in; successful recovery does not authenticate it.
 
-The signed Android APK uses the same 0.9.1 client version; its VPN behavior is
-unchanged in this Windows fix. All binaries are built in GitHub Actions.
+The 0.9.1 Windows fix did not change Android VPN behavior. All binaries are built
+in GitHub Actions.
 
 Previous feature baseline (0.9.0):
 
