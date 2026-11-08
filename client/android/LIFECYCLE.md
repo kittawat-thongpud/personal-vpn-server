@@ -27,7 +27,7 @@ explicitly keeps stopWithTask=false to receive the callback and finish cleanup.
 Android Always-on is a separate system policy, managed in Android VPN settings;
 the app keeps the existing managed-disconnect behavior for it.
 
-Android 14 qualification checks Cancel through the real Home button in both
+Android 14 and 17 qualification checks Cancel through the real Home button in both
 protocols, with dirty settings during Connecting and an actual stalled native
 HTTPS verification. The controlled server exposes its active slow-request count
 so the test knows I/O is pending before cancellation. It requires capture, VPN
@@ -38,15 +38,15 @@ Home retains a working captured connection. Rapid Connect/Cancel/Connect checks
 that the latest command wins. Slow-server/test controls are isolated fixtures;
 no user-facing command enables them.
 
-The emulator establishes framework behavior; the physical Redmi's Recent Apps
-swipe and manufacturer lifecycle policy require on-device acceptance. Android
+The emulators establish framework behavior; physical Samsung/Redmi Recent Apps
+swipes and manufacturer lifecycle policy require on-device acceptance. Android
 may keep an idle cached application process; that is distinct from an active VPN
 or foreground service. Build status is recorded in [Client validation](../VALIDATION.md).
-The first candidate's Android 14 run verified actual Hysteria cancellation and
-task removal in Connecting/Verifying, then failed its next test Activity
-foreground check: the hierarchy showed Launcher. Foreground readiness is now
-confirmed when tests reopen a removed task; every cleanup/traffic assertion is
-retained. No physical Samsung success is inferred from that partial result.
+The complete publication run for source
+`a64b83d29e98fa17e9d302270765b6cacec10115` passes all seven instrumentation
+tests on API 34 and API 37, including every cancellation/task-removal scenario
+above. Foreground readiness is confirmed when tests reopen a removed task;
+cleanup and independent traffic assertions remain enabled.
 
 References:
 

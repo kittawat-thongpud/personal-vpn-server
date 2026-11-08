@@ -62,9 +62,12 @@ Verifying problem and intermittent REALITY disconnects need backend phase/result
 logs to establish their network cause. Startup guidance supplements cancellation
 and recovery; it does not silently switch protocol or fall back to Direct.
 
-Framework qualification is configured for Android 14 (API 34) and Android 17
-(API 37.0 official system-image package). Physical Samsung and Redmi behavior
-still requires acceptance. Source/status is recorded in [Client validation](../VALIDATION.md).
+Framework qualification passes all seven instrumentation tests on Android 14
+(API 34) and Android 17 (API 37.0 official system-image package). UI tests cover
+Launcher versus non-Launcher entry, protocol alignment, synthetic Samsung manual
+advice and publicly resolvable Settings fallbacks without changing settings.
+Physical Samsung and Redmi behavior still requires acceptance. Source/status is
+recorded in [Client validation](../VALIDATION.md).
 
 ## Sources
 
