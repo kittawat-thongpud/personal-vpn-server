@@ -1,4 +1,16 @@
-Client 0.9.3 makes Android pending connections cancellable and stops VPN when
+Client 0.9.4 shows automatic Android background guidance only for restrictions
+that are actually detected. Configured, unavailable and manufacturer-only manual
+checks, and old process-exit records, no longer trigger or fill startup pop-ups.
+Returning from Settings or checking again dismisses the automatic sheet when its
+detected issues are fixed.
+
+Instructions are short numbered steps. The optional device checklist is collapsed
+in Settings → Background reliability; I've set this saves a manual confirmation
+across app restarts, and Review again restores it. This is separate from VPN
+configuration and never hides a newly detected restriction. Configured items,
+unavailable readings and last-exit evidence remain available in collapsed sections.
+
+Previous baseline (0.9.3): Android pending connections are cancellable and VPN stops when
 the app task is removed from Recent Apps.
 
 Protocol options align names/descriptions at the left. A fresh Launcher entry

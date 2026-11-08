@@ -1,3 +1,6 @@
+Client 0.9.4: shared Client release for focused Android background guidance and numbered steps.
+Windows retains its existing VPN runtime and includes the fixes below.
+
 Client 0.9.3: shared Client release for Android Cancel, contrast and task-removal cleanup.
 Windows retains its existing VPN runtime and includes the fixes below.
 

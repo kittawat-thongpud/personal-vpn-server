@@ -15,7 +15,7 @@ class BackgroundChecksTest {
     @Test fun missingReadingsAreUnknownRatherThanSafeOrDisabled() {
         val rows=BackgroundChecks.checks(BackgroundFacts())
         assertTrue(rows.all { it.state==CheckState.Unknown })
-        assertTrue(BackgroundReview(rows,Unused.ERROR,null).shouldPrompt)
+        assertFalse(BackgroundReview(rows,Unused.ERROR,null).shouldPrompt)
     }
     @Test fun relevantRestrictionsAreReportedIndependently() {
         val rows=BackgroundChecks.checks(ready().copy(batteryExempt=false,restricted=true,saver=true,dataRestricted=true,notifications=false,channel=false,unused=Unused.API_31,dontKeepActivities=true))
@@ -27,7 +27,7 @@ class BackgroundChecksTest {
             val rows=BackgroundChecks.checks(facts)
             assertTrue(rows.any { it.state==CheckState.Manual })
             assertFalse(rows.any { it.state==CheckState.Attention })
-            assertTrue(BackgroundReview(rows,Unused.DISABLED,null).shouldPrompt)
+            assertFalse(BackgroundReview(rows,Unused.DISABLED,null).shouldPrompt)
         }
         val samsung=BackgroundChecks.checks(ready().copy(samsung=true)).filter { it.id.startsWith("samsung") }
         assertEquals(setOf("samsung_sleep","samsung_battery","samsung_restart","samsung_memory"),samsung.map { it.id }.toSet())
@@ -40,8 +40,22 @@ class BackgroundChecksTest {
         assertFalse(BackgroundChecks.isLauncherOpen(Intent.ACTION_MAIN,null,0))
         assertFalse(BackgroundChecks.isLauncherOpen("",null,0))
     }
-    @Test fun lastUnexpectedExitIsVisibleEvenWhenSettingsLookReady() {
+    @Test fun oldExitEvidenceDoesNotRepeatedlyInterruptAConfiguredDevice() {
         val exit=PreviousExit(1234,"App crash",true)
-        assertTrue(BackgroundReview(BackgroundChecks.checks(ready()),Unused.DISABLED,exit).shouldPrompt)
+        assertFalse(BackgroundReview(BackgroundChecks.checks(ready()),Unused.DISABLED,exit).shouldPrompt)
+    }
+    @Test fun startupContainsOnlyDetectedIssuesNotUnknownOrManualSettings() {
+        val rows=BackgroundChecks.checks(ready().copy(saver=true,notifications=null,samsung=true))
+        val review=BackgroundReview(rows,Unused.DISABLED,null)
+        assertTrue(review.shouldPrompt)
+        assertEquals(listOf("saver"),review.detectedIssues.map { it.id })
+        assertEquals(4,review.pendingManual(emptySet()).size)
+        assertEquals(3,review.pendingManual(setOf("samsung_sleep")).size)
+        assertEquals(listOf("saver"),review.detectedIssues.map { it.id })
+        assertFalse(review.copy(checks=BackgroundChecks.checks(ready().copy(notifications=null,samsung=true))).shouldPrompt)
+    }
+    @Test fun everyCheckHasShortOrderedActionSteps() {
+        val rows=BackgroundChecks.checks(ready().copy(samsung=true,xiaomi=true,developer=true))
+        assertTrue(rows.all { it.steps.size in 2..3 && it.steps.all { step -> step.isNotBlank() && step.length<=180 } })
     }
 }
