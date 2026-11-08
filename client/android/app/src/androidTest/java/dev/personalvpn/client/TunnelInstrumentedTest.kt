@@ -156,7 +156,7 @@ class TunnelInstrumentedTest {
             ActivityScenario.launch<MainActivity>(Intent(context,MainActivity::class.java).setAction(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)).use {
                 waitFor("Launcher opens guidance",15) { refreshAccessibility();device.hasObject(By.textContains("Android checks are read now")) }
             }
-            val actual=BackgroundChecks.read(context)
+            val actual=kotlinx.coroutines.runBlocking { BackgroundChecks.read(context) }
             for(target in SettingsTarget.entries) {
                 val candidates=BackgroundChecks.intents(context,target,actual.unusedStatus)
                 assertTrue("Every settings action has a supported fallback",candidates.any { it.resolveActivity(context.packageManager)!=null })
