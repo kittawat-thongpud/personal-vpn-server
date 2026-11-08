@@ -1,12 +1,23 @@
 # Background reliability checks
 
-Client 0.9.3 adds an in-app review on a fresh Launcher entry when a checked risk,
-device-specific manual item or previous unexpected process exit exists. A Recent
-Apps/history entry, notification or widget command does not request this review.
-Pending connection work defers the sheet so Cancel remains reachable. It can
-also be opened from Settings → Background reliability, dismissed with Not now,
-and checked again after returning from Android Settings. All reads run away from
-the UI thread; the compatibility status request has a two-second bound.
+Client 0.9.4 automatically opens a review on a fresh Launcher entry only when a
+restriction is actually detected. Manufacturer-only manual tips are a one-time
+exception: they appear once and display is remembered automatically, without a
+confirmation button. The flag persists across app updates. Recurring automatic
+sheets contain only measured issues. Configured/unavailable checks and previous
+process exit records do not trigger a pop-up. A Recent Apps/history entry, notification
+or widget command does not request this review. Pending connection work defers
+the sheet so Cancel remains reachable. Fixing the detected issues and returning
+from Settings or checking again dismisses recurring automatic reviews.
+
+Settings → Background reliability keeps optional device checks, configured
+settings, unavailable readings and last-exit evidence in separate collapsed
+sections. Each actionable check uses two or three numbered steps. Opening manual
+tips explicitly also counts as the one-time display. Nothing is marked shown
+while busy work defers the sheet. Remembering display never claims a manual
+setting is configured, relabels a measured restriction as safe or changes VPN configuration.
+System checks run away from the UI thread; the compatibility status request has a
+two-second bound.
 
 | Item | What can be read | User action |
 | --- | --- | --- |
@@ -19,7 +30,7 @@ the UI thread; the compatibility status request has a two-second bound.
 | Don't keep activities | Public Settings.Global value | Turn off the developer option |
 | Developer background process limit | No public status API used | Manually check Standard limit when developer options are enabled |
 
-Good, Needs attention, Check manually and Unavailable are distinct. A denied
+Configured, Change recommended, Check manually and Could not check are distinct. A denied
 read is never shown as a safe setting or a detected disabled switch. The checker
 does not change any setting, add permissions, alter VPN profiles or reconnect.
 Buttons use public Settings intents via ActivityResult, with App info/system
@@ -63,9 +74,12 @@ logs to establish their network cause. Startup guidance supplements cancellation
 and recovery; it does not silently switch protocol or fall back to Direct.
 
 Framework qualification passes all seven instrumentation tests on Android 14
-(API 34) and Android 17 (API 37.0 official system-image package). UI tests cover
-Launcher versus non-Launcher entry, protocol alignment, synthetic Samsung manual
-advice and publicly resolvable Settings fallbacks without changing settings.
+(API 34) and Android 17 (API 37.0 official system-image package), source
+`ff318448da67f61ba6f62b033954a257e0e5a021`. UI cases check Launcher filtering,
+explicit manual review, one-time display across Activity recreation without
+confirmation, numbered instructions and dismissal after a simulated restriction
+is resolved, without changing device settings. Existing cancellation/capture/
+handover tests remain enabled and pass.
 Physical Samsung and Redmi behavior still requires acceptance. Source/status is
 recorded in [Client validation](../VALIDATION.md).
 

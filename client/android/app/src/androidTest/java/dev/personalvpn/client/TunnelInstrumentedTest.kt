@@ -131,6 +131,8 @@ class TunnelInstrumentedTest {
     }.getOrDefault(-1)
     @Test fun protocolAlignmentAndLauncherBackgroundGuidance() {
         val original=Repository.config.value
+        val preferences=BackgroundPreferences(context);val previousShown=preferences.manualShown()
+        assertTrue(preferences.saveManualShown(false))
         val f=fixture();val p=Profile(name="UI fixture",reality=f.getJSONObject("reality").toString(),hysteria=f.getJSONObject("hysteria").toString())
         val config=Config(listOf(p),p.id)
         val review=BackgroundReview(BackgroundChecks.checks(BackgroundFacts(true,false,false,false,true,true,androidx.core.content.UnusedAppRestrictionsConstants.DISABLED,false,samsung=true)),androidx.core.content.UnusedAppRestrictionsConstants.DISABLED,null)
@@ -139,7 +141,7 @@ class TunnelInstrumentedTest {
         try {
             val device=UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
             launchHome().use {
-                assertFalse("Non-launcher entry must not show guidance",device.hasObject(By.textContains("Android checks are read now")))
+                assertFalse("Non-launcher entry must not show guidance",device.hasObject(By.text("Only detected issues are shown automatically.")))
                 clickFresh(By.desc("Choose VPN protocol"))
                 waitFor("Protocol options",10) { device.hasObject(By.text("VPN protocol")) }
                 val header=device.findObject(By.text("VPN protocol")).visibleBounds
@@ -149,12 +151,56 @@ class TunnelInstrumentedTest {
                 device.takeScreenshot(java.io.File(context.filesDir,"protocol-options.png"))
                 device.pressBack()
                 openSettingsDestination("Background reliability")
-                waitFor("Manual Samsung guidance",15) { device.hasObject(By.textContains("Android checks are read now")) }
+                waitFor("Explicit settings review",15) { device.hasObject(By.text("No detected issues.")) }
+                assertFalse("Manual device rows stay collapsed",device.hasObject(By.text("Samsung sleeping apps")))
+                clickFresh(By.text("Device checklist (4)"))
+                waitFor("Numbered Samsung instructions",10) { device.hasObject(By.text("Samsung sleeping apps")) && device.hasObject(By.text("1.")) }
                 device.takeScreenshot(java.io.File(context.filesDir,"background-guidance.png"))
+                assertFalse("Manual hints need no confirmation",device.hasObject(By.text("I've set this")))
+                waitFor("Viewing manual tips is remembered automatically",10) { BackgroundPreferences(context).manualShown() }
                 assertEquals(config,Repository.config.value);assertFalse(Repository.state.value.active);assertNull(captureName())
             }
-            ActivityScenario.launch<MainActivity>(Intent(context,MainActivity::class.java).setAction(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)).use {
-                waitFor("Launcher opens guidance",15) { refreshAccessibility();device.hasObject(By.textContains("Android checks are read now")) }
+            fun launcher()=ActivityScenario.launch<MainActivity>(Intent(context,MainActivity::class.java).setAction(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+            fun awaitReview(activity: ActivityScenario<MainActivity>) {
+                waitFor("Launcher checks completed",15) { var ready=false;activity.onActivity { ready=it.backgroundReviewReadyForTest() };ready }
+                device.waitForIdle();refreshAccessibility()
+            }
+            launcher().use { activity ->
+                awaitReview(activity)
+                assertFalse("Configured + manual settings must not open a popup",device.hasObject(By.text("Only detected issues are shown automatically.")))
+                openSettingsDestination("Background reliability")
+                waitFor("Manual tips stay available only on request",10) { device.hasObject(By.text("Device checklist (4)")) }
+            }
+            assertTrue(preferences.saveManualShown(false))
+            launcher().use { activity ->
+                awaitReview(activity)
+                waitFor("First Launcher shows one-time device tips",10) { device.hasObject(By.text("One-time device tips. You won't be asked to confirm them.")) && device.hasObject(By.text("Samsung sleeping apps")) }
+                waitFor("One-time display saved without confirmation",10) { BackgroundPreferences(context).manualShown() }
+                assertFalse(device.hasObject(By.text("I've set this")))
+                device.takeScreenshot(java.io.File(context.filesDir,"background-once.png"))
+            }
+            launcher().use { activity ->
+                awaitReview(activity)
+                assertFalse("One-time manual tips never repeat on Launcher",device.hasObject(By.text("One-time device tips. You won't be asked to confirm them.")))
+                assertFalse(device.hasObject(By.text("Only detected issues are shown automatically.")))
+            }
+            val issues=BackgroundChecks.checks(BackgroundFacts(true,false,true,false,true,true,androidx.core.content.UnusedAppRestrictionsConstants.DISABLED,false,samsung=true)).map { if(it.id=="notifications")it.copy(state=CheckState.Unknown)else it }
+            Repository.instrumentedBackgroundReview=review.copy(checks=issues)
+            launcher().use { activity ->
+                awaitReview(activity)
+                waitFor("Only detected Battery saver issue opens guidance",10) { device.hasObject(By.text("Only detected issues are shown automatically.")) && device.hasObject(By.text("Battery saver")) }
+                assertTrue(device.hasObject(By.text("1.")));assertTrue(device.hasObject(By.text("2.")))
+                assertFalse(device.hasObject(By.text("Battery optimization")))
+                assertFalse(device.hasObject(By.text("Samsung sleeping apps")))
+                assertFalse(device.hasObject(By.text("Could not check (1)")))
+                device.takeScreenshot(java.io.File(context.filesDir,"background-issues.png"))
+                Repository.instrumentedBackgroundReview=review
+                clickFresh(By.text("Check again"))
+                waitFor("Fixed settings dismiss automatic guidance",10) { refreshAccessibility();!device.hasObject(By.text("Only detected issues are shown automatically.")) }
+            }
+            launcher().use { activity ->
+                awaitReview(activity)
+                assertFalse("Fixed settings do not reopen guidance",device.hasObject(By.text("Only detected issues are shown automatically.")))
             }
             val actual=kotlinx.coroutines.runBlocking { BackgroundChecks.read(context) }
             for(target in SettingsTarget.entries) {
@@ -163,7 +209,7 @@ class TunnelInstrumentedTest {
                 assertTrue(candidates.none { it.action==android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS })
             }
             assertFalse(Repository.state.value.active);assertNull(captureName())
-        } finally { Repository.instrumentedBackgroundReview=null;Repository.save(original) }
+        } finally { Repository.instrumentedBackgroundReview=null;assertTrue(preferences.saveManualShown(previousShown));Repository.save(original) }
     }
     @Test fun cancelPendingConnectionAndTaskRemovalReleaseCapture() {
         assertNull(VpnService.prepare(context))

@@ -10,36 +10,65 @@ import androidx.compose.ui.unit.sp
 import java.text.DateFormat
 import java.util.Date
 
-@Composable internal fun BackgroundGuidance(review: BackgroundReview,dismiss: ()->Unit,refresh: ()->Unit,open: (SettingsTarget)->Unit) {
+@Composable internal fun BackgroundGuidance(review: BackgroundReview,automatic: Boolean,manualOnce: Boolean,dismiss: ()->Unit,refresh: ()->Unit,open: (SettingsTarget)->Unit,manualShown: ()->Unit) {
+    var manual by remember { mutableStateOf(false) }
     var checked by remember { mutableStateOf(false) }
+    var unavailable by remember { mutableStateOf(false) }
+    var exitDetail by remember { mutableStateOf(false) }
     VpnSheet("Background reliability",dismiss) {
-        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            Text("${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} · Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})",Modifier.weight(1f),fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(onClick=dismiss,modifier=Modifier.heightIn(min=48.dp)) { Text("Not now") }
+        Text(if(automatic && manualOnce)"One-time device tips. You won't be asked to confirm them." else "Only detected issues are shown automatically.",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        if(review.detectedIssues.isEmpty())Text("No detected issues.",color=MaterialTheme.colorScheme.secondary)
+        review.detectedIssues.forEach { BackgroundCheckCard(it,open) }
+        val manualRows=review.manualChecks
+        if(manualRows.isNotEmpty() && (!automatic || manualOnce)) {
+            if(!automatic)TextButton(onClick={manual=!manual},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text(if(manual)"Hide device checklist" else "Device checklist (${manualRows.size})") }
+            if(manual || (automatic && manualOnce)) {
+                LaunchedEffect(Unit) { manualShown() }
+                Text("Optional checks. Menu names may vary.",fontSize=12.sp)
+                manualRows.forEach { BackgroundCheckCard(it,open) }
+            }
         }
-        Text("These settings can affect a continuous VPN. Android checks are read now; device-specific items need manual review. Change settings yourself using the buttons below.",fontSize=12.sp)
-        Text("Home keeps VPN running. Removing its Recent Apps task stops VPN.",fontSize=12.sp,color=MaterialTheme.colorScheme.secondary)
-        review.previousExit?.let { exit ->
-            Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
-                Text("Last process exit: ${exit.reason}",fontWeight=FontWeight.SemiBold)
-                Text(DateFormat.getDateTimeInstance().format(Date(exit.time)),fontSize=11.sp)
-                Text("Recorded by Android. This is not proof that a battery setting caused the exit.",fontSize=11.sp)
-            } }
-        } ?: Text("No previous process-exit record is available from Android.",fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
-        val attention=review.checks.filter { it.state!=CheckState.Good }
-        if(attention.isEmpty())Text("Available Android checks look ready.")
-        fun cards(rows: List<BackgroundCheck>): @Composable ()->Unit = { rows.forEach { row ->
-            Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
-                Text(row.title,fontWeight=FontWeight.SemiBold)
-                Text(row.state.label,fontSize=11.sp,color=if(row.state==CheckState.Attention)MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondary)
-                Text(row.detail,fontSize=12.sp)
-                OutlinedButton(onClick={open(row.target)},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Open ${if(row.target==SettingsTarget.App)"App settings" else "settings"}") }
-            } }
-        } }
-        cards(attention)()
-        TextButton(onClick={checked=!checked},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text(if(checked)"Hide checked items" else "Show checked items (${review.checks.count { it.state==CheckState.Good }})") }
-        if(checked)cards(review.checks.filter { it.state==CheckState.Good })()
+        if(!automatic) {
+            val configured=review.checks.filter { it.state==CheckState.Good }
+            if(configured.isNotEmpty()) {
+                TextButton(onClick={checked=!checked},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text(if(checked)"Hide configured settings" else "Configured settings (${configured.size})") }
+                if(checked)configured.forEach { row ->
+                    Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
+                        Text(row.title,fontWeight=FontWeight.SemiBold)
+                        Text("Configured",fontSize=12.sp,color=MaterialTheme.colorScheme.secondary)
+                    } }
+                }
+            }
+            val unknown=review.checks.filter { it.state==CheckState.Unknown }
+            if(unknown.isNotEmpty()) {
+                TextButton(onClick={unavailable=!unavailable},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text(if(unavailable)"Hide unavailable checks" else "Could not check (${unknown.size})") }
+                if(unavailable) {
+                    Text("These aren't confirmed problems. You can check them yourself.",fontSize=12.sp)
+                    unknown.forEach { BackgroundCheckCard(it,open) }
+                }
+            }
+            review.previousExit?.let { exit ->
+                TextButton(onClick={exitDetail=!exitDetail},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Last app exit") }
+                if(exitDetail) {
+                    Text(exit.reason,fontWeight=FontWeight.SemiBold)
+                    Text(DateFormat.getDateTimeInstance().format(Date(exit.time)),fontSize=12.sp)
+                }
+            }
+        }
         OutlinedButton(onClick=refresh,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Check again") }
-        Button(onClick=dismiss,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Continue") }
+        Button(onClick=dismiss,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Close") }
     }
+}
+
+@Composable private fun BackgroundCheckCard(row: BackgroundCheck,open: (SettingsTarget)->Unit) {
+    Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+        Text(row.title,fontWeight=FontWeight.SemiBold)
+        row.steps.forEachIndexed { index,step ->
+            Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                Text("${index+1}.",color=MaterialTheme.colorScheme.secondary,fontSize=13.sp)
+                Text(step,Modifier.weight(1f),fontSize=13.sp)
+            }
+        }
+        OutlinedButton(onClick={open(row.target)},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text(if(row.target==SettingsTarget.App)"Open app settings" else "Open settings") }
+    } }
 }

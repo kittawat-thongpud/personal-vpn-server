@@ -3,9 +3,10 @@ Use the [shared release notes](../RELEASE-NOTES.md) for current changes and
 [Client validation](../VALIDATION.md) for the qualified source, Actions results
 and remaining physical-device acceptance.
 
-Client 0.9.3 includes Android pending-connection Cancel, readable pending colors,
-task-removal cleanup, left-aligned protocol choices and Launcher background
-reliability guidance. The signed APK supports Android 10+ on arm64-v8a and
+Client 0.9.4 adds focused background guidance with numbered steps and one-time
+manual tips remembered automatically, without confirmation. It retains Android
+pending-connection Cancel, readable pending colors, task-removal cleanup and
+left-aligned protocol choices. The signed APK supports Android 10+ on arm64-v8a and
 x86_64, retains the existing signing certificate and can update an existing
 installation. Builds and qualification run in GitHub Actions.
 

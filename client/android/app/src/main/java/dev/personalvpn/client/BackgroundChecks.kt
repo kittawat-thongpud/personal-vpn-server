@@ -18,12 +18,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
-internal enum class CheckState(val label: String) { Good("Checked"), Attention("Needs attention"), Manual("Check manually"), Unknown("Unavailable") }
+internal enum class CheckState(val label: String) { Good("Configured"), Attention("Change recommended"), Manual("Check manually"), Unknown("Could not check") }
 internal enum class SettingsTarget { BatteryOptimization, App, BatterySaver, BackgroundData, Notifications, NotificationChannel, UnusedApps, Developer, Battery, Device, Vpn }
-internal data class BackgroundCheck(val id: String,val title: String,val state: CheckState,val detail: String,val target: SettingsTarget)
+internal data class BackgroundCheck(val id: String,val title: String,val state: CheckState,val steps: List<String>,val target: SettingsTarget)
 internal data class PreviousExit(val time: Long,val reason: String,val unexpected: Boolean)
 internal data class BackgroundReview(val checks: List<BackgroundCheck>,val unusedStatus: Int,val previousExit: PreviousExit?) {
-    val shouldPrompt get()=checks.any { it.state!=CheckState.Good } || previousExit?.unexpected==true
+    val detectedIssues get()=checks.filter { it.state==CheckState.Attention }
+    val shouldPrompt get()=detectedIssues.isNotEmpty()
+    val manualChecks get()=checks.filter { it.state==CheckState.Manual }
+    fun showManualOnLaunch(alreadyShown: Boolean)=!alreadyShown && manualChecks.isNotEmpty()
 }
 internal data class BackgroundFacts(val batteryExempt: Boolean?=null,val restricted: Boolean?=null,val saver: Boolean?=null,val dataRestricted: Boolean?=null,val notifications: Boolean?=null,val channel: Boolean?=null,val unused: Int=Unused.ERROR,val dontKeepActivities: Boolean?=null,val developer: Boolean=false,val xiaomi: Boolean=false,val samsung: Boolean=false)
 
@@ -32,27 +35,27 @@ internal object BackgroundChecks {
     fun checks(f: BackgroundFacts): List<BackgroundCheck> {
         fun status(risk: Boolean?)=when(risk){true->CheckState.Attention;false->CheckState.Good;null->CheckState.Unknown}
         val rows=mutableListOf(
-            BackgroundCheck("doze","Battery optimization",status(f.batteryExempt?.not()),"For continuous VPN use, choose Personal VPN in Battery optimization and select Don't optimize. This check covers Android Doze, not every manufacturer restriction.",SettingsTarget.BatteryOptimization),
-            BackgroundCheck("background","Background activity",status(f.restricted),"App info → Battery / App battery usage → allow background use or choose Unrestricted. A restricted app can lose background service/network access.",SettingsTarget.App),
-            BackgroundCheck("saver","Battery saver",status(f.saver),"Battery → Battery saver → Off while continuous VPN is needed.",SettingsTarget.BatterySaver),
-            BackgroundCheck("data","Data Saver",status(f.dataRestricted),"Enable Unrestricted data usage for Personal VPN. Review App info → Data usage → Background data as well; manufacturer data switches may need manual checking.",SettingsTarget.BackgroundData),
-            BackgroundCheck("notifications","App notifications",status(f.notifications?.not()),"Enable Personal VPN notifications so status and Cancel/Disconnect controls stay visible. Hidden notifications alone do not prove the VPN was killed.",SettingsTarget.Notifications),
-            BackgroundCheck("channel","VPN notification channel",status(f.channel?.not()),"Notifications → VPN connection → allow notifications. This controls visibility of the ongoing VPN notification.",SettingsTarget.NotificationChannel),
-            BackgroundCheck("unused","Pause unused app activity",when(f.unused){Unused.DISABLED,Unused.FEATURE_NOT_AVAILABLE->CheckState.Good;Unused.API_30_BACKPORT,Unused.API_30,Unused.API_31->CheckState.Attention;else->CheckState.Unknown},"Turn off Pause app activity if unused / Remove permissions if app isn't used for Personal VPN when you rely on background VPN availability.",SettingsTarget.UnusedApps),
-            BackgroundCheck("activities","Don't keep activities",status(f.dontKeepActivities),"Developer options → Don't keep activities → Off. This setting destroys the app screen on leaving it; it is separate from the VPN service.",SettingsTarget.Developer)
+            BackgroundCheck("doze","Battery optimization",status(f.batteryExempt?.not()),listOf("Open Battery optimization.","Choose All apps, then Personal VPN.","Select Don't optimize, then tap Done."),SettingsTarget.BatteryOptimization),
+            BackgroundCheck("background","Background activity",status(f.restricted),listOf("Open Personal VPN's App settings.","Tap Battery or App battery usage.","Choose Unrestricted, or turn Allow background usage on."),SettingsTarget.App),
+            BackgroundCheck("saver","Battery saver",status(f.saver),listOf("Open Battery saver.","Turn Battery saver off while using VPN."),SettingsTarget.BatterySaver),
+            BackgroundCheck("data","Data Saver",status(f.dataRestricted),listOf("Open Unrestricted data usage.","Find Personal VPN and turn its switch on.","In App settings → Mobile data, also allow Background data if shown."),SettingsTarget.BackgroundData),
+            BackgroundCheck("notifications","App notifications",status(f.notifications?.not()),listOf("Open Personal VPN notifications.","Turn Allow notifications on."),SettingsTarget.Notifications),
+            BackgroundCheck("channel","VPN notification channel",status(f.channel?.not()),listOf("Open the VPN connection notification category.","Turn Allow notifications on."),SettingsTarget.NotificationChannel),
+            BackgroundCheck("unused","Pause unused app activity",when(f.unused){Unused.DISABLED,Unused.FEATURE_NOT_AVAILABLE->CheckState.Good;Unused.API_30_BACKPORT,Unused.API_30,Unused.API_31->CheckState.Attention;else->CheckState.Unknown},listOf("Open Personal VPN's App settings.","Find Pause app activity if unused or Remove permissions if app isn't used.","Turn that switch off."),SettingsTarget.UnusedApps),
+            BackgroundCheck("activities","Don't keep activities",status(f.dontKeepActivities),listOf("Open Developer options.","Find Don't keep activities.","Turn it off."),SettingsTarget.Developer)
         )
-        if(f.developer)rows+=BackgroundCheck("process_limit","Background process limit",CheckState.Manual,"Developer options → Background process limit → Standard limit. Android does not expose a public status API for this check.",SettingsTarget.Developer)
+        if(f.developer)rows+=BackgroundCheck("process_limit","Background process limit",CheckState.Manual,listOf("Open Developer options.","Tap Background process limit.","Choose Standard limit."),SettingsTarget.Developer)
         if(f.xiaomi)rows+=listOf(
-            BackgroundCheck("xiaomi_battery","Xiaomi app battery policy",CheckState.Manual,"App info → Battery / Power → No restrictions. MIUI/HyperOS can have an additional policy even when Android battery optimization is already disabled. Status cannot be read through the public Android API.",SettingsTarget.App),
-            BackgroundCheck("xiaomi_autostart","Xiaomi Background autostart",CheckState.Manual,"Settings → Apps → Permissions → Background autostart → enable Personal VPN. Some versions show Background autostart in App info. The button opens App info; menu names vary by version.",SettingsTarget.App),
-            BackgroundCheck("xiaomi_locked","Xiaomi screen-off limits",CheckState.Manual,"Battery → Additional features: set Turn off mobile data when device is locked and Clear cache when device is locked to Never. Also review Ultra battery saver. These vendor values cannot be verified here.",SettingsTarget.Battery),
-            BackgroundCheck("xiaomi_recent","Optional protection from Clear all",CheckState.Manual,"Security → Settings → Boost speed → Lock apps → Personal VPN. This protects against Clear all. Unlock it before deliberately removing its Recent Apps task to stop VPN.",SettingsTarget.App)
+            BackgroundCheck("xiaomi_battery","Xiaomi battery policy",CheckState.Manual,listOf("Open Personal VPN's App settings.","Tap Battery or Power.","Choose No restrictions."),SettingsTarget.App),
+            BackgroundCheck("xiaomi_autostart","Xiaomi Background autostart",CheckState.Manual,listOf("In Personal VPN's App settings, look for Background autostart.","If missing, open Settings → Apps → Permissions → Background autostart.","Turn Personal VPN on."),SettingsTarget.App),
+            BackgroundCheck("xiaomi_locked","Xiaomi screen-off limits",CheckState.Manual,listOf("Open Battery → Additional features.","Set Turn off mobile data when device is locked to Never, if shown.","Set Clear cache when device is locked to Never, if shown."),SettingsTarget.Battery),
+            BackgroundCheck("xiaomi_recent","Optional protection from Clear all",CheckState.Manual,listOf("Open Security → Settings → Boost speed → Lock apps.","Enable Personal VPN if you want Clear all to keep it running.","Unlock it before removing its Recent Apps task to stop VPN."),SettingsTarget.App)
         )
         if(f.samsung)rows+=listOf(
-            BackgroundCheck("samsung_sleep","Samsung sleeping apps",CheckState.Manual,"Settings → Battery (or Device care → Battery) → Background usage limits. Remove Personal VPN from Sleeping apps and Deep sleeping apps; add it to Never auto sleeping apps when available. One UI does not expose these lists through a public Android API.",SettingsTarget.Battery),
-            BackgroundCheck("samsung_battery","Samsung app battery policy",CheckState.Manual,"App info → Battery → Unrestricted. Menu wording and available Never sleeping entries vary by One UI version. Check this even if Android Doze exemption already looks ready.",SettingsTarget.App),
-            BackgroundCheck("samsung_restart","Samsung auto optimization",CheckState.Manual,"Settings → Device care → Auto optimization → Auto restart. Review Restart when needed and Restart on schedule if unexpected phone restarts interrupt VPN. This is separate from a connection stuck on Verifying; its vendor status cannot be read here.",SettingsTarget.Device),
-            BackgroundCheck("samsung_memory","Samsung memory cleanup",CheckState.Manual,"Settings → Device care → Memory → Excluded apps → add Personal VPN if available. This protects it from Device care's memory cleanup; the app cannot read the exclusion list through a public API.",SettingsTarget.Device)
+            BackgroundCheck("samsung_sleep","Samsung sleeping apps",CheckState.Manual,listOf("Open Settings → Battery → Background usage limits. Some phones show Device care → Battery first.","Remove Personal VPN from Sleeping apps and Deep sleeping apps.","Add it to Never auto sleeping apps, if available."),SettingsTarget.Battery),
+            BackgroundCheck("samsung_battery","Samsung app battery policy",CheckState.Manual,listOf("Open Personal VPN's App settings.","Tap Battery.","Choose Unrestricted."),SettingsTarget.App),
+            BackgroundCheck("samsung_restart","Samsung automatic restart",CheckState.Manual,listOf("Open Settings → Device care → Auto optimization.","Tap Auto restart.","If automatic phone restarts interrupt VPN, turn Restart when needed and Restart on schedule off."),SettingsTarget.Device),
+            BackgroundCheck("samsung_memory","Samsung memory cleanup",CheckState.Manual,listOf("Open Settings → Device care → Memory.","Tap Excluded apps.","Add Personal VPN, if available."),SettingsTarget.Device)
         )
         return rows
     }
