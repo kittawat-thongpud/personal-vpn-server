@@ -1,4 +1,33 @@
-Client 0.9.2 fixes Android App Tunnel rejecting known shared-UID connections.
+Client 0.9.3 makes Android pending connections cancellable and stops VPN when
+the app task is removed from Recent Apps.
+
+Protocol options align names/descriptions at the left. A fresh Launcher entry
+can show background reliability guidance with current Android checks, separate
+Samsung/Xiaomi manual instructions and Settings buttons. It distinguishes
+Unavailable from safe status and reads the previous own process-exit reason,
+including Android 17's documented memory-limit marker. The sheet waits while
+connection work is busy so Cancel stays accessible. Recents/notification/widget
+entries do not request startup guidance. No device settings are changed silently.
+
+Connecting, Verifying and recovery now show an enabled Cancel button, even with
+edited settings. Pending colors use a blue surface and readable light text;
+Stopping remains readable during teardown. Cancellation stops pending work,
+releases core/capture and removes the foreground notification/service. Command
+generations prevent an older Stop from interfering with a newer Connect.
+
+Home and switching to other apps retain the VPN. Removing the Personal VPN task
+stops it through the same cleanup path. Android's managed Always-on setting
+retains its existing system-policy behavior. Android 14 regression qualification
+uses real stalled HTTPS, both protocols, dirty settings, rapid command changes,
+task removal and independent physical-network HTTPS after cleanup.
+
+The shared release includes the 0.9.2 shared-UID fix and the existing Windows
+LAN/Wi-Fi recovery changes. Windows runtime, VPS and paused P2P are unchanged.
+All platform installers are built and qualified in GitHub Actions. Android
+framework qualification is configured for both API 34 and API 37; physical
+Samsung/Redmi acceptance remains separate.
+
+Previous fix baseline (0.9.2): Android App Tunnel shared-UID connections.
 
 With App rules enabled, a UID associated with several packages previously became
 an unresolved owner and was rejected even with Tunnel by default. Known shared

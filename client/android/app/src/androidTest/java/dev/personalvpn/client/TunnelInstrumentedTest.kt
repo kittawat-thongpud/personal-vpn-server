@@ -22,7 +22,7 @@ import java.net.NetworkInterface
 @RunWith(AndroidJUnit4::class)
 class TunnelInstrumentedTest {
     @Before fun enableFixtureDiagnostics() { Repository.instrumentedDiagnostics = true; Repository.instrumentedCertificate = fixture().getString("ca") }
-    @After fun disableFixtureDiagnostics() { Repository.instrumentedHealthFailure = 0; Repository.instrumentedDiagnostics = false; Repository.instrumentedCertificate = null }
+    @After fun disableFixtureDiagnostics() { Repository.instrumentedBackgroundReview=null;Repository.instrumentedConnectHold=false;Repository.instrumentedSlowHealth=false;Repository.instrumentedHealthFailure = 0; Repository.instrumentedDiagnostics = false; Repository.instrumentedCertificate = null }
     private fun fixture() = JSONObject(String(java.util.Base64.getDecoder().decode(InstrumentationRegistry.getArguments().getString("fixture")!!)))
     private val context: Context get() = ApplicationProvider.getApplicationContext()
     private fun launchHome(): ActivityScenario<MainActivity> {
@@ -31,7 +31,16 @@ class TunnelInstrumentedTest {
         // Network tests launch a separate-UID companion and widget capability.
         // A UI case must start with its own fresh Activity task, irrespective of
         // which task those integration checks left in the foreground.
-        return ActivityScenario.launch(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        val activity=ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java).setAction("dev.personalvpn.TEST_HOME").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        // Removing a task returns focus to Launcher asynchronously. Confirm the
+        // actual foreground after a fresh test Activity launch; the shell start
+        // models reopening the launcher, without bypassing any VPN assertion.
+        waitFor("Test app is foreground",15) {
+            refreshAccessibility()
+            if(device.hasObject(By.pkg(EngineConfig.APP)))true
+            else { device.executeShellCommand("am start -W -n dev.personalvpn.client/.MainActivity -a dev.personalvpn.TEST_HOME --activity-single-top");false }
+        }
+        return activity
     }
     private fun uiHierarchy(): String = runCatching {
         val output = java.io.ByteArrayOutputStream()
@@ -94,15 +103,141 @@ class TunnelInstrumentedTest {
         // label. Require health for the latest generation, not that stale label.
         return Repository.state.value.status=="Connected" && events.any { it.code=="health.verified" && it.detail.startsWith("generation=$generation;") }
     }
-    private fun probe(udp: Boolean = false): Boolean {
+    private fun probe(udp: Boolean = false,direct: Boolean = false): Boolean {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         device.executeShellCommand("am force-stop dev.personalvpn.probe")
         device.executeShellCommand("run-as dev.personalvpn.probe rm -f files/result.json")
         val ca = java.util.Base64.getEncoder().encodeToString(fixture().getString("ca").toByteArray())
-        device.executeShellCommand("am start -W -n dev.personalvpn.probe/.ProbeActivity --ez udp $udp --es ca $ca")
+        device.executeShellCommand("am start -W -n dev.personalvpn.probe/.ProbeActivity --ez udp $udp --ez direct $direct --es ca $ca")
         var result: JSONObject? = null
         waitFor("Companion network probe", 20) { val text = device.executeShellCommand("run-as dev.personalvpn.probe cat files/result.json"); result = runCatching { JSONObject(text) }.getOrNull(); result != null }
         return result!!.getBoolean("success")
+    }
+    @Suppress("DEPRECATION")
+    private fun stoppedCompletely(): Boolean {
+        val cm=context.getSystemService(android.net.ConnectivityManager::class.java)
+        val services=context.getSystemService(android.app.ActivityManager::class.java).getRunningServices(Int.MAX_VALUE)
+        return !Repository.state.value.active && captureName()==null &&
+            cm.allNetworks.none { cm.getNetworkCapabilities(it)?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)==true } &&
+            context.getSystemService(android.app.NotificationManager::class.java).activeNotifications.none { it.id==1 } &&
+            services.none { it.service.className==TunnelService::class.java.name }
+    }
+    private fun slowRequests(): Int = runCatching {
+        val cm=context.getSystemService(android.net.ConnectivityManager::class.java)
+        val network=cm.allNetworks.first { cm.getNetworkCapabilities(it)?.let { cap -> cap.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) && !cap.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) }==true }
+        val request=network.openConnection(java.net.URL("https://10.0.2.2:18445/slow-count")) as javax.net.ssl.HttpsURLConnection
+        request.sslSocketFactory=fixtureTrust(fixture().getString("ca"));request.connectTimeout=1000;request.readTimeout=1000;request.useCaches=false
+        try { request.inputStream.bufferedReader().use { it.readText().trim().toInt() } } finally { request.disconnect() }
+    }.getOrDefault(-1)
+    @Test fun protocolAlignmentAndLauncherBackgroundGuidance() {
+        val original=Repository.config.value
+        val f=fixture();val p=Profile(name="UI fixture",reality=f.getJSONObject("reality").toString(),hysteria=f.getJSONObject("hysteria").toString())
+        val config=Config(listOf(p),p.id)
+        val review=BackgroundReview(BackgroundChecks.checks(BackgroundFacts(true,false,false,false,true,true,androidx.core.content.UnusedAppRestrictionsConstants.DISABLED,false,samsung=true)),androidx.core.content.UnusedAppRestrictionsConstants.DISABLED,null)
+        Repository.instrumentedBackgroundReview=review
+        Repository.save(config)
+        try {
+            val device=UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+            launchHome().use {
+                assertFalse("Non-launcher entry must not show guidance",device.hasObject(By.textContains("Android checks are read now")))
+                clickFresh(By.desc("Choose VPN protocol"))
+                waitFor("Protocol options",10) { device.hasObject(By.text("VPN protocol")) }
+                val header=device.findObject(By.text("VPN protocol")).visibleBounds
+                val names=listOf("REALITY","Hysteria 2").map { name -> device.findObjects(By.text(name)).first { it.visibleBounds.top>header.bottom }.visibleBounds }
+                val details=listOf("TLS over TCP · streams reconnect on handover","QUIC over UDP · requires working UDP").map { device.findObject(By.text(it)).visibleBounds }
+                assertEquals(names[0].left,names[1].left);assertEquals(details[0].left,details[1].left);assertEquals(names[0].left,details[0].left)
+                device.takeScreenshot(java.io.File(context.filesDir,"protocol-options.png"))
+                device.pressBack()
+                openSettingsDestination("Background reliability")
+                waitFor("Manual Samsung guidance",15) { device.hasObject(By.textContains("Android checks are read now")) }
+                device.takeScreenshot(java.io.File(context.filesDir,"background-guidance.png"))
+                assertEquals(config,Repository.config.value);assertFalse(Repository.state.value.active);assertNull(captureName())
+            }
+            ActivityScenario.launch<MainActivity>(Intent(context,MainActivity::class.java).setAction(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)).use {
+                waitFor("Launcher opens guidance",15) { refreshAccessibility();device.hasObject(By.textContains("Android checks are read now")) }
+            }
+            val actual=kotlinx.coroutines.runBlocking { BackgroundChecks.read(context) }
+            for(target in SettingsTarget.entries) {
+                val candidates=BackgroundChecks.intents(context,target,actual.unusedStatus)
+                assertTrue("Every settings action has a supported fallback",candidates.any { it.resolveActivity(context.packageManager)!=null })
+                assertTrue(candidates.none { it.action==android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS })
+            }
+            assertFalse(Repository.state.value.active);assertNull(captureName())
+        } finally { Repository.instrumentedBackgroundReview=null;Repository.save(original) }
+    }
+    @Test fun cancelPendingConnectionAndTaskRemovalReleaseCapture() {
+        assertNull(VpnService.prepare(context))
+        val original=Repository.config.value
+        val f=fixture();val profile=Profile(name="Cancellation fixture",reality=f.getJSONObject("reality").toString(),hysteria=f.getJSONObject("hysteria").toString())
+        try {
+            for(protocol in listOf("Hysteria 2","REALITY")) {
+                val config=Config(listOf(profile),profile.id,protocol=protocol)
+                for(phase in listOf("Connecting","Verifying")) {
+                    Repository.save(config)
+                    Repository.instrumentedConnectHold=phase=="Connecting";Repository.instrumentedSlowHealth=phase=="Verifying"
+                    launchHome().use {
+                        clickFresh(By.text("Connect"))
+                        waitFor("Reach cancellable $protocol $phase",30) { Repository.state.value.status==phase && Repository.state.value.active }
+                        if(phase=="Verifying")waitFor("Actual HTTPS request is stalled",15) { slowRequests()>0 }
+                        // Dirty settings must never turn a pending Cancel into
+                        // Apply & reconnect, including before appliedConfig exists.
+                        Repository.save(config.copy(ipv6Dns=true))
+                        refreshAccessibility()
+                        val device=UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+                        waitFor("Cancel stays enabled",10) { refreshAccessibility();device.findObject(By.text("Cancel"))?.isEnabled==true }
+                        if(protocol=="Hysteria 2" && phase=="Verifying")device.takeScreenshot(java.io.File(context.filesDir,"home-pending.png"))
+                        val started=android.os.SystemClock.elapsedRealtime()
+                        clickFresh(By.text("Cancel"))
+                        waitFor("Cancel releases core/TUN/notification/service",5) { stoppedCompletely() }
+                        assertTrue("Cancellation waited for the health timeout",android.os.SystemClock.elapsedRealtime()-started<5000)
+                        if(phase=="Verifying")waitFor("Cancelled native request left the server",5) { slowRequests()==0 }
+                        assertTrue("Ordinary app HTTPS works after Cancel",probe(direct=true))
+                        println("Cancellation verified: $protocol $phase; dirty settings; capture/service/notification gone; physical HTTPS works")
+                    }
+                    Repository.instrumentedConnectHold=false;Repository.instrumentedSlowHealth=false
+                }
+                for(phase in listOf("Connecting","Verifying","Connected")) {
+                    Repository.save(config)
+                    Repository.instrumentedConnectHold=phase=="Connecting";Repository.instrumentedSlowHealth=phase=="Verifying"
+                    launchHome().use { activity ->
+                        clickFresh(By.text("Connect"))
+                        waitFor("Task removal fixture $phase",30) { Repository.state.value.status==phase }
+                        if(phase=="Verifying")waitFor("Stalled request before removing task",15) { slowRequests()>0 }
+                        if(phase=="Connected") {
+                            val before=captureName()
+                            UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).pressHome()
+                            assertTrue("Home must retain a usable VPN for other apps",probe())
+                            assertEquals(before,captureName())
+                        }
+                        // Exercise framework task removal, not a direct call to
+                        // onTaskRemoved. The physical swipe is OEM acceptance.
+                        activity.onActivity { it.finishAndRemoveTask() }
+                        waitFor("Removing task stops $protocol $phase",5) { stoppedCompletely() }
+                        if(phase=="Verifying")waitFor("Task removal cancelled native HTTPS",5) { slowRequests()==0 }
+                        assertTrue("Physical HTTPS after task removal",probe(direct=true))
+                        println("Task removal verified: $protocol $phase; foreground service/capture/notification gone")
+                    }
+                    Repository.instrumentedConnectHold=false;Repository.instrumentedSlowHealth=false
+                }
+                Repository.save(config)
+                launchHome().use {
+                    TunnelService.command(context,TunnelService.CONNECT)
+                    TunnelService.command(context,TunnelService.DISCONNECT)
+                    TunnelService.command(context,TunnelService.CONNECT)
+                    waitFor("Latest command wins rapid Connect/Cancel/Connect",45) { Repository.state.value.status=="Connected" }
+                    assertTrue(probe())
+                    TunnelService.command(context,TunnelService.DISCONNECT)
+                    waitFor("Rapid sequence cleanup",5) { stoppedCompletely() }
+                }
+            }
+        } finally {
+            Repository.instrumentedConnectHold=false;Repository.instrumentedSlowHealth=false
+            if(Repository.state.value.active) {
+                TunnelService.command(context,TunnelService.DISCONNECT)
+                waitFor("Cancellation test cleanup",15) { stoppedCompletely() }
+            }
+            Repository.save(original)
+        }
     }
     @Test fun bulkInstalledAppSelectionAndExceptionEditing() {
         val original = Repository.config.value

@@ -43,6 +43,7 @@ class TunnelService : VpnService() {
     @Volatile private var ownerNotices = OwnerNotices()
     @Volatile private var desired = false
     @Volatile private var destroyed = false
+    private val commandGeneration = java.util.concurrent.atomic.AtomicLong()
     @Volatile private var networkEpoch = NetworkEpoch()
     @Volatile private var physicalNetworks = emptyList<PhysicalNetwork>()
     private val wake = Channel<Unit>(Channel.CONFLATED)
@@ -68,16 +69,8 @@ class TunnelService : VpnService() {
         val notification = Surfaces.notification(this)
         if (Build.VERSION.SDK_INT >= 34) startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED) else startForeground(1, notification)
         if (intent?.action == DISCONNECT) {
-            if (isAlwaysOn) {
-                Repository.log("WARN", "disconnect.managed", "Always-on is managed in Android VPN settings.")
-                mutateState { it.copy(detail = "Always-on is managed in Android VPN settings.") }; Surfaces.refresh(this); return START_STICKY
-            }
-            desired = false; cancelPending(); worker?.cancel()
-            worker = scope.launch { lifecycle.withLock {
-                closeCore(); closeCapture(); update("Disconnected", false, false)
-                withContext(Dispatchers.Main) { if (!desired) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(startId) } }
-            } }
-            return START_NOT_STICKY
+            stopTunnel("user",startId)
+            return if(isAlwaysOn)START_STICKY else START_NOT_STICKY
         }
         // Sticky starts and ordinary Connect may also recover a completed worker.
         if (desired && worker?.isActive == true && intent?.action != RECONNECT && Repository.state.value.status != "Error") return START_STICKY
@@ -85,8 +78,11 @@ class TunnelService : VpnService() {
             baseUp = 0; baseDown = 0; trafficEpoch++
             mutateState { it.copy(exitIp = "—", appliedConfig = "", uploadRate = 0, downloadRate = 0, uploaded = 0, downloaded = 0, history = emptyList()) }
         }
+        val command=commandGeneration.incrementAndGet()
         desired = true; cancelPending(); worker?.cancel()
+        update("Connecting",true,true,"Preparing VPN connection")
         worker = scope.launch { lifecycle.withLock {
+            if(command!=commandGeneration.get() || !ownsSession || !desired) return@withLock
             val config = Repository.config.value
             appRulesEnabled = config.apps.mode != Action.Disabled
             ownerNotices = OwnerNotices()
@@ -113,6 +109,38 @@ class TunnelService : VpnService() {
         } }
         if (ticker?.isActive != true) ticker = scope.launch { streamTraffic() }
         return START_STICKY
+    }
+    private fun stopTunnel(source: String,startId: Int? = null, revoked: Boolean = false) {
+        if (isAlwaysOn && !revoked) {
+            Repository.log("WARN","disconnect.managed","Always-on is managed in Android VPN settings.")
+            mutateState { it.copy(detail="Always-on is managed in Android VPN settings.") };Surfaces.refresh(this);return
+        }
+        if(!desired && Repository.state.value.status=="Disconnecting")return
+        val command=commandGeneration.incrementAndGet()
+        desired=false
+        update("Disconnecting",true,true,"Stopping VPN and releasing capture")
+        Repository.log("INFO","backend.stop_requested","source=$source; cancelling pending connection work")
+        cancelPending();worker?.cancel()
+        worker=scope.launch { lifecycle.withLock {
+            if(command!=commandGeneration.get() || !ownsSession)return@withLock
+            withContext(NonCancellable) {
+                try { closeCore() } finally { closeCapture() }
+                if(command==commandGeneration.get() && !desired) {
+                    update("Disconnected",false,false)
+                    Repository.log("INFO","backend.stopped","Core and capture released; foreground service stopping.")
+                    withContext(Dispatchers.Main) {
+                        if(command==commandGeneration.get() && !desired) {
+                            stopForeground(STOP_FOREGROUND_REMOVE)
+                            if(startId==null)stopSelf()else stopSelf(startId)
+                        }
+                    }
+                }
+            }
+        } }
+    }
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        stopTunnel("task_removed")
+        super.onTaskRemoved(rootIntent)
     }
     private fun backoff(attempt: Int) = minOf(30000L, 1000L shl minOf(attempt, 5)) + (0..400).random()
     private fun checkEpoch(expected: NetworkEpoch) {
@@ -145,6 +173,7 @@ class TunnelService : VpnService() {
                         val pending = async(start = CoroutineStart.LAZY) {
                             if (core == null) {
                                 update(if (attempt == 0) "Connecting" else "Reconnecting", true, true)
+                                if(Repository.instrumentedDiagnostics && Repository.instrumentedConnectHold)awaitCancellation()
                                 val resolved = resolveEndpoint(physical.network, config.selectedProfile().endpoint(config.protocol))
                                 checkEpoch(epoch)
                                 val content = EngineConfig.compile(config, resolved.hostAddress!!, Repository.instrumentedCertificate != null)
@@ -184,8 +213,8 @@ class TunnelService : VpnService() {
     }
     private data class HealthTarget(val label: String, val address: String)
     private fun healthTargets(): List<HealthTarget> = if (Repository.instrumentedCertificate != null) listOf(
-        HealthTarget("primary", "https://fixture.local:18445/" + if (Repository.instrumentedHealthFailure > 0) "fail" else "ip"),
-        HealthTarget("secondary", "https://fixture.local:18445/" + if (Repository.instrumentedHealthFailure > 1) "fail" else "ip")
+        HealthTarget("primary", "https://fixture.local:18445/" + if (Repository.instrumentedSlowHealth) "slow" else if (Repository.instrumentedHealthFailure > 0) "fail" else "ip"),
+        HealthTarget("secondary", "https://fixture.local:18445/" + if (Repository.instrumentedSlowHealth) "slow" else if (Repository.instrumentedHealthFailure > 1) "fail" else "ip")
     ) else listOf(HealthTarget("primary", "https://api.ipify.org/"), HealthTarget("secondary", "https://checkip.amazonaws.com/"))
     private suspend fun verifyNetwork(config: Config, epoch: NetworkEpoch, healthy: () -> Unit) {
         val failures = HealthFailures()
@@ -212,6 +241,7 @@ class TunnelService : VpnService() {
                     break
                 } catch (cancel: CancellationException) { throw cancel }
                 catch (error: Exception) {
+                    currentCoroutineContext().ensureActive();checkEpoch(epoch)
                     lastFailure = error
                     val reason = Repository.cause(error)
                     Repository.log("WARN", "health.target_failed", "${target.label}; generation=${epoch.generation}; reason=$reason")
@@ -350,12 +380,15 @@ class TunnelService : VpnService() {
         return entries.toString()
     }
     override fun onRevoke() {
-        desired = false; cancelPending(); worker?.cancel()
-        Repository.log("WARN", "vpn.revoked", "Android revoked this VPN session")
-        scope.launch { lifecycle.withLock { closeCore(); closeCapture(); update("Disconnected", false, false); stopSelf() } }
+        // Android may deliver revocation off the main thread. Serialize it with
+        // command entry points and use the same generation-guarded teardown.
+        scope.launch(Dispatchers.Main.immediate) {
+            Repository.log("WARN", "vpn.revoked", "Android revoked this VPN session")
+            stopTunnel("revoked",revoked=true)
+        }
     }
     override fun onDestroy() {
-        destroyed = true; desired = false; cancelPending(); worker?.cancel(); ticker?.cancel()
+        commandGeneration.incrementAndGet();destroyed = true; desired = false; cancelPending(); worker?.cancel(); ticker?.cancel()
         runCatching { cm.unregisterNetworkCallback(monitor) }
         scope.launch(start = CoroutineStart.UNDISPATCHED) { lifecycle.withLock { closeCore(); closeCapture(); update("Disconnected", false, false) }; scope.cancel() }
         super.onDestroy()

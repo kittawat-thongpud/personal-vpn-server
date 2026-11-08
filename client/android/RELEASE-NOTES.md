@@ -1,17 +1,15 @@
-Android 0.1.0 preview: signed TUN client for Android 10+ (arm64-v8a and x86_64).
+Android follows the shared Client release version, alongside Windows x86/x64.
+Use the [shared release notes](../RELEASE-NOTES.md) for current changes and
+[Client validation](../VALIDATION.md) for the qualified source, Actions results
+and remaining physical-device acceptance.
 
-REALITY / Vision and Hysteria 2 use imported vpnctl exports or share links.
-Profile add/edit/delete, country flags and protocol selector are built in.
-App package exceptions win over Site domain/IP/CIDR exceptions; Tunnel, Bypass,
-Block and Rules off are supported. Full-leaf certificate pins are preserved.
+Client 0.9.3 includes Android pending-connection Cancel, readable pending colors,
+task-removal cleanup, left-aligned protocol choices and Launcher background
+reliability guidance. The signed APK supports Android 10+ on arm64-v8a and
+x86_64, retains the existing signing certificate and can update an existing
+installation. Builds and qualification run in GitHub Actions.
 
-A foreground VpnService owns capture, socket protection, serialized connection
-commands, HTTPS verification and network recovery. Transport retries retain the
-TUN descriptor; no automatic Direct fallback. Notification shows live tunnel
-rates and totals with Reconnect/Disconnect, plus launcher widget and Quick
-Settings tile. Backend logs are bounded RAM-only with Clear/Export.
-
-The APK is built/signed in GitHub Actions. No user credentials are included.
-This is a preview: physical Redmi / China-network and Xiaomi power-management
-tests remain distinct from CI emulator results. Android allows one VPN per
-user/profile, so separate Tailscale/ZeroTier VPN apps cannot run alongside it.
+Framework tests pass on Android 14 and 17; physical Samsung/Redmi background and
+China-network behavior remain separate acceptance checks. Android permits one
+VPN per user/profile, so separate ZeroTier/Tailscale VPN apps cannot run alongside
+Personal VPN in that same profile.

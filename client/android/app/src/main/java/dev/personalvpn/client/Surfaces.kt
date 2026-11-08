@@ -31,7 +31,7 @@ object Surfaces {
         val detail = "$profile · $protocol\n$rates\nSent ${bytes(state.uploaded)} · Received ${bytes(state.downloaded)}"
         return Notification.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_notification).setColor(Color.rgb(20, 198, 162)).setContentTitle("Personal VPN · ${state.status}").setContentText(rates).setStyle(Notification.BigTextStyle().bigText(detail)).setContentIntent(activity(context)).setOnlyAlertOnce(true).setOngoing(true).setCategory(Notification.CATEGORY_SERVICE).setVisibility(Notification.VISIBILITY_PRIVATE).setShowWhen(false)
             .addAction(Notification.Action.Builder(null, "Reconnect", command(context, TunnelService.RECONNECT, 1)).build())
-            .addAction(Notification.Action.Builder(null, "Disconnect", command(context, TunnelService.DISCONNECT, 2)).build()).build()
+            .addAction(Notification.Action.Builder(null, if(state.active&&state.busy) "Cancel" else "Disconnect", command(context, TunnelService.DISCONNECT, 2)).build()).build()
     }
     fun rate(context: Context) { try { context.getSystemService(NotificationManager::class.java).notify(1, notification(context)) } catch (_: SecurityException) { /* Permission guidance is in the app; no event spam. */ } }
     fun refresh(context: Context) {
@@ -49,7 +49,7 @@ class VpnWidget : AppWidgetProvider() {
             val profile = Repository.config.value.profiles.find { it.id == Repository.config.value.selected }?.name.orEmpty()
             val views = RemoteViews(context.packageName, R.layout.vpn_widget)
             views.setTextViewText(R.id.widget_status, "${state.status} · $profile")
-            views.setTextViewText(R.id.widget_connect, if (state.active) "Disconnect" else "Connect")
+            views.setTextViewText(R.id.widget_connect, connectionAction(state).label)
             // Activity PendingIntent preserves Android's VPN-consent flow and
             // the background activity rules on Android 14.
             views.setOnClickPendingIntent(R.id.widget_connect, Surfaces.activity(context, if (state.active) TunnelService.DISCONNECT else TunnelService.CONNECT, 3))

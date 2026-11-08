@@ -23,6 +23,16 @@ Profiles can be added, edited or deleted without reinstalling the APK. Server
 credentials stay in app-private AES-GCM storage with an Android Keystore key;
 backups are disabled. No profile, VPS password or user logs are bundled.
 
+Protocol names and descriptions share a left edge in the selection sheet.
+Settings → Background reliability checks Android power/background/data/notification
+restrictions and shows Samsung or Xiaomi manual steps with Settings buttons.
+Fresh Launcher entries can show this review; Recents/notification/widget entries
+do not request it. Busy connections keep Cancel accessible before showing advice.
+The review distinguishes measured, manual and unavailable status and shows the
+last process-exit reason/time when Android provides it. See
+[Background reliability](BACKGROUND-RELIABILITY.md) for coverage and sources.
+Settings → Android VPN settings opens the OS Always-on/lockdown controls.
+
 App rules select installed package IDs. Explicit App exceptions precede Site
 exceptions. Tunnel, Bypass and Block defaults and Rules off are supported;
 Rules off retains the list but ignores that category. Block is rejected inside
@@ -57,8 +67,17 @@ ellipsize; edit to see the full list. Up to 500 effective targets can be saved
 across groups. Existing single-target rules are retained and Site rules keep
 their insertion order. Explicit App rules still take precedence.
 
-The foreground VPN service continues when the app UI is hidden. All entry points
-share its supervised connection controller. It uses physical-network snapshots,
+Connecting, Verifying and recovery show an enabled Cancel action, including when
+settings have changed. Cancel stops pending DNS/HTTPS and transport work, closes
+capture and removes the foreground notification/service. Stopping is shown until
+that cleanup finishes. Pending buttons use light text on blue, with explicit
+content colors rather than faded disabled text.
+
+The foreground VPN service continues when Home is pressed or another app is
+opened. Removing Personal VPN's task from Recent Apps stops the VPN through the
+same cleanup path as Cancel/Disconnect. Android's system-managed Always-on VPN
+must be turned off in Android VPN settings when that policy prevents stopping.
+All entry points share its supervised connection controller. It uses physical-network snapshots,
 cancels DNS/HTTPS work from old network generations, protects outbound sockets
 from recursion, and keeps the TUN descriptor across transport retries. Network
 restoration wakes recovery automatically; unexpected worker completion is retried.
@@ -78,7 +97,7 @@ do not block byte-counter reads. Reconnecting/Waiting/Error clear the verified
 exit-IP display so an old result cannot imply the new network is connected.
 
 Notification: quiet updates targeting once a second, tunnel upload/download rates,
-session totals, Reconnect and Disconnect. Android may throttle or hide notifications;
+session totals, Reconnect and Cancel/Disconnect. Android may throttle or hide notifications;
 Android 14 permits dismissing many ongoing notifications. Hiding the card does
 not disconnect the VPN. Launcher widget: profile/status and connect/disconnect.
 Add Personal VPN to Quick Settings for the VPN tile. First-time consent uses

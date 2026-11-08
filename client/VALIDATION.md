@@ -1,4 +1,47 @@
-# Client 0.9.2 Android shared-UID routing - 2026-11-08
+# Client 0.9.3 Android cancellation and background guidance - 2026-11-08
+
+Qualified source `a64b83d29e98fa17e9d302270765b6cacec10115`;
+[complete publication run](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/42488257325)
+passed every required platform and publication gate. [Client 0.9.3](https://github.com/kittawat-thongpud/personal-vpn-server/releases/tag/client-v0.9.3)
+is stable, non-draft and Latest at publication, with 12 assets. All 11 checksum
+entries and eight manifest entries match GitHub uploaded-byte digests. The
+downloaded Android APK and three verification files also match. The APK retains
+the pinned signing certificate and both arm64-v8a / x86_64 native ABIs. The tag
+and immutable base/release branches match the qualified source; the 0.9.2 source
+is preserved in its legacy branch.
+
+- Android unit tests, lint, native qualification, signing and ABI checks pass.
+  Android 14 / API 34 reports `OK (7 tests)` in 234.327 seconds; Android 17 /
+  API 37 reports `OK (7 tests)` in 248.601 seconds, using the official API 37.0
+  system-image package and checking the actual running SDK version.
+- Both protocols pass actual Home-button Cancel during Connecting and stalled
+  native HTTPS Verifying, including dirty settings. Core/capture, VPN network,
+  notification and service disappear within five seconds. A separate app can
+  use physical-network HTTPS afterward; the server observes cancellation of the
+  stalled request. Task removal in Connecting/Verifying/Connected and rapid
+  Connect/Cancel/Connect pass too. Ordinary Home retains a usable VPN.
+- Pending button gradients/content meet 4.5:1 text contrast in unit checks.
+  Protocol text edges, Launcher-only startup guidance and Settings fallbacks
+  pass instrumented checks. API 34/37 pending, protocol and guidance screenshots
+  were reviewed. Samsung manual advice is exercised with synthetic settings;
+  this is not a test on Samsung hardware or its private Settings screens.
+- Existing shared-UID/App-over-Site policies, DNS/HTTPS/UDP capture, health-target
+  fallback, automatic recovery, Wi-Fi/cellular handover, encrypted storage,
+  grouped site and bulk-selection assertions pass on both Android versions.
+- Windows x86/x64 pass native Proxy/TUN capture and restoration, route/recovery,
+  physical flags, persistent adapter, tray/UI and upgrade/reinstall gates. Their
+  application/native runtime is unchanged from the existing qualified baseline.
+
+All builds ran in Actions. The physical Galaxy A56 5G / One UI 9 / Android 17
+and Redmi still require acceptance for Recent Apps swipes, OEM background policy
+and the China-to-VPS path. The reported Hysteria Verifying hang is not attributed
+to battery settings without backend evidence. No workstation/VPS network changes
+or phone settings changes were made; P2P remains paused. See [Android lifecycle](android/LIFECYCLE.md)
+and [Background reliability](android/BACKGROUND-RELIABILITY.md).
+
+---
+
+## Client 0.9.2 Android shared-UID routing - 2026-11-08
 
 Qualified source `498ca03d64fec25fe2dbb991569cca5517c48f54`;
 [complete publication run](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/42451577781)
