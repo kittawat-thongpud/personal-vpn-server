@@ -36,7 +36,11 @@ exception attached to either package and conflicting Block/Bypass exceptions
 in both edit orders. These companion APKs are not included in the release.
 Unit tests cover missing owners, conflict precedence and notice rate limits.
 
-Build and qualification status is recorded in [Client validation](../VALIDATION.md).
+All qualification gates passed at source `498ca03d64fec25fe2dbb991569cca5517c48f54`
+in [the complete 0.9.2 run](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/42451577781).
+Android 14 instrumentation reports `OK (5 tests)` in 145.3 seconds, including
+both real shared-UID protocol cases and both conflict orders. Build and asset
+verification details are recorded in [Client validation](../VALIDATION.md).
 Physical Redmi YouTube login/data loading still requires acceptance after the
 signed APK update. Keep the current rules to compare the same configuration.
 
