@@ -27,11 +27,12 @@ Protocol names and descriptions share a left edge in the selection sheet.
 Settings → Background reliability checks Android power/background/data/notification
 restrictions and shows Samsung or Xiaomi manual steps with Settings buttons.
 Fresh Launcher entries show only detected restrictions; configured, unknown and
-manual-only settings do not trigger a pop-up. Recents/notification/widget entries
-do not request it. Busy connections keep Cancel accessible before showing advice.
-Instructions use short numbered steps. Optional device checks are collapsed in
-Settings and can be marked I've set this; that choice persists without changing
-VPN settings. Configured/unavailable readings and last-exit evidence are collapsed.
+manual-only settings do not trigger recurring pop-ups. Device-specific manual
+tips appear once, remembered automatically with no confirmation required; app
+updates keep that flag. Recents/notification/widget entries do not request it.
+Busy connections keep Cancel accessible before showing advice. Instructions use
+short numbered steps. Optional device checks remain available in Settings.
+Configured/unavailable readings and last-exit evidence are collapsed.
 See
 [Background reliability](BACKGROUND-RELIABILITY.md) for coverage and sources.
 Settings → Android VPN settings opens the OS Always-on/lockdown controls.

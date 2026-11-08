@@ -41,7 +41,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -57,9 +56,10 @@ class MainActivity : ComponentActivity() {
     private var backgroundReview by mutableStateOf<BackgroundReview?>(null)
     private var backgroundGuideRequested by mutableStateOf(false)
     private var backgroundGuideAutomatic by mutableStateOf(false)
-    private var confirmedBackground by mutableStateOf(emptySet<String>())
+    private var manualGuidanceSeen by mutableStateOf(false)
+    private var manualGuidanceRequested by mutableStateOf(false)
     private val backgroundPreferences by lazy { BackgroundPreferences(applicationContext) }
-    private val backgroundPreferenceWrites=kotlinx.coroutines.sync.Mutex()
+    private var manualSave: kotlinx.coroutines.Job? = null
     private var backgroundRead: kotlinx.coroutines.Job? = null
     private val systemSettings = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { reviewBackground() }
     private val consent = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result -> if (result.resultCode == RESULT_OK) startTunnel() else message = "VPN permission was not granted. The connection was not started." }
@@ -75,7 +75,7 @@ class MainActivity : ComponentActivity() {
     private val exportLogs = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> if (uri != null) lifecycleScope.launch(Dispatchers.IO) { runCatching { val logs = JSONArray(Repository.logs.value.map { JSONObject().put("time", it.time).put("level", it.level).put("code", it.code).put("result", it.detail) }); contentResolver.openOutputStream(uri)?.use { it.write(logs.toString(2).toByteArray()) } }.onFailure { withContext(Dispatchers.Main) { message = "Log export failed." } } } }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        confirmedBackground=backgroundPreferences.confirmed()
+        manualGuidanceSeen=backgroundPreferences.manualShown()
         enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(0xFF0D1627.toInt()), navigationBarStyle = SystemBarStyle.dark(0xFF0D1627.toInt()))
         setContent { Client() }
         if (savedInstanceState == null) window.decorView.post { handle(intent) }
@@ -91,23 +91,21 @@ class MainActivity : ComponentActivity() {
             catch(_: Exception) { BackgroundReview(BackgroundChecks.checks(BackgroundFacts()),0,null) }
             backgroundReview=review
             when {
-                show -> { backgroundGuideAutomatic=false;backgroundGuideRequested=true }
-                fromLauncher -> { backgroundGuideAutomatic=true;backgroundGuideRequested=review.shouldPrompt }
-                backgroundGuideAutomatic && !review.shouldPrompt -> backgroundGuideRequested=false
+                show -> { backgroundGuideAutomatic=false;manualGuidanceRequested=false;backgroundGuideRequested=true }
+                fromLauncher -> {
+                    backgroundGuideAutomatic=true
+                    manualGuidanceRequested=review.showManualOnLaunch(manualGuidanceSeen)
+                    backgroundGuideRequested=review.shouldPrompt || manualGuidanceRequested
+                }
+                backgroundGuideAutomatic && !review.shouldPrompt && !manualGuidanceRequested -> backgroundGuideRequested=false
             }
         }
     }
-    private fun confirmBackground(id: String,confirmed: Boolean) {
-        if(backgroundReview?.checks?.any { it.id==id && it.state==CheckState.Manual }!=true)return
-        lifecycleScope.launch {
-            backgroundPreferenceWrites.withLock {
-                val saved=withContext(Dispatchers.IO) {
-                    val current=backgroundPreferences.confirmed()
-                    val next=if(confirmed)current+id else current-id
-                    if(backgroundPreferences.save(next))next else null
-                }
-                if(saved!=null)confirmedBackground=saved else message="Could not save this choice. Try again."
-            }
+    private fun manualGuidanceShown() {
+        if(manualGuidanceSeen || manualSave?.isActive==true)return
+        manualSave=lifecycleScope.launch {
+            if(withContext(Dispatchers.IO) { backgroundPreferences.saveManualShown(true) })manualGuidanceSeen=true
+            else message="Could not remember this hint. It may appear again."
         }
     }
     internal fun backgroundReviewReadyForTest(): Boolean {
@@ -225,7 +223,7 @@ class MainActivity : ComponentActivity() {
             if (pasted) PasteDialog({ pasted = false }) { text -> try { addProfiles(Imports.parse(listOf(text))); pasted = false } catch (e: Exception) { message = e.message ?: "Invalid profile." } }
             editing?.let { profile -> ProfileDialog(profile, { editing = null }) { changed -> val current = Repository.config.value; save(current.copy(profiles = current.profiles.filterNot { it.id == changed.id } + changed, selected = current.selected ?: changed.id)); editing = null } }
             if(backgroundGuideRequested && !state.busy)backgroundReview?.let { review ->
-                BackgroundGuidance(review,backgroundGuideAutomatic,confirmedBackground,{backgroundGuideRequested=false},{reviewBackground()},::openBackgroundSetting,::confirmBackground)
+                BackgroundGuidance(review,backgroundGuideAutomatic,manualGuidanceRequested,{backgroundGuideRequested=false},{reviewBackground()},::openBackgroundSetting,::manualGuidanceShown)
             }
         }
     }

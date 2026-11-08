@@ -49,10 +49,12 @@ class BackgroundChecksTest {
         val review=BackgroundReview(rows,Unused.DISABLED,null)
         assertTrue(review.shouldPrompt)
         assertEquals(listOf("saver"),review.detectedIssues.map { it.id })
-        assertEquals(4,review.pendingManual(emptySet()).size)
-        assertEquals(3,review.pendingManual(setOf("samsung_sleep")).size)
+        assertEquals(4,review.manualChecks.size)
+        assertTrue(review.showManualOnLaunch(false))
+        assertFalse(review.showManualOnLaunch(true))
         assertEquals(listOf("saver"),review.detectedIssues.map { it.id })
         assertFalse(review.copy(checks=BackgroundChecks.checks(ready().copy(notifications=null,samsung=true))).shouldPrompt)
+        assertFalse(BackgroundReview(BackgroundChecks.checks(ready()),Unused.DISABLED,null).showManualOnLaunch(false))
     }
     @Test fun everyCheckHasShortOrderedActionSteps() {
         val rows=BackgroundChecks.checks(ready().copy(samsung=true,xiaomi=true,developer=true))

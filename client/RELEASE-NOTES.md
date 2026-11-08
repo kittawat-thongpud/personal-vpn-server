@@ -1,13 +1,15 @@
 Client 0.9.4 shows automatic Android background guidance only for restrictions
-that are actually detected. Configured, unavailable and manufacturer-only manual
-checks, and old process-exit records, no longer trigger or fill startup pop-ups.
+that are actually detected. Manufacturer-specific manual tips appear once, with
+display remembered automatically: no confirmation is needed, and app updates do
+not reset this flag. Configured/unavailable checks and old exit records do not
+trigger or fill recurring startup pop-ups.
 Returning from Settings or checking again dismisses the automatic sheet when its
 detected issues are fixed.
 
-Instructions are short numbered steps. The optional device checklist is collapsed
-in Settings → Background reliability; I've set this saves a manual confirmation
-across app restarts, and Review again restores it. This is separate from VPN
-configuration and never hides a newly detected restriction. Configured items,
+Instructions are short numbered steps. After the one-time display, the optional
+device checklist stays available in Settings → Background reliability. Remembering
+display is separate from VPN configuration and never hides a detected restriction.
+Configured items,
 unavailable readings and last-exit evidence remain available in collapsed sections.
 
 Previous baseline (0.9.3): Android pending connections are cancellable and VPN stops when

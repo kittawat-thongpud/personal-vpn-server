@@ -25,7 +25,8 @@ internal data class PreviousExit(val time: Long,val reason: String,val unexpecte
 internal data class BackgroundReview(val checks: List<BackgroundCheck>,val unusedStatus: Int,val previousExit: PreviousExit?) {
     val detectedIssues get()=checks.filter { it.state==CheckState.Attention }
     val shouldPrompt get()=detectedIssues.isNotEmpty()
-    fun pendingManual(confirmed: Set<String>)=checks.filter { it.state==CheckState.Manual && it.id !in confirmed }
+    val manualChecks get()=checks.filter { it.state==CheckState.Manual }
+    fun showManualOnLaunch(alreadyShown: Boolean)=!alreadyShown && manualChecks.isNotEmpty()
 }
 internal data class BackgroundFacts(val batteryExempt: Boolean?=null,val restricted: Boolean?=null,val saver: Boolean?=null,val dataRestricted: Boolean?=null,val notifications: Boolean?=null,val channel: Boolean?=null,val unused: Int=Unused.ERROR,val dontKeepActivities: Boolean?=null,val developer: Boolean=false,val xiaomi: Boolean=false,val samsung: Boolean=false)
 

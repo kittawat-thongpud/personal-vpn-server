@@ -1,18 +1,21 @@
 # Background reliability checks
 
 Client 0.9.4 automatically opens a review on a fresh Launcher entry only when a
-restriction is actually detected. The automatic sheet contains only those issues.
-Configured, unavailable and manufacturer-only manual checks, and previous process
-exit records, do not trigger a pop-up. A Recent Apps/history entry, notification
+restriction is actually detected. Manufacturer-only manual tips are a one-time
+exception: they appear once and display is remembered automatically, without a
+confirmation button. The flag persists across app updates. Recurring automatic
+sheets contain only measured issues. Configured/unavailable checks and previous
+process exit records do not trigger a pop-up. A Recent Apps/history entry, notification
 or widget command does not request this review. Pending connection work defers
 the sheet so Cancel remains reachable. Fixing the detected issues and returning
 from Settings or checking again dismisses the automatic review.
 
 Settings → Background reliability keeps optional device checks, configured
 settings, unavailable readings and last-exit evidence in separate collapsed
-sections. Each actionable check uses two or three numbered steps. I've set this
-persists the user's manual acknowledgement; Review again reverses it. These
-choices never relabel a measured restriction as safe or change VPN configuration.
+sections. Each actionable check uses two or three numbered steps. Opening manual
+tips explicitly also counts as the one-time display. Nothing is marked shown
+while busy work defers the sheet. Remembering display never claims a manual
+setting is configured, relabels a measured restriction as safe or changes VPN configuration.
 All reads run away from the UI thread; the compatibility status request has a
 two-second bound.
 
@@ -72,7 +75,7 @@ and recovery; it does not silently switch protocol or fall back to Direct.
 
 Framework qualification runs on Android 14 (API 34) and Android 17 (API 37.0
 official system-image package). UI cases check Launcher filtering, explicit
-manual review, saved acknowledgement across Activity recreation, numbered
+manual review, one-time display across Activity recreation without confirmation, numbered
 instructions and dismissal after a simulated restriction is resolved, without
 changing device settings. Existing cancellation/capture/handovers remain enabled.
 Physical Samsung and Redmi behavior still requires acceptance. Source/status is

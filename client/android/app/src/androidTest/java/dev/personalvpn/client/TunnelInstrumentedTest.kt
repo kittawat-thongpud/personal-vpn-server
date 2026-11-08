@@ -131,8 +131,8 @@ class TunnelInstrumentedTest {
     }.getOrDefault(-1)
     @Test fun protocolAlignmentAndLauncherBackgroundGuidance() {
         val original=Repository.config.value
-        val preferences=BackgroundPreferences(context);val previousConfirmed=preferences.confirmed()
-        assertTrue(preferences.save(emptySet()))
+        val preferences=BackgroundPreferences(context);val previousShown=preferences.manualShown()
+        assertTrue(preferences.saveManualShown(false))
         val f=fixture();val p=Profile(name="UI fixture",reality=f.getJSONObject("reality").toString(),hysteria=f.getJSONObject("hysteria").toString())
         val config=Config(listOf(p),p.id)
         val review=BackgroundReview(BackgroundChecks.checks(BackgroundFacts(true,false,false,false,true,true,androidx.core.content.UnusedAppRestrictionsConstants.DISABLED,false,samsung=true)),androidx.core.content.UnusedAppRestrictionsConstants.DISABLED,null)
@@ -156,13 +156,8 @@ class TunnelInstrumentedTest {
                 clickFresh(By.text("Device checklist (4)"))
                 waitFor("Numbered Samsung instructions",10) { device.hasObject(By.text("Samsung sleeping apps")) && device.hasObject(By.text("1.")) }
                 device.takeScreenshot(java.io.File(context.filesDir,"background-guidance.png"))
-                val confirm=By.desc("Confirm Samsung sleeping apps is set")
-                waitFor("Manual confirmation is reachable",15) {
-                    refreshAccessibility()
-                    if(device.hasObject(confirm))true else { device.findObject(By.scrollable(true))?.scroll(androidx.test.uiautomator.Direction.DOWN,.4f);false }
-                }
-                clickFresh(confirm)
-                waitFor("Manual choice persisted",10) { "samsung_sleep" in BackgroundPreferences(context).confirmed() }
+                assertFalse("Manual hints need no confirmation",device.hasObject(By.text("I've set this")))
+                waitFor("Viewing manual tips is remembered automatically",10) { BackgroundPreferences(context).manualShown() }
                 assertEquals(config,Repository.config.value);assertFalse(Repository.state.value.active);assertNull(captureName())
             }
             fun launcher()=ActivityScenario.launch<MainActivity>(Intent(context,MainActivity::class.java).setAction(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
@@ -174,7 +169,20 @@ class TunnelInstrumentedTest {
                 awaitReview(activity)
                 assertFalse("Configured + manual settings must not open a popup",device.hasObject(By.text("Only detected issues are shown automatically.")))
                 openSettingsDestination("Background reliability")
-                waitFor("Saved manual choice is retained after reopening",10) { device.hasObject(By.text("Device checklist (3)")) }
+                waitFor("Manual tips stay available only on request",10) { device.hasObject(By.text("Device checklist (4)")) }
+            }
+            assertTrue(preferences.saveManualShown(false))
+            launcher().use { activity ->
+                awaitReview(activity)
+                waitFor("First Launcher shows one-time device tips",10) { device.hasObject(By.text("One-time device tips. You won't be asked to confirm them.")) && device.hasObject(By.text("Samsung sleeping apps")) }
+                waitFor("One-time display saved without confirmation",10) { BackgroundPreferences(context).manualShown() }
+                assertFalse(device.hasObject(By.text("I've set this")))
+                device.takeScreenshot(java.io.File(context.filesDir,"background-once.png"))
+            }
+            launcher().use { activity ->
+                awaitReview(activity)
+                assertFalse("One-time manual tips never repeat on Launcher",device.hasObject(By.text("One-time device tips. You won't be asked to confirm them.")))
+                assertFalse(device.hasObject(By.text("Only detected issues are shown automatically.")))
             }
             val issues=BackgroundChecks.checks(BackgroundFacts(true,false,true,false,true,true,androidx.core.content.UnusedAppRestrictionsConstants.DISABLED,false,samsung=true)).map { if(it.id=="notifications")it.copy(state=CheckState.Unknown)else it }
             Repository.instrumentedBackgroundReview=review.copy(checks=issues)
@@ -201,7 +209,7 @@ class TunnelInstrumentedTest {
                 assertTrue(candidates.none { it.action==android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS })
             }
             assertFalse(Repository.state.value.active);assertNull(captureName())
-        } finally { Repository.instrumentedBackgroundReview=null;assertTrue(preferences.save(previousConfirmed));Repository.save(original) }
+        } finally { Repository.instrumentedBackgroundReview=null;assertTrue(preferences.saveManualShown(previousShown));Repository.save(original) }
     }
     @Test fun cancelPendingConnectionAndTaskRemovalReleaseCapture() {
         assertNull(VpnService.prepare(context))

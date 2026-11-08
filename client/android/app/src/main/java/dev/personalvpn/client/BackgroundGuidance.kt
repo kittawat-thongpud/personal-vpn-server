@@ -4,42 +4,38 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.text.DateFormat
 import java.util.Date
 
-@Composable internal fun BackgroundGuidance(review: BackgroundReview,automatic: Boolean,confirmed: Set<String>,dismiss: ()->Unit,refresh: ()->Unit,open: (SettingsTarget)->Unit,confirm: (String,Boolean)->Unit) {
+@Composable internal fun BackgroundGuidance(review: BackgroundReview,automatic: Boolean,manualOnce: Boolean,dismiss: ()->Unit,refresh: ()->Unit,open: (SettingsTarget)->Unit,manualShown: ()->Unit) {
     var manual by remember { mutableStateOf(false) }
     var checked by remember { mutableStateOf(false) }
     var unavailable by remember { mutableStateOf(false) }
     var exitDetail by remember { mutableStateOf(false) }
     VpnSheet("Background reliability",dismiss) {
-        Text("Only detected issues are shown automatically.",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(if(automatic && manualOnce)"One-time device tips. You won't be asked to confirm them." else "Only detected issues are shown automatically.",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
         if(review.detectedIssues.isEmpty())Text("No detected issues.",color=MaterialTheme.colorScheme.secondary)
         review.detectedIssues.forEach { BackgroundCheckCard(it,open) }
-        if(!automatic) {
-            val pending=review.pendingManual(confirmed)
-            if(pending.isNotEmpty()) {
-                TextButton(onClick={manual=!manual},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text(if(manual)"Hide device checklist" else "Device checklist (${pending.size})") }
-                if(manual) {
-                    Text("Optional checks. Menu names may vary. Tap I've set this after checking.",fontSize=12.sp)
-                    pending.forEach { row -> BackgroundCheckCard(row,open) {
-                        TextButton(onClick={confirm(row.id,true)},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).semantics { contentDescription="Confirm ${row.title} is set" }) { Text("I've set this") }
-                    } }
-                }
+        val manualRows=review.manualChecks
+        if(manualRows.isNotEmpty() && (!automatic || manualOnce)) {
+            if(!automatic)TextButton(onClick={manual=!manual},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text(if(manual)"Hide device checklist" else "Device checklist (${manualRows.size})") }
+            if(manual || (automatic && manualOnce)) {
+                LaunchedEffect(Unit) { manualShown() }
+                Text("Optional checks. Menu names may vary.",fontSize=12.sp)
+                manualRows.forEach { BackgroundCheckCard(it,open) }
             }
-            val configured=review.checks.filter { it.state==CheckState.Good || (it.state==CheckState.Manual && it.id in confirmed) }
+        }
+        if(!automatic) {
+            val configured=review.checks.filter { it.state==CheckState.Good }
             if(configured.isNotEmpty()) {
                 TextButton(onClick={checked=!checked},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text(if(checked)"Hide configured settings" else "Configured settings (${configured.size})") }
                 if(checked)configured.forEach { row ->
                     Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
                         Text(row.title,fontWeight=FontWeight.SemiBold)
-                        Text(if(row.state==CheckState.Manual)"Confirmed by you" else "Configured",fontSize=12.sp,color=MaterialTheme.colorScheme.secondary)
-                        if(row.state==CheckState.Manual)TextButton(onClick={confirm(row.id,false)},modifier=Modifier.heightIn(min=48.dp)) { Text("Review again") }
+                        Text("Configured",fontSize=12.sp,color=MaterialTheme.colorScheme.secondary)
                     } }
                 }
             }
@@ -60,11 +56,11 @@ import java.util.Date
             }
         }
         OutlinedButton(onClick=refresh,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Check again") }
-        Button(onClick=dismiss,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Done") }
+        Button(onClick=dismiss,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Close") }
     }
 }
 
-@Composable private fun BackgroundCheckCard(row: BackgroundCheck,open: (SettingsTarget)->Unit,extra: (@Composable ()->Unit)? = null) {
+@Composable private fun BackgroundCheckCard(row: BackgroundCheck,open: (SettingsTarget)->Unit) {
     Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
         Text(row.title,fontWeight=FontWeight.SemiBold)
         row.steps.forEachIndexed { index,step ->
@@ -74,6 +70,5 @@ import java.util.Date
             }
         }
         OutlinedButton(onClick={open(row.target)},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text(if(row.target==SettingsTarget.App)"Open app settings" else "Open settings") }
-        extra?.invoke()
     } }
 }
