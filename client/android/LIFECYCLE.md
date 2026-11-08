@@ -18,6 +18,8 @@ DNS/network waits and native health probes, joins the existing transport cleanup
 closes capture, removes notification 1, and stops the foreground service. The
 cleanup section completes even if the stopping coroutine is cancelled by a new
 command or service destruction. Backend events record stop request and result.
+Command generations are atomic, and Android's potentially off-main revocation
+callback is serialized with command entry points before using the same stop path.
 
 Removing the app task invokes Android Service.onTaskRemoved, using the same
 stop path. Home/backgrounding retains VPN so other apps can use it. The service
@@ -40,6 +42,11 @@ The emulator establishes framework behavior; the physical Redmi's Recent Apps
 swipe and manufacturer lifecycle policy require on-device acceptance. Android
 may keep an idle cached application process; that is distinct from an active VPN
 or foreground service. Build status is recorded in [Client validation](../VALIDATION.md).
+The first candidate's Android 14 run verified actual Hysteria cancellation and
+task removal in Connecting/Verifying, then failed its next test Activity
+foreground check: the hierarchy showed Launcher. Foreground readiness is now
+confirmed when tests reopen a removed task; every cleanup/traffic assertion is
+retained. No physical Samsung success is inferred from that partial result.
 
 References:
 

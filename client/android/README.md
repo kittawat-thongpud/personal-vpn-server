@@ -23,6 +23,16 @@ Profiles can be added, edited or deleted without reinstalling the APK. Server
 credentials stay in app-private AES-GCM storage with an Android Keystore key;
 backups are disabled. No profile, VPS password or user logs are bundled.
 
+Protocol names and descriptions share a left edge in the selection sheet.
+Settings → Background reliability checks Android power/background/data/notification
+restrictions and shows Samsung or Xiaomi manual steps with Settings buttons.
+Fresh Launcher entries can show this review; Recents/notification/widget entries
+do not request it. Busy connections keep Cancel accessible before showing advice.
+The review distinguishes measured, manual and unavailable status and shows the
+last process-exit reason/time when Android provides it. See
+[Background reliability](BACKGROUND-RELIABILITY.md) for coverage and sources.
+Settings → Android VPN settings opens the OS Always-on/lockdown controls.
+
 App rules select installed package IDs. Explicit App exceptions precede Site
 exceptions. Tunnel, Bypass and Block defaults and Rules off are supported;
 Rules off retains the list but ignores that category. Block is rejected inside

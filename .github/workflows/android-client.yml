@@ -151,6 +151,10 @@ jobs:
           path: client-distribution/android-app
           key: client-dist-${{ github.run_id }}-${{ github.sha }}-android-app
   emulator:
+    strategy:
+      fail-fast: false
+      matrix:
+        api: ['34', '37.0']
     permissions:
       contents: write
     if: ${{ !inputs.native_only }}
@@ -185,7 +189,9 @@ jobs:
           # These are job-local duplicate inputs, not release assets or caches.
           test "$(realpath client-distribution/android-app)" = "$GITHUB_WORKSPACE/client-distribution/android-app"
           rm -rf -- "$GITHUB_WORKSPACE/client-distribution/android-app"
-      - name: Verify real Android 14 capture and application policy
+      - name: Verify Android capture, cancellation and application policy
+        env:
+          ANDROID_TEST_API: ${{ matrix.api }}
         run: bash client/android/test-emulator.sh
       - name: Stage synthetic UI previews for review
         if: ${{ always() && !cancelled() && inputs.stage_previews }}
@@ -195,12 +201,12 @@ jobs:
           shopt -s nullglob
           previews=(client/android/app/build/emulator/*.png)
           if [ "${#previews[@]}" -eq 0 ]; then exit 0; fi
-          gh release create "qa-android-${{ github.run_id }}" --draft --target "${{ github.sha }}" --title "Android $CLIENT_VERSION UI review" --notes "Synthetic emulator diagnostics only; no production profiles. See the run checks for qualification status. Stable Client release is unchanged." "${previews[@]}"
+          gh release create "qa-android-${{ github.run_id }}-api${{ matrix.api }}" --draft --target "${{ github.sha }}" --title "Android $CLIENT_VERSION API ${{ matrix.api }} UI review" --notes "Synthetic emulator diagnostics only; no production profiles. See the run checks for qualification status. Stable Client release is unchanged." "${previews[@]}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         continue-on-error: true
         with:
-          name: android-emulator-results
+          name: android-emulator-results-api${{ matrix.api }}
           path: |
             client/android/app/build/emulator/
             ${{ runner.temp }}/fixture.log

@@ -28,6 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -47,10 +49,14 @@ import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private val latency by lazy { ServerLatency(applicationContext) }
-    override fun onStart() { super.onStart(); latency.start() }
+    override fun onStart() { super.onStart(); latency.start();if(backgroundGuideRequested)reviewBackground() }
     override fun onStop() { latency.stop(); super.onStop() }
     private var message by mutableStateOf<String?>(null)
     private var connectAfterNotification = false
+    private var backgroundReview by mutableStateOf<BackgroundReview?>(null)
+    private var backgroundGuideRequested by mutableStateOf(false)
+    private var backgroundRead: kotlinx.coroutines.Job? = null
+    private val systemSettings = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { reviewBackground() }
     private val consent = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result -> if (result.resultCode == RESULT_OK) startTunnel() else message = "VPN permission was not granted. The connection was not started." }
     private val notifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { if (connectAfterNotification) { connectAfterNotification = false; consentThenConnect() } }
     private val importFiles = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -67,8 +73,27 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(0xFF0D1627.toInt()), navigationBarStyle = SystemBarStyle.dark(0xFF0D1627.toInt()))
         setContent { Client() }
         if (savedInstanceState == null) window.decorView.post { handle(intent) }
+        if(savedInstanceState==null && BackgroundChecks.isLauncherOpen(intent.action,intent.categories,intent.flags))reviewBackground(fromLauncher=true)
     }
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handle(intent) }
+    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handle(intent);if(BackgroundChecks.isLauncherOpen(intent.action,intent.categories,intent.flags))reviewBackground(fromLauncher=true) }
+    private fun reviewBackground(show: Boolean = false,fromLauncher: Boolean = false) {
+        backgroundRead?.cancel()
+        backgroundRead=lifecycleScope.launch {
+            val review=try {
+                if(Repository.instrumentedDiagnostics)Repository.instrumentedBackgroundReview?:BackgroundChecks.read(this@MainActivity) else BackgroundChecks.read(this@MainActivity)
+            } catch(cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+            catch(_: Exception) { BackgroundReview(BackgroundChecks.checks(BackgroundFacts()),0,null) }
+            backgroundReview=review
+            if(show || (fromLauncher && review.shouldPrompt))backgroundGuideRequested=true
+        }
+    }
+    private fun openBackgroundSetting(target: SettingsTarget) {
+        val intents=BackgroundChecks.intents(this,target,backgroundReview?.unusedStatus?:0)
+        for(candidate in intents) {
+            try { if(candidate.resolveActivity(packageManager)==null)continue;systemSettings.launch(candidate);return } catch(_:android.content.ActivityNotFoundException) { } catch(_:SecurityException) { }
+        }
+        message="This device did not expose a matching settings page. Open Android Settings and follow the displayed steps."
+    }
     // Isolated instrumentation checks enlarged text without changing device settings.
     internal fun previewFontScaleForTest(scale: Float, applied: () -> Unit) {
         check(Repository.instrumentedDiagnostics)
@@ -124,13 +149,15 @@ class MainActivity : ComponentActivity() {
                                         ConnectionAction.Connect,ConnectionAction.Apply -> connect()
                                         ConnectionAction.Stopping -> Unit
                                     }
-                                })
+                                },managedSettings={openBackgroundSetting(SettingsTarget.Vpn)})
                                 "Settings" -> Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     Text("CONNECTION & ROUTING",fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
                                     SettingsRow("VPN configure", "Server, credentials and protocol settings") { page = "Profiles" }
                                     SettingsRow("App Tunnel", "Installed app rules · App exceptions win") { page = "App Tunnel" }
                                     SettingsRow("Site Tunnel", "Domain, IP and CIDR rules") { page = "Site Tunnel" }
                                     SettingsRow("Backend logs", "Connection and recovery events") { page = "Backend logs" }
+                                    SettingsRow("Background reliability", "Battery, background access and last process exit") { reviewBackground(show=true) }
+                                    SettingsRow("Android VPN settings", "Always-on and block connections without VPN") { openBackgroundSetting(SettingsTarget.Vpn) }
                                     if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) SettingsRow("Enable notifications", "Required to see current speed in the notification drawer") { notifications.launch(Manifest.permission.POST_NOTIFICATIONS) }
                                     Row(verticalAlignment = Alignment.CenterVertically) { Text("IPv6 DNS", Modifier.weight(1f)); Switch(config.ipv6Dns, { save(config.copy(ipv6Dns = it)) }) }
                                     Text("Enable IPv6 DNS only with working VPS IPv6.\nAndroid allows one VPN per user/profile.\nPersonal VPN ${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = Color(0xFF9CAEC8))
@@ -170,13 +197,16 @@ class MainActivity : ComponentActivity() {
             confirmProtocol?.let { protocol -> VpnSheet("Switch to $protocol?",{confirmProtocol=null}) { Text("The current connection will reconnect with the selected protocol.");Button(onClick={save(config.copy(protocol=protocol));confirmProtocol=null;startTunnel()},modifier=Modifier.fillMaxWidth()) { Text("Confirm") } } }
             if (pasted) PasteDialog({ pasted = false }) { text -> try { addProfiles(Imports.parse(listOf(text))); pasted = false } catch (e: Exception) { message = e.message ?: "Invalid profile." } }
             editing?.let { profile -> ProfileDialog(profile, { editing = null }) { changed -> val current = Repository.config.value; save(current.copy(profiles = current.profiles.filterNot { it.id == changed.id } + changed, selected = current.selected ?: changed.id)); editing = null } }
+            if(backgroundGuideRequested && !state.busy)backgroundReview?.let { review ->
+                BackgroundGuidance(review,{backgroundGuideRequested=false},{reviewBackground()},::openBackgroundSetting)
+            }
         }
     }
 
 
 }
 
-@Composable private fun Home(config: Config,state: TunnelState,dirty: Boolean,latencies: Map<String,LatencyResult>,refresh: (LatencyTarget)->Unit,profiles: ()->Unit,protocol: (String)->Unit,connect: ()->Unit) {
+@Composable private fun Home(config: Config,state: TunnelState,dirty: Boolean,latencies: Map<String,LatencyResult>,refresh: (LatencyTarget)->Unit,profiles: ()->Unit,protocol: (String)->Unit,connect: ()->Unit,managedSettings: ()->Unit) {
     var expanded by remember { mutableStateOf(false) }
     var latencyInfo by remember { mutableStateOf(false) }
     val profile=config.profiles.find { it.id==config.selected }
@@ -191,11 +221,12 @@ class MainActivity : ComponentActivity() {
                     TextButton(onClick={latencyInfo=true},enabled=target!=null,modifier=Modifier.heightIn(min=48.dp)) { Text(measured.label,fontSize=12.sp) };Text("›",fontSize=24.sp)
                 }
             }
-            OutlinedButton(onClick={expanded=true},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text(config.protocol,Modifier.weight(1f));Text("⌄") }
+            OutlinedButton(onClick={expanded=true},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).semantics { contentDescription="Choose VPN protocol" }) { Text(config.protocol,Modifier.weight(1f));Text("⌄") }
             Text(state.status,fontSize=23.sp,color=when { state.status=="Connected"->MaterialTheme.colorScheme.primary;state.active->Color(0xFFAFD5FF);else->MaterialTheme.colorScheme.onSurface })
             Box(if(compact)Modifier.fillMaxWidth().height(166.dp)else Modifier.weight(1f).fillMaxWidth()) { PowerButton(state,dirty,connect) }
             Text("Exit IP: ${state.exitIp}",color=MaterialTheme.colorScheme.primary,fontSize=13.sp)
             Text(if(dirty) "Settings changed · reconnect to apply" else state.detail.ifBlank { "Android TUN" },fontSize=11.sp,maxLines=2,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            if(state.detail.startsWith("Always-on"))OutlinedButton(onClick=managedSettings,modifier=Modifier.heightIn(min=48.dp)) { Text("Open Android VPN settings") }
             Card(Modifier.fillMaxWidth(),elevation=CardDefaults.cardElevation(defaultElevation=2.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFF30465F))) {
                 Column(Modifier.padding(horizontal=14.dp,vertical=10.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                     Text("TUNNEL TRAFFIC",fontSize=10.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -205,7 +236,7 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    if(expanded) VpnSheet("VPN protocol",{expanded=false}) { listOf("REALITY","Hysteria 2").forEach { name -> OutlinedButton(onClick={expanded=false;protocol(name)},enabled=if(name=="REALITY")profile?.reality!=null else profile?.hysteria!=null,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Column { Text(name);Text(if(name=="REALITY") "TLS over TCP · streams reconnect on handover" else "QUIC over UDP · requires working UDP",fontSize=11.sp) } } } }
+    if(expanded) VpnSheet("VPN protocol",{expanded=false}) { listOf("REALITY","Hysteria 2").forEach { name -> OutlinedButton(onClick={expanded=false;protocol(name)},enabled=if(name=="REALITY")profile?.reality!=null else profile?.hysteria!=null,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Column(Modifier.fillMaxWidth(),horizontalAlignment=Alignment.Start) { Text(name,Modifier.fillMaxWidth(),textAlign=androidx.compose.ui.text.style.TextAlign.Start);Text(if(name=="REALITY") "TLS over TCP · streams reconnect on handover" else "QUIC over UDP · requires working UDP",Modifier.fillMaxWidth(),fontSize=11.sp,textAlign=androidx.compose.ui.text.style.TextAlign.Start) } } } }
     if(latencyInfo) VpnSheet("Server latency",{latencyInfo=false}) { Text(measured.detail);Button(onClick={target?.let(refresh);latencyInfo=false},enabled=target!=null,modifier=Modifier.fillMaxWidth()) { Text("Refresh latency") } }
 }
 @Composable private fun SettingsRow(title: String,detail: String,click: ()->Unit) {

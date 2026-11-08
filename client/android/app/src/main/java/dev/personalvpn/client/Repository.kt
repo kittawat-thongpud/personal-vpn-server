@@ -68,6 +68,7 @@ object Repository {
     @Volatile internal var instrumentedHealthFailure = 0
     @Volatile internal var instrumentedConnectHold = false
     @Volatile internal var instrumentedSlowHealth = false
+    @Volatile internal var instrumentedBackgroundReview: BackgroundReview? = null
     lateinit var context: Context; private lateinit var store: SecureStore
     private val settings = MutableStateFlow(Config()); val config = settings.asStateFlow()
     val state = MutableStateFlow(TunnelState())
