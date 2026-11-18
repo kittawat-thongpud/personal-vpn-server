@@ -60,7 +60,7 @@ public sealed partial class MainWindow
         connect.Click += async (_, _) => { try { await ToggleConnection(); } catch (Exception error) { ShowError(error); } };
         connect.Name = "ConnectButton"; connect.Width = connect.Height = 172; connect.FontSize = 18; connect.Margin = new Thickness(0); connect.Background = Color("#14C7A0"); connect.Foreground = Color("#052D28");
         connect.Template = (ControlTemplate)XamlReader.Parse("""
-          <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="Button">
+          <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="Button">
             <Grid>
               <Ellipse Margin="5" Fill="{TemplateBinding BorderBrush}" Opacity="0.18"><Ellipse.Effect><DropShadowEffect Color="{Binding BorderBrush.Color, RelativeSource={RelativeSource TemplatedParent}}" BlurRadius="18" ShadowDepth="0" Opacity="0.7"/></Ellipse.Effect></Ellipse>
               <Ellipse Margin="9,12,9,6" Fill="#040C17"><Ellipse.Effect><DropShadowEffect BlurRadius="13" ShadowDepth="7" Opacity="0.65"/></Ellipse.Effect></Ellipse>
