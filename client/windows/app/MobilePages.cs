@@ -45,7 +45,9 @@ public sealed partial class MainWindow
         var arrow = Text("›", 24, "#86B8FF"); arrow.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(arrow, 3); card.Children.Add(arrow);
         var server = Action("", () => Navigate("Profiles")); server.Content = card; server.HorizontalContentAlignment = HorizontalAlignment.Stretch; server.Name = "ServerCard"; server.Height = compact ? 60 : 75; if (compact) server.Padding = new Thickness(12,6,12,6); server.Margin = new Thickness(0, 0, 0, 8); Put(body, server, 0);
         var capture = Stack(); capture.Children.Add(CaptureSelector());
-        var protocol = Combo(new[] { "Hysteria 2", "REALITY" }, settings.Protocol, async value =>
+        var protocols = new[] { "REALITY", "Hysteria 2" }.Where(name => name == settings.Protocol ||
+            (name == "REALITY" ? profile?.Xray != null : profile?.Hysteria != null));
+        var protocol = Combo(protocols, settings.Protocol, async value =>
         {
             try { await SelectProtocol(value); }
             catch (Exception error) { ShowError(error); }
@@ -80,6 +82,8 @@ public sealed partial class MainWindow
     private async Task SelectProtocol(string selected)
     {
         if (selected == settings.Protocol || PrimaryConnectionAction() is ConnectionAction.Cancel or ConnectionAction.Stopping || quitInProgress) return;
+        var profile = settings.Profiles.FirstOrDefault(item => item.Id == settings.SelectedId);
+        if (selected == "REALITY" ? profile?.Xray == null : profile?.Hysteria == null) return;
         bool reconnect = backend.Running;
         if (reconnect && MessageBox.Show(this, "Reconnect using " + selected + "?", "Switch protocol", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
         settings.Protocol = selected;

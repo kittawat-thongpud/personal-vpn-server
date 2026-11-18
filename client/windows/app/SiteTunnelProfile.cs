@@ -36,7 +36,7 @@ internal static class SiteTunnelProfile
     internal static TunnelPolicy Import(Stream stream)
     {
         byte[] bytes = new byte[MaxBytes + 1];
-        int size = stream.ReadAtLeast(bytes, bytes.Length, throwIfEndOfStream: false);
+        int size = stream.ReadAtLeast(bytes, bytes.Length, false);
         if (size > MaxBytes) throw new InvalidDataException("Site Tunnel file exceeds 512 KiB.");
         try
         {

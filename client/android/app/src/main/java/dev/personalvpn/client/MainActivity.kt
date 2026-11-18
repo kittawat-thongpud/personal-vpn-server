@@ -259,7 +259,10 @@ class MainActivity : ComponentActivity() {
                     text = { Text("${policy.rules.size} site groups · ${modeLabel(policy.mode)}\n\nReplace the current Site Tunnel rules?") },
                     dismissButton = { TextButton(onClick = { siteImportPreview = null }) { Text("Cancel") } },
                     confirmButton = { TextButton(onClick = {
-                        if (save(Repository.config.value.copy(sites = policy))) siteImportPreview = null
+                        if (save(Repository.config.value.copy(sites = policy))) {
+                            siteImportPreview = null
+                            page = "Site Tunnel"
+                        }
                     }) { Text("Replace rules") } }
                 )
             }
@@ -295,7 +298,7 @@ class MainActivity : ComponentActivity() {
             Text(state.status,fontSize=23.sp,color=when { state.status=="Connected"->MaterialTheme.colorScheme.primary;state.active->Color(0xFFAFD5FF);else->MaterialTheme.colorScheme.onSurface })
             Box(if(compact)Modifier.fillMaxWidth().height(166.dp)else Modifier.weight(1f).fillMaxWidth()) { PowerButton(state,dirty,connect) }
             Text("Exit IP: ${state.exitIp}",color=MaterialTheme.colorScheme.primary,fontSize=13.sp)
-            Text(if(dirty) "Settings changed · reconnect to apply" else state.detail.ifBlank { "Android TUN" },fontSize=11.sp,maxLines=2,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(if(connectionAction(state,dirty)==ConnectionAction.Apply) "Settings changed · reconnect to apply" else state.detail.ifBlank { "Android TUN" },fontSize=11.sp,maxLines=2,color=MaterialTheme.colorScheme.onSurfaceVariant)
             if(state.detail.startsWith("Always-on"))OutlinedButton(onClick=managedSettings,modifier=Modifier.heightIn(min=48.dp)) { Text("Open Android VPN settings") }
             Card(Modifier.fillMaxWidth(),elevation=CardDefaults.cardElevation(defaultElevation=2.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFF30465F))) {
                 Column(Modifier.padding(horizontal=14.dp,vertical=10.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
