@@ -85,6 +85,24 @@ internal static partial class Tests
             Assert(AdapterService.CurrentId() == persistentId, "TUN replaced the persistent device.");
             checks.Add("persistent Wintun adapter, authenticated frontend, captured DNS/HTTPS and suspended Windows proxy verified");
             int baseline = await Curl(); Assert(baseline == 0, "External process baseline failed: exit=" + baseline + "; " + lastCurlError + "; " + backend.NativeTunDiagnostic);
+            Progress("network.recheck");
+            int routerBefore = backend.RouterPidForTest;
+            var history = backend.Log.Snapshot();
+            int stopsBefore = history.Count(entry => entry.Event == "backend.tun_stopped");
+            backend.SignalNetworkChangeForTest();
+            var recheckDeadline = Stopwatch.StartNew();
+            while (true)
+            {
+                var events = backend.Log.Snapshot().Skip(history.Length).ToArray();
+                int recheck = Array.FindIndex(events, entry => entry.Event == "backend.tun_recheck");
+                if (recheck >= 0 && events.Skip(recheck + 1).Any(entry => entry.Event == "backend.health_ok")) break;
+                Assert(recheckDeadline.Elapsed < TimeSpan.FromSeconds(22), "Network change did not trigger a fresh TUN health check.");
+                await Task.Delay(200);
+            }
+            Assert(backend.State == "Connected" && backend.RouterPidForTest == routerBefore &&
+                backend.Log.Snapshot().Count(entry => entry.Event == "backend.tun_stopped") == stopsBefore &&
+                await Curl() == 0, "A healthy TUN session was interrupted by a network change.");
+            checks.Add("physical network change re-verifies real HTTPS without restarting a healthy TUN session");
             Assert((await Dns.GetHostAddressesAsync("www.google.com")).All(x => x.AddressFamily == AddressFamily.InterNetwork), "IPv4-only DNS still advertises AAAA addresses.");
             Assert(await Curl("https://www.google.com/generate_204") == 0, "Default external curl failed Google HTTPS without a forced address family: " + lastCurlError);
             checks.Add("IPv4 DNS default suppresses unusable AAAA; external default curl reaches Google without -4");

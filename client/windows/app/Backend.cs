@@ -147,7 +147,8 @@ public sealed class Backend : IAsyncDisposable
     private CancellationTokenSource? cycle;
     private Task? worker;
     private long generation;
-    private string networkSignature = NetworkSignature();
+    private string networkSignature = "";
+    private bool tunHealthPending;
     private readonly Timer networkDebounce;
     private string state = "Disconnected", detail = "Ready", exit = "—";
     private Settings? active;
@@ -176,16 +177,24 @@ public sealed class Backend : IAsyncDisposable
     }
     private void OnNetworkChange(object? sender, EventArgs args) => ScheduleNetworkCheck();
     private void OnAvailabilityChange(object? sender, NetworkAvailabilityEventArgs args) => ScheduleNetworkCheck();
-    private static string NetworkSignature()
+    private static string NetworkSignature(bool tun)
     {
         try
         {
-            return PhysicalNetwork.Signature() + "|" + string.Join("|", NetworkInterface.GetAllNetworkInterfaces()
-        .Where(x => !x.Name.StartsWith("PersonalVPN", StringComparison.Ordinal))
-        .OrderBy(x => x.Id).Select(x => x.Id + ":" + x.OperationalStatus + ":" +
-            string.Join(",", x.GetIPProperties().UnicastAddresses.Select(a => a.Address + "/" + a.PrefixLength).OrderBy(a => a)) + ":" +
-            string.Join(",", x.GetIPProperties().GatewayAddresses.Select(a => a.Address.ToString()).OrderBy(a => a)) + ":" +
-            string.Join(",", x.GetIPProperties().DnsAddresses.Select(a => a.ToString()).OrderBy(a => a))));
+            var interfaces = NetworkInterface.GetAllNetworkInterfaces().Where(nic => tun
+                ? PhysicalNetwork.IsUnderlay(nic)
+                : !nic.Name.StartsWith("PersonalVPN", StringComparison.Ordinal));
+            var links = interfaces.OrderBy(nic => nic.Id).Select(nic =>
+            {
+                var properties = nic.GetIPProperties();
+                return nic.Id + ":" + nic.OperationalStatus + ":" +
+                    string.Join(",", properties.UnicastAddresses.Select(a => a.Address + "/" + a.PrefixLength).OrderBy(a => a)) + ":" +
+                    string.Join(",", properties.GatewayAddresses.Select(a => a.Address.ToString()).OrderBy(a => a)) + ":" +
+                    string.Join(",", properties.DnsAddresses.Select(a => a.ToString()).OrderBy(a => a));
+            });
+            // Include physical route preference changes, but exclude the capture
+            // adapter and other VPNs from the TUN snapshot.
+            return PhysicalNetwork.Signature() + "|" + string.Join("|", links);
         }
         catch (Exception error) when (error is NetworkInformationException or Win32Exception) { return ""; }
     }
@@ -193,14 +202,25 @@ public sealed class Backend : IAsyncDisposable
     {
         lock (gate)
         {
-            string observed = NetworkSignature();
-            if (observed.Length == 0) { ScheduleNetworkCheck(); return; }
-            if (observed == networkSignature) return;
-            networkSignature = observed;
             if (session == null) return;
-            generation++;
-            cycle?.Cancel();
+            ObserveNetwork(NetworkSignature(active?.CaptureMode == "TUN"));
         }
+    }
+    // Called under gate. A transient failure to read the interface table leaves
+    // the previous snapshot in place for the next poll.
+    private void ObserveNetwork(string observed)
+    {
+        if (observed.Length == 0 || observed == networkSignature) return;
+        bool hasBaseline = networkSignature.Length != 0;
+        networkSignature = observed;
+        if (!hasBaseline) return;
+        if (active?.CaptureMode == "TUN")
+        {
+            tunHealthPending = true;
+            return;
+        }
+        generation++;
+        cycle?.Cancel();
         Log.Add("WARN", "backend.network_changed", "Network address / availability changed; discard old health result and re-verify.");
     }
     private void SetState(string value, string reason, long? expected = null)
@@ -226,6 +246,8 @@ public sealed class Backend : IAsyncDisposable
             lock (gate)
             {
                 active = settings.Snapshot(); session = new CancellationTokenSource(); generation++;
+                networkSignature = NetworkSignature(active.CaptureMode == "TUN");
+                tunHealthPending = false;
                 var token = session.Token;
                 var snapshot = active.Snapshot();
                 state = "Connecting"; detail = settings.CaptureMode == "TUN" ? "Starting TUN; authentication, adapter and capture checks required." : "Starting tunnel and selecting Personal VPN system proxy."; exit = "—";
@@ -488,11 +510,20 @@ public sealed class Backend : IAsyncDisposable
             using var healthHandler = new SocketsHttpHandler { Proxy = new WebProxy("socks5://127.0.0.1:" + health), UseProxy = true, ConnectTimeout = TimeSpan.FromSeconds(8), PooledConnectionLifetime = TimeSpan.Zero };
             using var client = new HttpClient(healthHandler) { Timeout = TimeSpan.FromSeconds(10) };
             using var tunHealth = new HttpClient(new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(8), PooledConnectionLifetime = TimeSpan.Zero }) { Timeout = TimeSpan.FromSeconds(12) };
-            int misses = 0, checks = 0;
+            int misses = 0;
             while (true)
             {
                 token.ThrowIfCancellationRequested();
                 EnsureAlive(owned);
+                if (tun)
+                {
+                    lock (gate)
+                    {
+                        if (tunHealthPending && adapterLease != null)
+                            Log.Add("INFO", "backend.tun_recheck", "Physical network changed. Verifying HTTPS through the existing tunnel.");
+                        tunHealthPending = false;
+                    }
+                }
                 try
                 {
                     string observed = await Health(client, token);
@@ -526,7 +557,7 @@ public sealed class Backend : IAsyncDisposable
                         ? "Verified " + (tun ? "TUN " : "HTTPS ") + "exit " + observed + " · " + settings.Protocol
                         : "Tunnel works, but another app selected a different Windows proxy. Use proxy to select Personal VPN again.", expected);
                     lock (gate) { if (generation == expected) exit = observed; }
-                    misses = 0; checks++;
+                    misses = 0;
                     Log.Add("INFO", "backend.health_ok", "Authenticated end-to-end check passed. Exit: " + observed);
                 }
                 catch (Exception error) when (error is HttpRequestException || error is TaskCanceledException || error is System.Text.Json.JsonException || error is InvalidDataException)
@@ -545,6 +576,13 @@ public sealed class Backend : IAsyncDisposable
                     {
                         lock (gate) captureStatus = WindowsProxy.Describe(WindowsProxy.Read());
                         if (State != "Proxy conflict") SetState("Proxy conflict", "Windows proxy changed outside Personal VPN. Use proxy to reclaim it; disable automatic proxy selection in the competing app if it keeps changing.", expected);
+                    }
+                    // Coalesce bursts and allow the network to settle before a
+                    // fresh probe. Only the existing health failure threshold
+                    // (or a dead core or guard) can tear down active capture.
+                    if (tun && misses == 0 && second >= 4)
+                    {
+                        lock (gate) { if (tunHealthPending) break; }
                     }
                 }
             }
@@ -646,6 +684,15 @@ public sealed class Backend : IAsyncDisposable
         lock (gate) { var process = cores.LastOrDefault()?.Process ?? throw new InvalidOperationException("No owned core."); process.Kill(); }
     }
     internal int RouterPidForTest { get { lock (gate) return cores.Last().Process.Id; } }
+    internal void SignalNetworkChangeForTest()
+    {
+        lock (gate)
+        {
+            if (session == null || active?.CaptureMode != "TUN" || state != "Connected")
+                throw new InvalidOperationException("Network change fixture requires connected TUN capture.");
+            ObserveNetwork(networkSignature + "|fixture");
+        }
+    }
     public async ValueTask DisposeAsync()
     {
         NetworkChange.NetworkAddressChanged -= OnNetworkChange;
