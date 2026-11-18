@@ -38,9 +38,9 @@ public sealed partial class MainWindow
     private TrayState TraySnapshot()
     {
         var profile = settings.Profiles.FirstOrDefault(x => x.Id == settings.SelectedId);
-        return new(backend.State, settings.Protocol, settings.CaptureMode, backend.Running, connectBusy || quitInProgress,
+        return new(backend.State, settings.Protocol, settings.CaptureMode, backend.Running, connectBusy,
             dirty, IsVisible, backend.ExitIp, profile?.Xray != null, profile?.Hysteria != null,
-            settings.Profiles.Select(x => new TrayProfile(x.Id, x.Name, x.Id == settings.SelectedId)).ToArray());
+            settings.Profiles.Select(x => new TrayProfile(x.Id, x.Name, x.Id == settings.SelectedId)).ToArray(), stopBusy || quitInProgress);
     }
     private void RestoreFromTray()
     {
@@ -54,16 +54,33 @@ public sealed partial class MainWindow
         Hide(); ShowInTaskbar = false;
         if (!hideNoticeShown && !previewOnly) { hideNoticeShown = true; tray?.ExplainHidden(); }
     }
+    private ConnectionAction PrimaryConnectionAction() =>
+        ConnectionActions.Current(backend.State, backend.Running, connectBusy, stopBusy, dirty);
+
     private async Task ToggleConnection()
     {
-        if (connectBusy || quitInProgress) return;
-        if (backend.Running && !dirty)
+        if (quitInProgress || previewOnly) return;
+        switch (PrimaryConnectionAction())
         {
-            connectBusy = true; Refresh();
-            try { if (backend.State == "Proxy conflict") await backend.ReclaimProxyAsync(); else await backend.StopAsync(); }
-            finally { connectBusy = false; Refresh(); }
+            case ConnectionAction.Cancel:
+            case ConnectionAction.Disconnect:
+                stopBusy = true;
+                try
+                {
+                    connectionRequest?.Cancel();
+                    Refresh();
+                    await backend.StopAsync();
+                }
+                finally { stopBusy = false; Refresh(); }
+                break;
+            case ConnectionAction.Connect:
+            case ConnectionAction.Apply:
+                await ConnectSelected();
+                break;
+            case ConnectionAction.ReclaimProxy:
+                await ConnectSelected(reclaimProxy: true);
+                break;
         }
-        else await ConnectSelected();
     }
     private async Task TrayAction(string command)
     {
@@ -74,7 +91,11 @@ public sealed partial class MainWindow
         if (command == "clear-logs") { ClearSessionLogs(); return; }
         if (command == "copy-exit") { if (backend.ExitIp != "—") Clipboard.SetText(backend.ExitIp); return; }
         if (command == "connect") { await ToggleConnection(); return; }
-        if (command == "reconnect") { if (backend.Running && !connectBusy) await ConnectSelected(); return; }
+        if (command == "reconnect")
+        {
+            if (backend.Running && PrimaryConnectionAction() is not (ConnectionAction.Cancel or ConnectionAction.Stopping)) await ConnectSelected();
+            return;
+        }
         RestoreFromTray();
         if (command == "settings") Navigate("Settings");
         else if (command == "logs") Navigate("Diagnostics");
@@ -83,14 +104,12 @@ public sealed partial class MainWindow
         else if (command.StartsWith("mode:", StringComparison.Ordinal)) { Navigate("Home"); RequestCaptureMode(command[5..]); }
         else if (command.StartsWith("profile:", StringComparison.Ordinal))
         {
-            if (connectBusy) return; string id = command[8..];
+            if (connectBusy || stopBusy) return; string id = command[8..];
             if (settings.Profiles.Any(x => x.Id == id) && id != settings.SelectedId) { settings.SelectedId = id; Changed(); Navigate("Home"); }
         }
         else if (command.StartsWith("protocol:", StringComparison.Ordinal))
         {
-            if (connectBusy) return; string protocol = command[9..]; if (protocol == settings.Protocol) return;
-            if (MessageBox.Show(this, "Use " + protocol + "?" + (backend.Running ? " The current Personal VPN session will reconnect." : " This will be used on your next connection."), "Confirm protocol", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
-            settings.Protocol = protocol; settings.ChainReality = false; Changed(); Navigate("Home"); if (backend.Running) await ConnectSelected();
+            await SelectProtocol(command[9..]);
         }
     }
     private void ClearSessionLogs()
@@ -119,6 +138,7 @@ public sealed partial class MainWindow
     private async Task QuitApplication()
     {
         if (quitInProgress) return; quitInProgress = true; IsEnabled = false; timer.Stop(); tray?.Update();
+        connectionRequest?.Cancel();
         try { await backend.DisposeAsync(); }
         finally { exiting = true; tray?.Dispose(); showRequest?.Dispose(); exitRequest?.Dispose(); Close(); }
     }

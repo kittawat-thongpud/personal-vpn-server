@@ -233,13 +233,15 @@ public sealed class Backend : IAsyncDisposable
         }
         Log.Add(value is "Error" or "Reconnecting" ? "WARN" : "INFO", "state." + value.ToLowerInvariant(), reason);
     }
-    public async Task StartAsync(Settings settings)
+    public async Task StartAsync(Settings settings, CancellationToken cancellation = default)
     {
         settings.Validate();
-        await lifecycle.WaitAsync();
+        await lifecycle.WaitAsync(cancellation);
         try
         {
+            cancellation.ThrowIfCancellationRequested();
             await StopInternal();
+            cancellation.ThrowIfCancellationRequested();
             // A failed prior worker must recover before a new owner launches.
             TunLease.RecoverAbandoned(); SystemProxyLease.RecoverAbandoned();
             Traffic.Reset();
@@ -257,42 +259,35 @@ public sealed class Backend : IAsyncDisposable
         }
         finally { lifecycle.Release(); }
     }
-    public async Task ConnectAsync(Settings settings)
+    public async Task ConnectAsync(Settings settings, CancellationToken cancellation = default)
     {
-        if (settings.CaptureMode == "Proxy") { await ConnectProxyAsync(settings); return; }
+        if (settings.CaptureMode == "Proxy") { await ConnectProxyAsync(settings, cancellation); return; }
         CaptureCapabilities.EnsureAvailable(settings.CaptureMode); settings.SystemProxy = false;
-        await StartAsync(settings); await WaitForConnection(90);
+        await StartAsync(settings, cancellation);
+        await WaitForConnection(90, proxy: false, cancellation);
     }
-    private async Task WaitForConnection(int seconds)
+    private async Task WaitForConnection(int seconds, bool proxy, CancellationToken cancellation)
     {
         CancellationTokenSource? requested; lock (gate) requested = session; var elapsed = Stopwatch.StartNew();
         while (elapsed.Elapsed < TimeSpan.FromSeconds(seconds))
         {
+            cancellation.ThrowIfCancellationRequested();
             lock (gate) { if (session == null || session != requested) throw new OperationCanceledException("Connection cancelled."); }
             if (State == "Connected") return;
+            if (proxy && State == "Proxy conflict") { await ReclaimProxyAsync(cancellation); return; }
             if (State == "Error") throw new InvalidOperationException(Detail);
             if (State == "Reconnecting") throw new InvalidOperationException(Detail + " Retrying; inspect backend logs.");
-            await Task.Delay(200);
+            await Task.Delay(200, cancellation);
         }
         throw new InvalidOperationException("Connection verification timed out; inspect backend logs.");
     }
-    public async Task ConnectProxyAsync(Settings settings)
+    public async Task ConnectProxyAsync(Settings settings, CancellationToken cancellation = default)
     {
         CaptureCapabilities.EnsureAvailable(settings.CaptureMode);
         if (settings.CaptureMode != "Proxy") throw new InvalidOperationException("A TUN configuration cannot be started as a Proxy session.");
         settings.SystemProxy = true;
-        await StartAsync(settings);
-        CancellationTokenSource? requestedSession; lock (gate) requestedSession = session;
-        var deadline = Stopwatch.StartNew();
-        while (deadline.Elapsed < TimeSpan.FromSeconds(45))
-        {
-            lock (gate) { if (session != requestedSession || session == null) throw new OperationCanceledException("Connection was cancelled."); }
-            if (State == "Connected") return;
-            if (State == "Proxy conflict") { await ReclaimProxyAsync(); return; }
-            if (State == "Reconnecting") throw new InvalidOperationException(Detail + " Automatic retries remain active. You can test another protocol separately.");
-            await Task.Delay(200);
-        }
-        throw new InvalidOperationException("Connection has not verified within 45 seconds. Check backend logs; retries remain active.");
+        await StartAsync(settings, cancellation);
+        await WaitForConnection(45, proxy: true, cancellation);
     }
     public async Task<ProtocolProbeResult> TestProtocolAsync(Settings settings, string protocol)
     {
@@ -329,11 +324,16 @@ public sealed class Backend : IAsyncDisposable
     public async Task StopAsync()
     {
         await lifecycle.WaitAsync();
-        try { await StopInternal(); } finally { lifecycle.Release(); }
+        try
+        {
+            if (Running) SetState("Disconnecting", "Stopping VPN and releasing capture.");
+            await StopInternal();
+        }
+        finally { lifecycle.Release(); }
     }
-    public async Task ReclaimProxyAsync()
+    public async Task ReclaimProxyAsync(CancellationToken cancellation = default)
     {
-        await lifecycle.WaitAsync();
+        await lifecycle.WaitAsync(cancellation);
         try
         {
             if (!Running || active == null || !(active.SystemProxy || active.CaptureMode == "TUN") || proxyLease == null) throw new InvalidOperationException("Connect with System proxy enabled and wait for tunnel verification first.");
@@ -345,13 +345,15 @@ public sealed class Backend : IAsyncDisposable
             // object may retain an older selection after a settings notification.
             if (!proxyLease.IsCurrent) throw new InvalidOperationException("Another app selected a different proxy again.");
             using var client = new HttpClient(new SocketsHttpHandler { Proxy = active.CaptureMode == "TUN" ? null : new WebProxy("http://127.0.0.1:" + active.HttpPort), UseProxy = active.CaptureMode != "TUN", ConnectTimeout = TimeSpan.FromSeconds(8) }) { Timeout = TimeSpan.FromSeconds(12) };
-            string observed = await Health(client, CancellationToken.None);
+            string observed = await Health(client, cancellation);
+            cancellation.ThrowIfCancellationRequested();
             if (!proxyLease.IsCurrent) throw new InvalidOperationException("Another app changed the Windows proxy during verification.");
             lock (gate) { if (generation != expectedGeneration) throw new OperationCanceledException("Network changed during browser proxy verification."); }
             Log.Add("INFO", "backend.system_proxy_verified", "Windows selects Personal VPN and the selected HTTP listener passed HTTPS. Policy-routed exit: " + observed + ". Existing app sockets may need a new connection.");
             SetState("Connected", "System proxy reselected and HTTPS verified. Existing connections may need reconnecting.", expectedGeneration);
             lock (gate) { if (generation == expectedGeneration) exit = lastTunnelExit; }
         }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { throw; }
         catch
         {
             if (Running) SetState("Degraded", "Browser proxy verification failed. Check other proxy software and app-specific proxy settings.");

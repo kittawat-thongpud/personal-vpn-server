@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -66,6 +67,31 @@ internal static partial class Tests
         }
         await using (var backend = new Backend())
         {
+            Progress("cancel.verifying");
+            // Reserve a local UDP port that never answers, so verification
+            // stays pending without all coroutines relying on a timing race.
+            using (var stalled = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0)))
+            using (var cancel = new CancellationTokenSource())
+            {
+                var pending = settings.Snapshot();
+                var config = JsonNode.Parse(pending.Selected.Hysteria!)!;
+                config["server"] = "127.0.0.1:" + ((IPEndPoint)stalled.Client.LocalEndPoint!).Port;
+                pending.Selected.Hysteria = config.ToJsonString();
+                var connecting = backend.ConnectAsync(pending, cancel.Token);
+                var deadline = Stopwatch.StartNew();
+                while (backend.State != "Verifying")
+                {
+                    Assert(!connecting.IsCompleted && deadline.Elapsed < TimeSpan.FromSeconds(15), "Cancel fixture did not reach Verifying.");
+                    await Task.Delay(100);
+                }
+                cancel.Cancel();
+                await backend.StopAsync().WaitAsync(TimeSpan.FromSeconds(15));
+                try { await connecting; throw new InvalidOperationException("The cancelled request reported success."); }
+                catch (OperationCanceledException) { }
+                Assert(!backend.Running && backend.State == "Disconnected" && WindowsProxy.Matches(WindowsProxy.Read(), proxyBefore), "Cancel left or restarted an owned connection.");
+                Assert(AdapterService.CurrentId() == persistentId, "Cancel replaced the persistent adapter.");
+                checks.Add("Cancel during stalled verification stops the pending request and releases owned capture");
+            }
             int connectionAttempt=0;
             async Task ConnectWithDiagnostics()
             {

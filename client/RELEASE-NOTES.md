@@ -1,3 +1,16 @@
+Client 0.9.5 aligns the Windows and Android connection controls. Windows Home
+and the notification-area menu offer Cancel during connection, verification,
+and automatic recovery. Stopping stays readable while the app releases capture.
+An active protocol change asks before reconnecting. Windows TUN keeps a working
+session when a network change notification arrives and rechecks the existing
+path before restarting.
+
+Site Tunnel → Import / Export shares one JSON format between Windows and
+Android. It contains the default action and named Domain/IP groups with their
+actions. Import validates every group and asks before replacing the current
+rules. Profiles, credentials, and App Tunnel settings stay in the app. A live
+connection uses the imported rules when the user applies and reconnects.
+
 Client 0.9.4 shows automatic Android background guidance only for restrictions
 that are actually detected. Manufacturer-specific manual tips appear once, with
 display remembered automatically: no confirmation is needed, and app updates do

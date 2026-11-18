@@ -11,7 +11,7 @@ namespace PersonalVpn;
 public sealed record TrayProfile(string Id, string Name, bool Selected);
 public sealed record TrayState(string Status, string Protocol, string CaptureMode, bool Running,
     bool Busy, bool Dirty, bool WindowVisible, string ExitIp, bool HasReality, bool HasHysteria,
-    IReadOnlyList<TrayProfile> Profiles);
+    IReadOnlyList<TrayProfile> Profiles, bool Stopping = false);
 
 // WinForms provides the native shell notification icon. WPF owns connection state
 // and all actions run on its UI thread; this class never changes network settings.
@@ -74,17 +74,19 @@ public sealed class TrayHost : IDisposable
         menu.Items.Add(Item("open", s.WindowVisible ? "Show Personal VPN" : "Open Personal VPN"));
         if (s.WindowVisible) menu.Items.Add(Item("hide", "Hide to tray"));
         menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add(Item("connect", s.Busy ? "Connecting…" : s.Running ? s.Dirty ? "Apply & reconnect" : s.Status == "Proxy conflict" ? "Use Personal VPN proxy" : "Disconnect" : "Connect", !s.Busy && s.Profiles.Count > 0));
-        menu.Items.Add(Item("reconnect", "Reconnect", s.Running && !s.Busy));
-        var servers = new Forms.ToolStripMenuItem("Server profiles") { Enabled = !s.Busy };
-        foreach (var profile in s.Profiles) servers.DropDownItems.Add(Item("profile:" + profile.Id, profile.Name.Replace("&", "&&"), !s.Busy, profile.Selected));
+        var primary = ConnectionActions.Current(s.Status, s.Running, s.Busy, s.Stopping, s.Dirty);
+        bool pending = primary is ConnectionAction.Cancel or ConnectionAction.Stopping;
+        menu.Items.Add(Item("connect", ConnectionActions.Label(primary), ConnectionActions.Enabled(primary, s.Profiles.Count > 0)));
+        menu.Items.Add(Item("reconnect", "Reconnect", s.Running && !pending));
+        var servers = new Forms.ToolStripMenuItem("Server profiles") { Enabled = !pending };
+        foreach (var profile in s.Profiles) servers.DropDownItems.Add(Item("profile:" + profile.Id, profile.Name.Replace("&", "&&"), !pending, profile.Selected));
         servers.DropDownItems.Add(new Forms.ToolStripSeparator()); servers.DropDownItems.Add(Item("profiles", "Manage / import profiles…")); menu.Items.Add(servers);
-        var protocols = new Forms.ToolStripMenuItem("Protocol") { Enabled = !s.Busy };
-        protocols.DropDownItems.Add(Item("protocol:REALITY", "REALITY", s.HasReality && !s.Busy, s.Protocol == "REALITY"));
-        protocols.DropDownItems.Add(Item("protocol:Hysteria 2", "Hysteria 2", s.HasHysteria && !s.Busy, s.Protocol == "Hysteria 2")); menu.Items.Add(protocols);
+        var protocols = new Forms.ToolStripMenuItem("Protocol") { Enabled = !pending };
+        protocols.DropDownItems.Add(Item("protocol:REALITY", "REALITY", s.HasReality && !pending, s.Protocol == "REALITY"));
+        protocols.DropDownItems.Add(Item("protocol:Hysteria 2", "Hysteria 2", s.HasHysteria && !pending, s.Protocol == "Hysteria 2")); menu.Items.Add(protocols);
         var capture = new Forms.ToolStripMenuItem("Capture mode");
-        capture.DropDownItems.Add(Item("mode:Proxy", "Proxy", !s.Busy, s.CaptureMode == "Proxy"));
-        capture.DropDownItems.Add(Item("mode:TUN", CaptureCapabilities.TunAvailable ? "TUN" : "TUN · in development", !s.Busy, s.CaptureMode == "TUN")); menu.Items.Add(capture);
+        capture.DropDownItems.Add(Item("mode:Proxy", "Proxy", !pending, s.CaptureMode == "Proxy"));
+        capture.DropDownItems.Add(Item("mode:TUN", CaptureCapabilities.TunAvailable ? "TUN" : "TUN · in development", !pending, s.CaptureMode == "TUN")); menu.Items.Add(capture);
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(Item("settings", "Settings")); menu.Items.Add(Item("logs", "Backend logs"));
         menu.Items.Add(Item("clear-logs", "Clear session logs")); menu.Items.Add(Item("export-logs", "Export session logs…"));

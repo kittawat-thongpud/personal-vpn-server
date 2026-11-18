@@ -17,5 +17,6 @@
     </AssemblyAttribute>
     <Resource Include="Assets/personal-vpn.ico"/>
     <EmbeddedResource Include="Assets/personal-vpn.ico" LogicalName="PersonalVpn.TrayIcon.ico"/>
+    <EmbeddedResource Include="../../android/app/src/test/resources/site-tunnel-v1.json" LogicalName="PersonalVpn.SiteTunnelV1.json"/>
   </ItemGroup>
 </Project>
