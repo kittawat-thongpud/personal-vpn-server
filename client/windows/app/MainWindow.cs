@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -30,7 +31,8 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private string page = "Home";
     private bool dirty, exiting, lastCompactHome;
-    private bool connectBusy;
+    private bool connectBusy, stopBusy;
+    private CancellationTokenSource? connectionRequest;
     private long settingsRevision;
     private readonly bool previewOnly;
     private TextBlock? status, detail, exit, captureDetail;
@@ -94,19 +96,34 @@ public sealed partial class MainWindow : Window
         if (autoConnect) ContentRendered += async (_, _) => { try { await ConnectSelected(); } catch (Exception error) { ShowError(error); } };
     }
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
-    private async Task ConnectSelected()
+    private async Task ConnectSelected(bool reclaimProxy = false)
     {
         if (previewOnly) throw new InvalidOperationException("Layout preview cannot connect or change system proxy settings.");
-        if (connectBusy || quitInProgress) return;
-        CaptureCapabilities.EnsureAvailable(settings.CaptureMode);
+        if (connectBusy || stopBusy || quitInProgress) return;
+        if (!reclaimProxy) CaptureCapabilities.EnsureAvailable(settings.CaptureMode);
         long requestedRevision = settingsRevision;
+        using var request = new CancellationTokenSource();
+        connectionRequest = request;
         connectBusy = true;
         try
         {
-            settings.SystemProxy = settings.CaptureMode == "Proxy"; Store.Save(settings); Refresh();
-            await backend.ConnectAsync(settings.Snapshot()); dirty = requestedRevision != settingsRevision;
+            Refresh();
+            if (reclaimProxy) await backend.ReclaimProxyAsync(request.Token);
+            else
+            {
+                settings.SystemProxy = settings.CaptureMode == "Proxy";
+                Store.Save(settings);
+                await backend.ConnectAsync(settings.Snapshot(), request.Token);
+                dirty = requestedRevision != settingsRevision;
+            }
         }
-        finally { connectBusy = false; Refresh(); }
+        catch (OperationCanceledException) when (request.IsCancellationRequested) { }
+        catch (InvalidOperationException) when (backend.Running && backend.State == "Reconnecting")
+        {
+            // Recovery keeps running in the background. Home and the tray
+            // continue to show Cancel while it retries.
+        }
+        finally { connectionRequest = null; connectBusy = false; Refresh(); }
     }
     private static TextBlock Text(string value, double size = 14, string color = "#EBEFF8") => new()
     {
@@ -243,7 +260,12 @@ public sealed partial class MainWindow : Window
         if (!previewOnly) latency.Tick(IsVisible && WindowState != WindowState.Minimized);
         foreach (var label in latencyLabels) { var measured = latency.Get(label.Target); label.Text.Text = measured.Label; label.Text.ToolTip = measured.Detail; }
         if ((!IsVisible || WindowState == WindowState.Minimized) && !previewOnly) return;
-        if (status != null) { status.Text = backend.State; status.Foreground = Color(backend.State == "Connected" ? "#57DCB5" : backend.Running ? "#EBC17A" : "#D7E4F8"); }
+        var action = PrimaryConnectionAction();
+        if (status != null)
+        {
+            status.Text = action == ConnectionAction.Stopping ? "Stopping…" : connectBusy && backend.State == "Disconnected" ? "Connecting" : backend.State;
+            status.Foreground = Color(action is ConnectionAction.Cancel or ConnectionAction.Stopping ? "#AFD5FF" : backend.State == "Connected" ? "#57DCB5" : "#D7E4F8");
+        }
         if (detail != null) detail.Text = backend.Detail;
         if (status != null) status.ToolTip = backend.Detail;
         if (exit != null) exit.Text = "Exit IP: " + backend.ExitIp;
@@ -257,8 +279,21 @@ public sealed partial class MainWindow : Window
             trafficStatus!.Text = sample.Available ? "Live · 1s · this connection" : backend.Running ? "Counters unavailable" : "Session totals · connect to see traffic";
             trafficChart?.Sample(sample);
         }
-        if (connect != null) { string tint = backend.State == "Connected" ? "#29CDAA" : backend.State is "Error" or "Failed" ? "#EA929D" : backend.Running ? "#EBC17A" : "#73A9EB"; if (connect.Tag as string != tint) { connect.Background = Color(tint); connect.BorderBrush = connect.Background; connect.Tag = tint; } connect.Content = connectBusy ? "Connecting…" : backend.Running ? dirty ? "Apply &\nreconnect" : backend.State == "Proxy conflict" ? "Use proxy" : "Disconnect" : "Connect"; connect.IsEnabled = !connectBusy && settings.Profiles.Count > 0; }
-        if (draftNotice != null) { draftNotice.Text = dirty ? "Settings changed · reconnect to apply" : ""; draftNotice.Visibility = dirty ? Visibility.Visible : Visibility.Collapsed; }
+        if (connect != null)
+        {
+            bool pending = action is ConnectionAction.Cancel or ConnectionAction.Stopping;
+            string tint = pending ? "#235E8C" : backend.State == "Connected" ? "#32D4B2" : backend.State is "Error" or "Failed" ? "#F38F98" : "#80B4FA";
+            if (connect.Tag as string != tint)
+            {
+                connect.Background = Color(tint);
+                connect.BorderBrush = connect.Background;
+                connect.Foreground = Color(pending ? "#F5F8FF" : "#082B31");
+                connect.Tag = tint;
+            }
+            connect.Content = action == ConnectionAction.Apply ? "Apply &\nreconnect" : ConnectionActions.Label(action);
+            connect.IsEnabled = ConnectionActions.Enabled(action, settings.Profiles.Count > 0);
+        }
+        if (draftNotice != null) { draftNotice.Text = "Settings changed · reconnect to apply"; draftNotice.Visibility = action == ConnectionAction.Apply ? Visibility.Visible : Visibility.Collapsed; }
         if (page == "Diagnostics" && logText != null)
         {
             var records = backend.Log.Snapshot(); string next = string.Join(Environment.NewLine, records.Select(x => $"{x.Time:HH:mm:ss}  {x.Level}  {x.Event}\n{x.Message}"));

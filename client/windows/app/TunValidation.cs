@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -66,6 +67,31 @@ internal static partial class Tests
         }
         await using (var backend = new Backend())
         {
+            Progress("cancel.verifying");
+            // Reserve a local UDP port that never answers, so verification
+            // stays pending without all coroutines relying on a timing race.
+            using (var stalled = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0)))
+            using (var cancel = new CancellationTokenSource())
+            {
+                var pending = settings.Snapshot();
+                var config = JsonNode.Parse(pending.Selected.Hysteria!)!;
+                config["server"] = "127.0.0.1:" + ((IPEndPoint)stalled.Client.LocalEndPoint!).Port;
+                pending.Selected.Hysteria = config.ToJsonString();
+                var connecting = backend.ConnectAsync(pending, cancel.Token);
+                var deadline = Stopwatch.StartNew();
+                while (backend.State != "Verifying")
+                {
+                    Assert(!connecting.IsCompleted && deadline.Elapsed < TimeSpan.FromSeconds(15), "Cancel fixture did not reach Verifying.");
+                    await Task.Delay(100);
+                }
+                cancel.Cancel();
+                await backend.StopAsync().WaitAsync(TimeSpan.FromSeconds(15));
+                try { await connecting; throw new InvalidOperationException("The cancelled request reported success."); }
+                catch (OperationCanceledException) { }
+                Assert(!backend.Running && backend.State == "Disconnected" && WindowsProxy.Matches(WindowsProxy.Read(), proxyBefore), "Cancel left or restarted an owned connection.");
+                Assert(AdapterService.CurrentId() == persistentId, "Cancel replaced the persistent adapter.");
+                checks.Add("Cancel during stalled verification stops the pending request and releases owned capture");
+            }
             int connectionAttempt=0;
             async Task ConnectWithDiagnostics()
             {
@@ -85,6 +111,24 @@ internal static partial class Tests
             Assert(AdapterService.CurrentId() == persistentId, "TUN replaced the persistent device.");
             checks.Add("persistent Wintun adapter, authenticated frontend, captured DNS/HTTPS and suspended Windows proxy verified");
             int baseline = await Curl(); Assert(baseline == 0, "External process baseline failed: exit=" + baseline + "; " + lastCurlError + "; " + backend.NativeTunDiagnostic);
+            Progress("network.recheck");
+            int routerBefore = backend.RouterPidForTest;
+            var history = backend.Log.Snapshot();
+            int stopsBefore = history.Count(entry => entry.Event == "backend.tun_stopped");
+            backend.SignalNetworkChangeForTest();
+            var recheckDeadline = Stopwatch.StartNew();
+            while (true)
+            {
+                var events = backend.Log.Snapshot().Skip(history.Length).ToArray();
+                int recheck = Array.FindIndex(events, entry => entry.Event == "backend.tun_recheck");
+                if (recheck >= 0 && events.Skip(recheck + 1).Any(entry => entry.Event == "backend.health_ok")) break;
+                Assert(recheckDeadline.Elapsed < TimeSpan.FromSeconds(22), "Network change did not trigger a fresh TUN health check.");
+                await Task.Delay(200);
+            }
+            Assert(backend.State == "Connected" && backend.RouterPidForTest == routerBefore &&
+                backend.Log.Snapshot().Count(entry => entry.Event == "backend.tun_stopped") == stopsBefore &&
+                await Curl() == 0, "A healthy TUN session was interrupted by a network change.");
+            checks.Add("physical network change re-verifies real HTTPS without restarting a healthy TUN session");
             Assert((await Dns.GetHostAddressesAsync("www.google.com")).All(x => x.AddressFamily == AddressFamily.InterNetwork), "IPv4-only DNS still advertises AAAA addresses.");
             Assert(await Curl("https://www.google.com/generate_204") == 0, "Default external curl failed Google HTTPS without a forced address family: " + lastCurlError);
             checks.Add("IPv4 DNS default suppresses unusable AAAA; external default curl reaches Google without -4");

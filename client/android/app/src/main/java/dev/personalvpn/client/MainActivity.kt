@@ -53,6 +53,7 @@ class MainActivity : ComponentActivity() {
     override fun onStop() { latency.stop(); super.onStop() }
     private var message by mutableStateOf<String?>(null)
     private var connectAfterNotification = false
+    private var siteImportPreview by mutableStateOf<Policy?>(null)
     private var backgroundReview by mutableStateOf<BackgroundReview?>(null)
     private var backgroundGuideRequested by mutableStateOf(false)
     private var backgroundGuideAutomatic by mutableStateOf(false)
@@ -73,6 +74,36 @@ class MainActivity : ComponentActivity() {
         }
     }
     private val exportLogs = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> if (uri != null) lifecycleScope.launch(Dispatchers.IO) { runCatching { val logs = JSONArray(Repository.logs.value.map { JSONObject().put("time", it.time).put("level", it.level).put("code", it.code).put("result", it.detail) }); contentResolver.openOutputStream(uri)?.use { it.write(logs.toString(2).toByteArray()) } }.onFailure { withContext(Dispatchers.Main) { message = "Log export failed." } } } }
+    private val importSiteTunnel = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) lifecycleScope.launch {
+            try {
+                siteImportPreview = withContext(Dispatchers.IO) {
+                    val stream = contentResolver.openInputStream(uri) ?: error("Could not open the Site Tunnel file.")
+                    stream.use(SiteTunnelProfile::read)
+                }
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                throw cancel
+            } catch (error: Exception) {
+                message = if (error is IllegalArgumentException) error.message ?: "Invalid Site Tunnel rules." else "Could not read a Personal VPN Site Tunnel JSON file."
+            }
+        }
+    }
+    private val exportSiteTunnel = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) lifecycleScope.launch {
+            try {
+                val policy = Repository.config.value.sites
+                withContext(Dispatchers.IO) {
+                    val bytes = SiteTunnelProfile.export(policy)
+                    val stream = contentResolver.openOutputStream(uri, "wt") ?: error("Could not open the export file.")
+                    stream.use { it.write(bytes) }
+                }
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                message = "Could not export the Site Tunnel profile."
+            }
+        }
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         manualGuidanceSeen=backgroundPreferences.manualShown()
@@ -209,7 +240,10 @@ class MainActivity : ComponentActivity() {
                                     } }
                                 }
                                 "App Tunnel" -> AppTunnelPage(config.apps,state.active) { save(config.copy(apps = it)) }
-                                "Site Tunnel" -> SiteTunnelPage(config.sites) { save(config.copy(sites = it)) }
+                                "Site Tunnel" -> SiteTunnelPage(config.sites,
+                                    onImport = { importSiteTunnel.launch(arrayOf("application/json", "application/octet-stream", "text/plain")) },
+                                    onExport = { exportSiteTunnel.launch(SiteTunnelProfile.FILE_NAME) }
+                                ) { save(Repository.config.value.copy(sites = it)) }
                                 "Backend logs" -> Logs { exportLogs.launch("personal-vpn-session.json") }
                             }
                         }
@@ -218,6 +252,20 @@ class MainActivity : ComponentActivity() {
                 }
             }
             latencyDetail?.let { text -> VpnSheet("Server latency",{latencyDetail=null}) { Text(text) } }
+            siteImportPreview?.let { policy ->
+                AlertDialog(
+                    onDismissRequest = { siteImportPreview = null },
+                    title = { Text("Import Site Tunnel") },
+                    text = { Text("${policy.rules.size} site groups · ${modeLabel(policy.mode)}\n\nReplace the current Site Tunnel rules?") },
+                    dismissButton = { TextButton(onClick = { siteImportPreview = null }) { Text("Cancel") } },
+                    confirmButton = { TextButton(onClick = {
+                        if (save(Repository.config.value.copy(sites = policy))) {
+                            siteImportPreview = null
+                            page = "Site Tunnel"
+                        }
+                    }) { Text("Replace rules") } }
+                )
+            }
             message?.let { text -> AlertDialog(onDismissRequest = { message = null }, title = { Text("Personal VPN") }, text = { Text(text) }, confirmButton = { TextButton(onClick = { message = null }) { Text("OK") } }) }
             confirmProtocol?.let { protocol -> VpnSheet("Switch to $protocol?",{confirmProtocol=null}) { Text("The current connection will reconnect with the selected protocol.");Button(onClick={save(config.copy(protocol=protocol));confirmProtocol=null;startTunnel()},modifier=Modifier.fillMaxWidth()) { Text("Confirm") } } }
             if (pasted) PasteDialog({ pasted = false }) { text -> try { addProfiles(Imports.parse(listOf(text))); pasted = false } catch (e: Exception) { message = e.message ?: "Invalid profile." } }
@@ -250,7 +298,7 @@ class MainActivity : ComponentActivity() {
             Text(state.status,fontSize=23.sp,color=when { state.status=="Connected"->MaterialTheme.colorScheme.primary;state.active->Color(0xFFAFD5FF);else->MaterialTheme.colorScheme.onSurface })
             Box(if(compact)Modifier.fillMaxWidth().height(166.dp)else Modifier.weight(1f).fillMaxWidth()) { PowerButton(state,dirty,connect) }
             Text("Exit IP: ${state.exitIp}",color=MaterialTheme.colorScheme.primary,fontSize=13.sp)
-            Text(if(dirty) "Settings changed · reconnect to apply" else state.detail.ifBlank { "Android TUN" },fontSize=11.sp,maxLines=2,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(if(connectionAction(state,dirty)==ConnectionAction.Apply) "Settings changed · reconnect to apply" else state.detail.ifBlank { "Android TUN" },fontSize=11.sp,maxLines=2,color=MaterialTheme.colorScheme.onSurfaceVariant)
             if(state.detail.startsWith("Always-on"))OutlinedButton(onClick=managedSettings,modifier=Modifier.heightIn(min=48.dp)) { Text("Open Android VPN settings") }
             Card(Modifier.fillMaxWidth(),elevation=CardDefaults.cardElevation(defaultElevation=2.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFF30465F))) {
                 Column(Modifier.padding(horizontal=14.dp,vertical=10.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {

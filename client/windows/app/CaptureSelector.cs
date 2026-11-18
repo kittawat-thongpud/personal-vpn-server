@@ -10,7 +10,7 @@ public sealed partial class MainWindow
     private void RefreshCaptureChoices()
     {
         if (proxyChoice == null || tunChoice == null) return;
-        proxyChoice.IsEnabled = tunChoice.IsEnabled = !connectBusy && !quitInProgress;
+        proxyChoice.IsEnabled = tunChoice.IsEnabled = PrimaryConnectionAction() is not (ConnectionAction.Cancel or ConnectionAction.Stopping) && !quitInProgress;
         proxyChoice.IsChecked = settings.CaptureMode == "Proxy"; tunChoice.IsChecked = settings.CaptureMode == "TUN";
     }
     private UIElement CaptureSelector()
@@ -51,7 +51,7 @@ public sealed partial class MainWindow
     }
     private async void RequestCaptureMode(string requested)
     {
-        if (connectBusy || quitInProgress || requested == settings.CaptureMode) { RefreshCaptureChoices(); return; }
+        if (PrimaryConnectionAction() is ConnectionAction.Cancel or ConnectionAction.Stopping || quitInProgress || requested == settings.CaptureMode) { RefreshCaptureChoices(); return; }
         try
         {
             var dialog = CaptureConfirmation(requested);

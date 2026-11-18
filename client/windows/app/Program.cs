@@ -139,6 +139,7 @@ internal static partial class Tests
         {
             var log = new SessionLog();
             NetworkRecoveryPolicy(); passed.Add("physical binding ABI, durable journal and field-scoped conditional recovery");
+            SiteTunnelTransferPolicy(); passed.Add("shared Site Tunnel JSON imports and round-trips grouped rules without VPN credentials");
             for (int i = 0; i < 5000; i++) { log.Add("INFO", "backend.retry", i + new string('x', 10000)); log.Add("INFO", "ui.click", "ignored"); }
             Assert(log.Snapshot().Length == 1000 && log.Bytes <= 1048576, "Log bounds failed.");
             Assert(log.Snapshot().All(x => x.Message.Length <= 512 && x.Event == "backend.retry"), "Backend-only log filter / truncation failed.");

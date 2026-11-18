@@ -1,0 +1,10 @@
+{
+  "format": "personal-vpn.site-tunnel",
+  "version": 1,
+  "mode": "Bypass",
+  "rules": [
+    { "name": "รายการเว็บ", "kind": "Domain", "target": "example.org, video.example.org", "action": "Tunnel" },
+    { "name": "Local machines", "kind": "IP", "target": "10.46.136.6, 192.0.2.*, 2001:db8::/32", "action": "Block" },
+    { "name": "", "kind": "IP", "target": "203.0.113.24/32", "action": "Bypass" }
+  ]
+}

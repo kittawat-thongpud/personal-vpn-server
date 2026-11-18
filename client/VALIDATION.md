@@ -1,4 +1,26 @@
-# Client 0.9.4 focused background guidance - 2026-11-08
+# Client 0.9.5 connection controls and Site Tunnel transfer - 2026-11-18
+
+[GitHub Actions qualification and publication](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/44331699856)
+passed for `6aceed89540a1a4062c51b13d0315bab5ea59643`. The stable Latest release
+contains 12 assets. All 11 checksums and eight manifest entries match uploaded
+digests. The downloaded Windows x64 installer and Android APK match the release,
+and the APK retains the pinned certificate. Tag and base/release snapshots point
+to the qualified source. The legacy 0.9.4 source is preserved.
+
+- Windows x86/x64 pass Cancel during stalled verification, TUN recheck without
+  restarting a working session, capture recovery, tray controls and in-place upgrade.
+- Android builds, unit tests, lint and signing pass. The Android 14 and 17
+  emulators each pass all seven instrumentation tests.
+- Both applications round-trip a common Site Tunnel fixture covering named Unicode
+  groups, domains, IPs, wildcard/CIDR targets and rule actions. Both reject invalid
+  profiles. Site Tunnel screenshots were reviewed on Windows and Android.
+
+Cancellation and network recovery were qualified on CI fixtures. The original
+physical Windows Wi-Fi scenario remains to be retested on the installed 0.9.5 client.
+
+---
+
+## Client 0.9.4 focused background guidance - 2026-11-08
 
 Qualified source `ff318448da67f61ba6f62b033954a257e0e5a021`;
 [complete publication run, attempt 2](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/42494061917/attempts/2)

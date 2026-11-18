@@ -18,13 +18,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-@Composable internal fun SiteTunnelPage(policy: Policy, changed: (Policy) -> Boolean) {
+@Composable internal fun SiteTunnelPage(policy: Policy, onImport: () -> Unit, onExport: () -> Unit, changed: (Policy) -> Boolean) {
     var editing by remember { mutableStateOf<Int?>(null) }
     var modeOpen by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     Column(Modifier.fillMaxSize(), verticalArrangement=Arrangement.spacedBy(8.dp)) {
         OutlinedButton(onClick={modeOpen=true},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text(modeLabel(policy.mode)) }
         Button(onClick={editing=-1;error=null},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("Add site group") }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick=onImport, modifier=Modifier.weight(1f).heightIn(min=48.dp)) { Text("Import") }
+            OutlinedButton(onClick=onExport, modifier=Modifier.weight(1f).heightIn(min=48.dp)) { Text("Export") }
+        }
         LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp)) {
             itemsIndexed(policy.rules) { index,rule ->
                 Card(onClick={editing=index;error=null},modifier=Modifier.fillMaxWidth()) {

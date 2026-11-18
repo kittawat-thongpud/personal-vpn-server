@@ -45,23 +45,32 @@ public sealed partial class MainWindow
         var arrow = Text("›", 24, "#86B8FF"); arrow.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(arrow, 3); card.Children.Add(arrow);
         var server = Action("", () => Navigate("Profiles")); server.Content = card; server.HorizontalContentAlignment = HorizontalAlignment.Stretch; server.Name = "ServerCard"; server.Height = compact ? 60 : 75; if (compact) server.Padding = new Thickness(12,6,12,6); server.Margin = new Thickness(0, 0, 0, 8); Put(body, server, 0);
         var capture = Stack(); capture.Children.Add(CaptureSelector());
-        var protocol = Combo(new[] { "Hysteria 2", "REALITY" }, settings.Protocol, value => { settings.Protocol = value; Changed(); Navigate("Home"); }); protocol.Name = "HomeProtocol"; protocol.Margin = compact ? new Thickness(0) : new Thickness(0, 1, 0, 3); capture.Children.Add(protocol); Put(body, capture, 1);
+        var protocols = new[] { "REALITY", "Hysteria 2" }.Where(name => name == settings.Protocol ||
+            (name == "REALITY" ? profile?.Xray != null : profile?.Hysteria != null));
+        var protocol = Combo(protocols, settings.Protocol, async value =>
+        {
+            try { await SelectProtocol(value); }
+            catch (Exception error) { ShowError(error); }
+            finally { if (page == "Home") Navigate("Home"); }
+        });
+        protocol.Name = "HomeProtocol"; protocol.Margin = compact ? new Thickness(0) : new Thickness(0, 1, 0, 3); capture.Children.Add(protocol); Put(body, capture, 1);
         var center = PageRows(Auto, Star, Auto, Auto, Auto); center.Margin = new Thickness(0, 3, 0, 8);
         status = Text(backend.State, compact ? 20 : 22); if (compact) status.Margin = new Thickness(0); status.TextAlignment = TextAlignment.Center; Put(center, status, 0);
-        connect = AsyncAction("Connect", ToggleConnection);
+        connect = new Button { Content = "Connect" };
+        connect.Click += async (_, _) => { try { await ToggleConnection(); } catch (Exception error) { ShowError(error); } };
         connect.Name = "ConnectButton"; connect.Width = connect.Height = 172; connect.FontSize = 18; connect.Margin = new Thickness(0); connect.Background = Color("#14C7A0"); connect.Foreground = Color("#052D28");
         connect.Template = (ControlTemplate)XamlReader.Parse("""
-          <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="Button">
+          <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="Button">
             <Grid>
               <Ellipse Margin="5" Fill="{TemplateBinding BorderBrush}" Opacity="0.18"><Ellipse.Effect><DropShadowEffect Color="{Binding BorderBrush.Color, RelativeSource={RelativeSource TemplatedParent}}" BlurRadius="18" ShadowDepth="0" Opacity="0.7"/></Ellipse.Effect></Ellipse>
               <Ellipse Margin="9,12,9,6" Fill="#040C17"><Ellipse.Effect><DropShadowEffect BlurRadius="13" ShadowDepth="7" Opacity="0.65"/></Ellipse.Effect></Ellipse>
-              <Ellipse Margin="10" Fill="{TemplateBinding Background}" Stroke="#70EBFFF5" StrokeThickness="1"/>
-              <Ellipse Margin="11" IsHitTestVisible="False"><Ellipse.Fill><LinearGradientBrush StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#40FFFFFF" Offset="0"/><GradientStop Color="#00FFFFFF" Offset="0.5"/><GradientStop Color="#18000000" Offset="1"/></LinearGradientBrush></Ellipse.Fill></Ellipse>
+              <Ellipse x:Name="PowerSurface" Margin="10" Fill="{TemplateBinding Background}" Stroke="#70EBFFF5" StrokeThickness="1"/>
+              <Ellipse Margin="11" IsHitTestVisible="False"><Ellipse.Fill><LinearGradientBrush StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#1FFFFFFF" Offset="0"/><GradientStop Color="#00FFFFFF" Offset="0.5"/><GradientStop Color="#18000000" Offset="1"/></LinearGradientBrush></Ellipse.Fill></Ellipse>
               <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                 <Path Data="M 12,1 L 12,11 M 5,5 C -1,11 3,22 12,22 C 21,22 25,11 19,5" Stroke="{TemplateBinding Foreground}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="25" Height="25" Stretch="Uniform" Margin="0,0,0,10"/>
                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextBlock.TextAlignment="Center"/>
               </StackPanel>
-            </Grid><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Opacity" Value="0.9"/></Trigger><Trigger Property="IsPressed" Value="True"><Setter Property="Opacity" Value="0.75"/></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter Property="Foreground" Value="White"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.5"/></Trigger></ControlTemplate.Triggers>
+            </Grid><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="PowerSurface" Property="Stroke" Value="#D0F5F8FF"/></Trigger><Trigger Property="IsPressed" Value="True"><Setter TargetName="PowerSurface" Property="StrokeThickness" Value="2"/></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="PowerSurface" Property="Stroke" Value="#F5F8FF"/><Setter TargetName="PowerSurface" Property="StrokeThickness" Value="2"/></Trigger></ControlTemplate.Triggers>
           </ControlTemplate>
           """);
         Put(center, new Viewbox { Child = connect, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, MaxHeight = compact ? 140 : 184, Margin = compact ? new Thickness(0,2,0,3) : new Thickness(0, 4, 0, 5) }, 1);
@@ -69,6 +78,19 @@ public sealed partial class MainWindow
         exit = Text("Exit IP: —", 13, "#59DCB8"); if (compact) exit.Margin = new Thickness(0,2,0,2); exit.TextAlignment = TextAlignment.Center; Put(center, exit, 3);
         draftNotice = Text("", 11, "#F1C77A"); draftNotice.TextAlignment = TextAlignment.Center; Put(center, draftNotice, 4); Put(body, center, 2);
         var traffic = (FrameworkElement)TrafficPanel(compact); traffic.Name = "TrafficCard"; Put(body, traffic, 3); return body;
+    }
+    private async Task SelectProtocol(string selected)
+    {
+        if (selected == settings.Protocol || PrimaryConnectionAction() is ConnectionAction.Cancel or ConnectionAction.Stopping || quitInProgress) return;
+        var profile = settings.Profiles.FirstOrDefault(item => item.Id == settings.SelectedId);
+        if (selected == "REALITY" ? profile?.Xray == null : profile?.Hysteria == null) return;
+        bool reconnect = backend.Running;
+        if (reconnect && MessageBox.Show(this, "Reconnect using " + selected + "?", "Switch protocol", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+        settings.Protocol = selected;
+        settings.ChainReality = false;
+        Changed();
+        Navigate("Home");
+        if (reconnect) await ConnectSelected();
     }
     private UIElement SettingsPage()
     {
@@ -155,7 +177,17 @@ public sealed partial class MainWindow
         header.Children.Add(Text(apps && settings.CaptureMode != "TUN" ? "TUN REQUIRED" : "DEFAULT ACTION + EXCEPTIONS", 10, apps ? "#E9BB72" : "#9BAECD"));
         header.Children.Add(Combo(ModeLabels, ModeName(policy.Mode), label => { policy.Mode = ModeValues[Array.IndexOf(ModeLabels, label)]; Changed(!apps || settings.CaptureMode == "TUN"); Navigate(target); }));
         header.Children.Add(Text(apps ? "App exceptions win over site exceptions. Executable rules apply in TUN mode." : "Exceptions override the default. Rules off ignores this list and tunnels captured traffic.", 11, "#9BAECD"));
-        header.Children.Add(Action(apps ? "+ Choose app.exe" : "+ Add domain / IP", () => EditException(policy, apps, null))); Put(body, header, 0);
+        header.Children.Add(Action(apps ? "+ Choose app.exe" : "Add site group", () => EditException(policy, apps, null)));
+        if (!apps)
+        {
+            var transfer = new Grid();
+            transfer.ColumnDefinitions.Add(new ColumnDefinition());
+            transfer.ColumnDefinitions.Add(new ColumnDefinition());
+            var import = AsyncAction("Import", ImportSiteTunnel); import.Name = "ImportSiteTunnel"; transfer.Children.Add(import);
+            var export = AsyncAction("Export", ExportSiteTunnel); export.Name = "ExportSiteTunnel"; Grid.SetColumn(export, 1); transfer.Children.Add(export);
+            header.Children.Add(transfer);
+        }
+        Put(body, header, 0);
         FrameworkElement list = policy.Entries.Count == 0 ? Text("No exceptions yet. Add a target and choose Tunnel, Bypass or Block.", 12, "#9BAECD") : ExceptionList(policy, apps);
         if (policy.Mode == "Disabled") { list.Opacity = .5; list.ToolTip = "Saved exceptions are ignored while rules are off."; }
         Put(body, Card(list), 1); var footer = Stack(); footer.Children.Add(Text(policy.Entries.Count + (apps ? " app exceptions · not applied to Proxy" : " site groups · explicit Block exceptions first"), 10, "#9BAECD"));

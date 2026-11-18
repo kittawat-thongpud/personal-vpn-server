@@ -45,10 +45,14 @@ public static class TrayValidation
         tray.Rebuild();
         menu = Items(tray.MenuForTest.Items).Where(x => x.Name != "").ToDictionary(x => x.Name);
         Assert(menu["connect"].Text == "Disconnect" && menu["reconnect"].Enabled && menu["copy-exit"].Enabled && !menu.ContainsKey("hide"), "Connected / hidden tray state incorrect.");
-        state = state with { Busy = true }; tray.Rebuild(); menu = Items(tray.MenuForTest.Items).Where(x => x.Name != "").ToDictionary(x => x.Name);
+        state = state with { Busy = true, Status = "Verifying", Dirty = true }; tray.Rebuild(); menu = Items(tray.MenuForTest.Items).Where(x => x.Name != "").ToDictionary(x => x.Name);
         tray.PopupForTest.ValidateDefinition(tray.MenuForTest.Items);
-        Assert(!menu["connect"].Enabled && !menu["reconnect"].Enabled && menu["exit"].Enabled, "Busy tray must prevent duplicate connects and allow explicit exit.");
-        state = state with { Busy = false, HasReality = false, Dirty = true }; tray.Rebuild(); menu = Items(tray.MenuForTest.Items).Where(x => x.Name != "").ToDictionary(x => x.Name);
+        Assert(menu["connect"].Enabled && menu["connect"].Text == "Cancel" && !menu["reconnect"].Enabled && menu["exit"].Enabled, "Pending tray must offer Cancel before Apply and prevent duplicate connects.");
+        state = state with { Busy = false, Status = "Reconnecting" }; tray.Rebuild(); menu = Items(tray.MenuForTest.Items).Where(x => x.Name != "").ToDictionary(x => x.Name);
+        Assert(menu["connect"].Enabled && menu["connect"].Text == "Cancel", "Automatic recovery must also be cancellable.");
+        state = state with { Stopping = true }; tray.Rebuild(); menu = Items(tray.MenuForTest.Items).Where(x => x.Name != "").ToDictionary(x => x.Name);
+        Assert(!menu["connect"].Enabled && menu["connect"].Text == "Stopping…", "Stop must block repeated actions during cleanup.");
+        state = state with { Stopping = false, Status = "Connected", HasReality = false }; tray.Rebuild(); menu = Items(tray.MenuForTest.Items).Where(x => x.Name != "").ToDictionary(x => x.Name);
         Assert(!menu["protocol:REALITY"].Enabled && menu["connect"].Text == "Apply & reconnect", "Unsupported protocol or dirty state incorrect.");
         tray.Dispose(); tray.Dispose(); tray.Update();
         result.Add("tray menu state, dispatch, profile / protocol checks, busy guards and idempotent disposal");
