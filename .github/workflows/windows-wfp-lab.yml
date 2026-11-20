@@ -1,0 +1,41 @@
+name: Windows WFP bypass lab
+on:
+  workflow_dispatch:
+    inputs:
+      check:
+        type: choice
+        description: Isolated lab only
+        options: [driver-load, process-path]
+        default: driver-load
+permissions:
+  contents: read
+jobs:
+  wfp-lab:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Verify and load the pinned reference driver
+        shell: pwsh
+        run: ./client/windows/lab/wfp-reference-driver.ps1 -Action Start
+      - name: Verify device and unload without installing filters
+        if: ${{ inputs.check == 'driver-load' }}
+        shell: pwsh
+        run: ./client/windows/lab/wfp-reference-driver.ps1 -Action Probe
+      - name: Run process-path matrix
+        if: ${{ inputs.check == 'process-path' }}
+        shell: pwsh
+        run: throw 'Process matrix has not been implemented yet.'
+      - name: Remove the runner-owned reference driver
+        if: ${{ always() && !cancelled() }}
+        shell: pwsh
+        run: ./client/windows/lab/wfp-reference-driver.ps1 -Action Stop
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ always() && !cancelled() }}
+        with:
+          name: windows-wfp-path
+          path: ${{ runner.temp }}/pvn-wfp-evidence/*.json
+          if-no-files-found: ignore
+          retention-days: 7
