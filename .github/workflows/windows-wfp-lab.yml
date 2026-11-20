@@ -23,13 +23,62 @@ jobs:
         shell: pwsh
         run: ./client/windows/lab/wfp-reference-driver.ps1 -Action Start
       - name: Verify device and unload without installing filters
-        if: ${{ inputs.check != 'process-path' }}
+        if: ${{ inputs.check == 'driver-load' }}
         shell: pwsh
         run: ./client/windows/lab/wfp-reference-driver.ps1 -Action Probe
-      - name: Run process-path matrix
-        if: ${{ inputs.check == 'process-path' }}
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14c95bf1
+        if: ${{ inputs.check != 'driver-load' }}
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        if: ${{ inputs.check != 'driver-load' }}
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        if: ${{ inputs.check != 'driver-load' }}
+        id: cores
+        with:
+          path: dist/windows/cores
+          key: windows-native-v2-x64-${{ hashFiles('client/windows/package.ps1', 'client/windows/build-tun-core.ps1', 'client/windows/native/**') }}
+      - name: Prepare the owned Wintun and VPN fixture
+        if: ${{ inputs.check != 'driver-load' }}
         shell: pwsh
-        run: throw 'Process matrix has not been implemented yet.'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ./client/windows/package.ps1 -Architecture x64
+          $hash = (Get-FileHash dist/windows/cores/sing-box.exe).Hash
+          dotnet publish client/windows/app/PersonalVpn.csproj -c Release -r win-x64 --self-contained true -o dist/windows -p:DefineConstants=PVN_WFP_LAB "-p:SingBoxHash=$hash"
+          if ($LASTEXITCODE -ne 0) { throw 'Lab app build failed.' }
+          go build -trimpath -o "$env:RUNNER_TEMP/pvn-probe.exe" ./client/windows/lab/path-probe.go
+          if ($LASTEXITCODE -ne 0) { throw 'Lab socket probe build failed.' }
+          $report = "$env:RUNNER_TEMP/pvn-wfp-reference/wintun-install.json"
+          $app = Resolve-Path dist/windows/PersonalVPN.exe
+          $child = Start-Process $app -ArgumentList @('--install-adapter','--report',$report) -PassThru -Wait -WindowStyle Hidden
+          if ($child.ExitCode -ne 0) { Get-Content $report; throw 'Signed Wintun adapter setup failed.' }
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        if: ${{ inputs.check != 'driver-load' && steps.cores.outputs.cache-hit != 'true' }}
+        with:
+          path: dist/windows/cores
+          key: windows-native-v2-x64-${{ hashFiles('client/windows/package.ps1', 'client/windows/build-tun-core.ps1', 'client/windows/native/**') }}
+      - name: Run process-path matrix
+        if: ${{ inputs.check != 'driver-load' }}
+        shell: pwsh
+        run: |
+          $report = "$env:RUNNER_TEMP/pvn-wfp-evidence/process-matrix.json"
+          $app = Resolve-Path dist/windows/PersonalVPN.exe
+          $services = @(Get-Service -Name SharedAccess,icssvc,RemoteAccess -ErrorAction SilentlyContinue | Where-Object Status -eq Running)
+          try {
+            foreach ($service in $services) { Stop-Service -Name $service.Name -Force -ErrorAction Stop }
+            $child = Start-Process $app -ArgumentList @('--local-wfp-reference-lab','--report',$report,'--probe',"$env:RUNNER_TEMP/pvn-probe.exe") -PassThru -WindowStyle Hidden
+            if (-not $child.WaitForExit(175000)) { $child.Kill(); throw 'Process matrix timed out.' }
+            if (Test-Path $report) { Get-Content $report }
+            if (Test-Path "$report.progress") { Move-Item -LiteralPath "$report.progress" -Destination "$env:RUNNER_TEMP/pvn-wfp-evidence/process-matrix-observed.json" }
+            if ($child.ExitCode -ne 0) { throw 'Process-path matrix did not pass.' }
+          } finally {
+            foreach ($service in $services | Sort-Object { if ($_.Name -eq 'SharedAccess') { 0 } else { 1 } }) { Start-Service -Name $service.Name }
+          }
       - name: Remove the runner-owned reference driver
         if: ${{ always() && !cancelled() }}
         shell: pwsh
