@@ -24,4 +24,16 @@ Windows ยังใช้ Wintun และ App Direct เดิม ตัวว
 
 HTTPS คือเวลาจากเริ่ม connection ใหม่จนได้ header; UDP คือ round trip ของ STUN โดยไม่ใช้ VPS ข้อมูล route lookup มีมัธยฐาน 0.54–0.58 ms และ policy TCP 0.63–2.82 ms (รวมทราฟฟิกอื่นที่ runner จับได้) ช่วง lease/เตรียม adapter ตอนเริ่มหนึ่ง session ใช้ 2.53–7.58 วินาที จึงเป็นจุดที่ควรแยกวัดต่อสำหรับอาการ reconnect ช้า ไม่ใช่ latency ต่อ packet ผลตัวอย่างนี้ยังไม่สนับสนุนให้เปลี่ยน default จาก `mixed` เพราะ `system` ไม่ได้ลด UDP อย่างชัดเจนและ HTTPS สูงกว่าทั้งสอง runner ยังไม่ได้วัด sustained load, IPv6, throughput หรือพฤติกรรมบน LAN/Wi‑Fi ของผู้ใช้
 
-Windows native Bypass เป็นขั้นถัดไปของห้องทดสอบแยก: deploy ไดรเวอร์ WFP ที่ได้รับอนุญาตให้โหลดใน VM, scope ตาม app identity และคงการเลือกเส้นทาง LAN/Wi‑Fi ตามปลายทาง, หลีกเลี่ยงการยกเว้นตาม IP ทั้งเครื่อง ทดสอบ Bypass/Tunnel/Block จากสามโปรเซสสู่ IP/พอร์ตเดียวกันพร้อมกัน จับ packet headers ทั้ง Wintun และ NIC, ทดสอบ shared system DNS แยก และทดสอบ rollback/crash, IPv4/IPv6, Windows x64/x86 app และ mesh adapters การทดสอบ stack หรือ egress IP อย่างเดียวไม่พิสูจน์การยกเว้น Wintun โดยไม่รับแพ็กเก็ต
+## Windows native Bypass ในห้องทดสอบแยก
+
+Windows Server 2025 x64 runner ใช้ไดรเวอร์อ้างอิง WFP ของ Mullvad ที่ผ่านการตรวจลายเซ็น พร้อม Wintun และ Hysteria 2 fixture ใน VM เดียวกัน โปรแกรมทดสอบสามตัวใช้ไบนารีเดียวกันคนละ path และเปิด socket ปกติไปที่ IP และพอร์ตเดียวกันต่อโปรโตคอล ก่อนเปิด WFP กฎใน Wintun ตั้งให้ Block ทั้งโปรแกรม Bypass และโปรแกรม Block เพื่อใช้ตรวจว่ามีเพียงโปรแกรมที่ WFP ยกเว้นเท่านั้นที่ออกได้ [ผลทดสอบ 44780593567](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/44780593567)
+
+| ช่วงทดสอบ | Bypass | Tunnel | Block |
+| --- | --- | --- | --- |
+| เปิด Wintun ก่อนเปิดกฎ WFP | เข้า Wintun และถูกบล็อก | ส่งผ่าน Wintun ได้ | ถูกบล็อก |
+| เปิดกฎ WFP | รับส่งผ่าน NIC เดิมได้ | ส่งผ่าน Wintun ได้ | ถูกบล็อก |
+| ถอดกฎ WFP | กลับเข้า Wintun และถูกบล็อก | ส่งผ่าน Wintun ได้ | ถูกบล็อก |
+
+ผลตรงกันทั้ง IPv4 TCP/TLS และ UDP/STUN โดยตรวจ source IP จาก socket, ผลตอบกลับปลายทาง และสถานะยกเว้นของ PID จาก kernel ใช้ Wintun core เดิมตลอดการเปรียบเทียบ หลังหยุดทดสอบ adapter ยังใช้ GUID เดิม ไม่มี IP ของ TUN ค้าง ค่า Windows proxy ตรงกับก่อนทดสอบ และถอนบริการไดรเวอร์สำเร็จ รอบแรกพบ `FWP_E_WRONG_SESSION` ตอน callout อ้างถึง sublayer จาก dynamic session อื่น รอบที่ผ่านใช้ sublayer แบบ nonpersistent และลบตามลำดับหลัง reset [ผลรอบแรก](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/44779693437) · [Windows WFP error codes](https://learn.microsoft.com/en-us/windows/win32/fwp/wfp-error-codes)
+
+หลักฐานรอบนี้ครอบคลุม socket และการตอบกลับภายใต้กฎควบคุม การจับแพ็กเก็ตที่ NIC กับ Wintun, shared DNS, IPv6, การสลับ LAN/Wi-Fi, ZeroTier/Tailscale และ cleanup เมื่อ process crash ยังต้องตรวจแยก การทดสอบนี้ยังไม่มีตัวเลข latency สำหรับ native Bypass โค้ดทดสอบอยู่ใน `codex/windows-wfp-lab` และเปิดใช้เฉพาะ build ของ runner
