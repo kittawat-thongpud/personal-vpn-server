@@ -47,6 +47,27 @@ class PolicyTest {
     }
     @Test(expected = IllegalArgumentException::class) fun bulkSelectionCannotOverrideOwnControlPackage() { AppRules.apply(Policy(), setOf("org.example.app", EngineConfig.APP), Action.Block) }
     @Test(expected = IllegalArgumentException::class) fun bulkSelectionCannotStoreRulesOffAsAnAction() { AppRules.apply(Policy(), setOf("org.example.app"), Action.Disabled) }
+    @Test fun nativeExclusionRequiresOptInForTheWholeUidAndDoesNotMigrateLegacyBypass() {
+        val first = "org.example.first"; val second = "org.example.second"
+        val legacy = AppRules.apply(Policy(Action.Tunnel), setOf(first), Action.Bypass)
+        val partial = AppRules.apply(legacy, setOf(first), Action.Exclude)
+        val whole = AppRules.apply(partial, setOf(second), Action.Exclude)
+        val owner: (String) -> AppOwner = { AppOwnership.resolve(10101, listOf(first, second)) }
+        assertEquals(emptyList<String>(), CaptureBypass.resolve(legacy, false, owner))
+        assertEquals(emptyList<String>(), CaptureBypass.resolve(whole.copy(mode = Action.Disabled), true, owner))
+        assertEquals("shared_uid", assertThrows(CaptureBypassUnavailable::class.java) { CaptureBypass.resolve(partial, false, owner) }.code)
+        assertEquals("lockdown", assertThrows(CaptureBypassUnavailable::class.java) { CaptureBypass.resolve(whole, true, owner) }.code)
+        assertEquals("package_unavailable", assertThrows(CaptureBypassUnavailable::class.java) {
+            CaptureBypass.resolve(whole, false) { AppOwnership.resolve(-1, emptyList()) }
+        }.code)
+        assertEquals(listOf(first, second), CaptureBypass.resolve(whole, false, owner))
+        val p = profile(); val config = Config(listOf(p), p.id, apps = whole)
+        assertEquals(config, Config.parse(config.json().toString()))
+        val rules = JSONObject(EngineConfig.compile(config, "192.0.2.1")).getJSONObject("route").getJSONArray("rules").objects()
+        assertEquals("reject", rules.single { it.optJSONArray("package_name").strings() == listOf(first) }.getString("action"))
+        assertThrows(IllegalArgumentException::class.java) { EngineConfig.compile(config.copy(apps = whole.copy(mode = Action.Exclude)), "192.0.2.1") }
+        assertThrows(IllegalArgumentException::class.java) { SiteTargets.validate(Policy(rules = listOf(Rule("example.com", Action.Exclude)))) }
+    }
     @Test fun androidFrameworkPackageIsAValidSystemAppException() {
         val policy = AppRules.apply(Policy(Action.Tunnel), setOf("android"), Action.Block)
         val p = profile()

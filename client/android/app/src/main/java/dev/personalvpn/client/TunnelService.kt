@@ -39,6 +39,8 @@ class TunnelService : VpnService() {
     private var cycle: Job? = null
     @Volatile private var core: Core? = null
     @Volatile private var tun: ParcelFileDescriptor? = null
+    @Volatile private var requestedExclusions = emptyList<String>()
+    private var appliedExclusions = emptyList<String>()
     @Volatile private var appRulesEnabled = false
     @Volatile private var ownerNotices = OwnerNotices()
     @Volatile private var desired = false
@@ -88,11 +90,17 @@ class TunnelService : VpnService() {
             ownerNotices = OwnerNotices()
             while (currentCoroutineContext().isActive && desired && !destroyed) { try {
                 try { EngineConfig.validate(config) } catch (_: Exception) { throw SessionBlocked("configuration") }
+                requestedExclusions = CaptureBypass.resolve(config.apps, isLockdownEnabled, packageManager)
                 superviseRecovery({ desired && !destroyed }, { runSession(config) }, { attempt, error ->
                     Repository.log("ERROR", "worker.restarting", "Attempt $attempt; reason=${Repository.cause(error)}; capture retained.")
                     update("Reconnecting", true, true, "Recovery worker restarting")
                 }, { attempt -> delay(backoff(attempt)) })
             } catch (cancel: CancellationException) { throw cancel }
+            catch (blocked: CaptureBypassUnavailable) {
+                Repository.log("WARN", "capture.bypass_unavailable", blocked.code)
+                update("Error", tun != null, false, blocked.message.orEmpty())
+                awaitCancellation()
+            }
             catch (blocked: SessionBlocked) {
                 if (blocked.category == "configuration") {
                     Repository.log("ERROR", "backend.action_required", blocked.category)
@@ -176,6 +184,7 @@ class TunnelService : VpnService() {
                                 if(Repository.instrumentedDiagnostics && Repository.instrumentedConnectHold)awaitCancellation()
                                 val resolved = resolveEndpoint(physical.network, config.selectedProfile().endpoint(config.protocol))
                                 checkEpoch(epoch)
+                                 requestedExclusions = CaptureBypass.resolve(config.apps, isLockdownEnabled, packageManager)
                                 val content = EngineConfig.compile(config, resolved.hostAddress!!, Repository.instrumentedCertificate != null)
                                 phase = "core_start"
                                 Personalvpn.check(content)
@@ -198,7 +207,8 @@ class TunnelService : VpnService() {
                     currentCoroutineContext().ensureActive()
                     if (networkEpoch.generation == epoch.generation) throw IOException("Network cycle cancelled unexpectedly", cancel)
                     Repository.log("INFO", "network.stale_discarded", "Discarded work for generation=${epoch.generation}")
-                } catch (blocked: SessionBlocked) { throw blocked }
+                 } catch (blocked: SessionBlocked) { throw blocked }
+                 catch (blocked: CaptureBypassUnavailable) { throw blocked }
                 catch (error: Exception) {
                     if (networkEpoch.generation != epoch.generation) continue
                     attempt++
@@ -315,6 +325,7 @@ class TunnelService : VpnService() {
     }
     @Synchronized private fun closeCapture() {
         val previous = tun; tun = null
+        appliedExclusions = emptyList()
         runCatching { previous?.close() }.onFailure { Repository.log("WARN", "capture.close_failed", it.javaClass.simpleName) }
         if (ownsSession) runCatching { setUnderlyingNetworks(null) }
         if (previous != null) Repository.log("INFO", "capture.released")
@@ -343,15 +354,22 @@ class TunnelService : VpnService() {
         }
     }
     @Synchronized private fun openTun(mtu: Int): Int {
-        tun?.let { return it.fd }
+        val exclusions = requestedExclusions
+        val previous = tun
+        if (previous != null && appliedExclusions == exclusions) return previous.fd
         val epoch = networkEpoch
         val builder = Builder().setSession("Personal VPN").setMtu(mtu).addAddress("172.29.255.1", 30).addAddress("fd66:706e:1::1", 126).addRoute("0.0.0.0", 0).addRoute("::", 0).addDnsServer("172.29.255.2").setBlocking(false).setMetered(false)
+        exclusions.forEach { builder.addDisallowedApplication(it) }
         builder.setUnderlyingNetworks(epoch.physical?.let { arrayOf(it.network) } ?: emptyArray())
         builder.setConfigureIntent(android.app.PendingIntent.getActivity(this, 10, Intent(this, MainActivity::class.java), android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE))
-        tun = builder.establish() ?: error("Android VPN consent was revoked")
+        val current = builder.establish() ?: error("Android VPN consent was revoked")
+        tun = current
+        appliedExclusions = exclusions
+        runCatching { previous?.close() }.onFailure { Repository.log("WARN", "capture.close_failed", it.javaClass.simpleName) }
         applyUnderlying(networkEpoch)
-        Repository.log("INFO", "capture.established", "IPv4 and IPv6 capture; all app rules run inside the core.")
-        return tun!!.fd
+        Repository.log("INFO", "capture.established", "IPv4 and IPv6 capture; ${exclusions.size} apps excluded by Android.")
+        if (previous != null || exclusions.isNotEmpty()) Repository.log("INFO", "capture.bypass_applied", "Android exclusion count: ${exclusions.size}.")
+        return current.fd
     }
     private fun protectSocket(fd: Int) {
         check(super.protect(fd)) { "Socket protection failed" }

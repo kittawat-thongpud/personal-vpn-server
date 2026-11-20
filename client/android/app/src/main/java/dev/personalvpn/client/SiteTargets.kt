@@ -48,10 +48,11 @@ internal object SiteTargets {
         return "$host/$prefix"
     }
     fun validate(policy: Policy) {
+        require(policy.mode != Action.Exclude) { "Bypass VPN is only available for App Tunnel exceptions." }
         require(policy.rules.size<=LIMIT) { "Use at most 500 site groups." }
         val unique=mutableSetOf<String>();var count=0
         policy.rules.forEach { rule ->
-            require(rule.action!=Action.Disabled && rule.name.length<=80 && rule.name.none { it.isISOControl() }) { "Invalid action or site name (maximum 80 characters)." }
+            require(rule.action!=Action.Disabled && rule.action!=Action.Exclude && rule.name.length<=80 && rule.name.none { it.isISOControl() }) { "Invalid action or site name (maximum 80 characters)." }
             parse(rule.kind,rule.target).forEach { target -> require(unique.add("${rule.kind}:$target")) { "A site target already exists in another group." };count++ }
         }
         require(count<=LIMIT) { "Use at most 500 targets across site groups." }

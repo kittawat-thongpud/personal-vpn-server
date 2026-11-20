@@ -29,6 +29,7 @@ internal suspend fun superviseRecovery(desired: () -> Boolean, run: suspend () -
             failures++; failed(failures, IllegalStateException("Recovery worker cancelled unexpectedly", cancel)); wait(failures)
         }
         catch (blocked: SessionBlocked) { throw blocked }
+        catch (blocked: CaptureBypassUnavailable) { throw blocked }
         catch (error: Exception) { failures++; failed(failures, error); wait(failures) }
     }
 }

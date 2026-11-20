@@ -46,7 +46,7 @@ import androidx.compose.ui.unit.sp
         if(policy.rules.isEmpty()) Text("No site groups yet.",color=MaterialTheme.colorScheme.onSurfaceVariant)
         if(policy.mode==Action.Disabled) Text("Rules off · saved exceptions are ignored.",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
     }
-    if(modeOpen) VpnSheet("Default site action",{modeOpen=false}) { Action.entries.forEach { mode -> TextButton(onClick={if(changed(policy.copy(mode=mode)))modeOpen=false},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text(modeLabel(mode)) } } }
+    if(modeOpen) VpnSheet("Default site action",{modeOpen=false}) { Action.entries.filter { it != Action.Exclude }.forEach { mode -> TextButton(onClick={if(changed(policy.copy(mode=mode)))modeOpen=false},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text(modeLabel(mode)) } } }
     editing?.let { index ->
         val original=policy.rules.getOrNull(index)
         SiteGroupSheet(original,error,{editing=null}) { rule ->

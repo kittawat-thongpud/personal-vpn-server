@@ -103,7 +103,8 @@ class TunnelInstrumentedTest {
         // label. Require health for the latest generation, not that stale label.
         return Repository.state.value.status=="Connected" && events.any { it.code=="health.verified" && it.detail.startsWith("generation=$generation;") }
     }
-    private fun probe(udp: Boolean = false,direct: Boolean = false): Boolean {
+    private fun probe(udp: Boolean = false,direct: Boolean = false): Boolean = probeResult(udp, direct).getBoolean("success")
+    private fun probeResult(udp: Boolean = false,direct: Boolean = false): JSONObject {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         device.executeShellCommand("am force-stop dev.personalvpn.probe")
         device.executeShellCommand("run-as dev.personalvpn.probe rm -f files/result.json")
@@ -111,7 +112,7 @@ class TunnelInstrumentedTest {
         device.executeShellCommand("am start -W -n dev.personalvpn.probe/.ProbeActivity --ez udp $udp --ez direct $direct --es ca $ca")
         var result: JSONObject? = null
         waitFor("Companion network probe", 20) { val text = device.executeShellCommand("run-as dev.personalvpn.probe cat files/result.json"); result = runCatching { JSONObject(text) }.getOrNull(); result != null }
-        return result!!.getBoolean("success")
+        return result!!
     }
     @Suppress("DEPRECATION")
     private fun stoppedCompletely(): Boolean {
@@ -327,7 +328,7 @@ class TunnelInstrumentedTest {
                 device.takeScreenshot(java.io.File(context.filesDir, "app-tunnel.png"))
                 selectBoth()
                 clickFresh(By.text("Choose action"))
-                clickFresh(By.text("Bypass"))
+                clickFresh(By.text("Direct via TUN"))
                 clickFresh(By.text("Apply to 2 apps"))
                 waitFor("Bulk App Bypass replaces rules", 10) { Repository.config.value.apps.rules.size == 2 && Repository.config.value.apps.rules.all { it.action == Action.Bypass } }
                 selectBoth()
@@ -437,6 +438,26 @@ class TunnelInstrumentedTest {
             assertTrue("Exception on the other package of the same UID must match",probe())
             println("Policy verified: real shared UID retains App priority and Block wins in either edit order")
             assertEquals(firstName, captureName())
+            val blockPrivate = Policy(Action.Tunnel, listOf(Rule("10.0.2.2", Action.Block, "IP")))
+            fun applyAndWait(label: String) {
+                Repository.save(config); TunnelService.command(context, TunnelService.RECONNECT)
+                waitFor(label) { Repository.state.value.status == "Connected" && Repository.state.value.appliedConfig == config.fingerprint() }
+            }
+            val packages = listOf("dev.personalvpn.probe", "dev.personalvpn.probe.alias")
+            config = config.copy(apps = Policy(Action.Tunnel, packages.map { Rule(it, Action.Exclude, "App") }), sites = blockPrivate)
+            applyAndWait("Apply OS-level App Bypass")
+            assertTrue("Tunnel capture remains active for the protected health UID", captureName() != null)
+            for (udp in listOf(false, true)) {
+                val result = probeResult(udp = udp, direct = true)
+                assertTrue("Native Bypass uses the physical network: $result", result.getBoolean("networkKnown") && !result.getBoolean("usesVpn"))
+                assertTrue("Physical traffic reaches the same address that Site Tunnel blocks: $result", result.getBoolean("success"))
+            }
+            config = config.copy(apps = Policy(Action.Tunnel))
+            applyAndWait("Remove OS-level App Bypass")
+            val restored = probeResult(direct = true)
+            assertTrue("Removing the exclusion captures that UID again: $restored", restored.getBoolean("usesVpn"))
+            assertFalse("Site Block works again for the formerly excluded app", restored.getBoolean("success"))
+            println("Policy verified: OS-level Bypass excludes the shared companion UID for HTTPS and UDP, and removal restores capture and Site Block")
         } finally {
             device.executeShellCommand("svc data enable"); device.executeShellCommand("svc wifi enable")
             // Bring the app foreground before sending our widget capability:

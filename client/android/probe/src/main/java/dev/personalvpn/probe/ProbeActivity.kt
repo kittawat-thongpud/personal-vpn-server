@@ -1,5 +1,7 @@
 package dev.personalvpn.probe
 import android.app.Activity
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Bundle
 import org.json.JSONObject
 import java.net.DatagramPacket
@@ -14,9 +16,11 @@ class ProbeActivity : Activity() {
         val direct = intent.getBooleanExtra("direct", false)
         val certificatePEM = intent.getStringExtra("ca")?.let { String(java.util.Base64.getDecoder().decode(it)) } ?: error("CI certificate missing")
         Thread {
+            val cm = getSystemService(ConnectivityManager::class.java)
+            val caps = cm.getNetworkCapabilities(cm.activeNetwork)
             val result = try {
                 if (udp) {
-                    DatagramSocket().use { socket -> socket.soTimeout = 7000; val data = "personal-vpn-udp".toByteArray(); socket.send(DatagramPacket(data, data.size, InetAddress.getByName("198.18.0.1"), 19000)); val response = DatagramPacket(ByteArray(64), 64); socket.receive(response); check(String(response.data, 0, response.length) == String(data)) }
+                    DatagramSocket().use { socket -> socket.soTimeout = 7000; val data = "personal-vpn-udp".toByteArray(); socket.send(DatagramPacket(data, data.size, InetAddress.getByName(if (direct) "10.0.2.2" else "198.18.0.1"), 19000)); val response = DatagramPacket(ByteArray(64), 64); socket.receive(response); check(String(response.data, 0, response.length) == String(data)) }
                     JSONObject().put("success", true).put("status", 200)
                 } else {
                     val c = java.net.URL(if(direct)"https://10.0.2.2:18445/generate_204" else "https://fixture.local:18445/generate_204").openConnection() as HttpsURLConnection
@@ -28,6 +32,7 @@ class ProbeActivity : Activity() {
                     try { val status = c.responseCode; JSONObject().put("success", status == 204).put("status", status) } finally { c.disconnect() }
                 }
             } catch (e: Exception) { JSONObject().put("success", false).put("error", e.javaClass.simpleName) }
+            result.put("networkKnown", caps != null).put("usesVpn", caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true)
             java.io.File(filesDir, "result.json").writeText(result.toString())
             runOnUiThread { finish() }
         }.start()

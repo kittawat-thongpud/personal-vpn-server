@@ -19,7 +19,7 @@ internal object AppOwnership {
     // A socket identifies a UID, not an individual package inside a shared UID.
     // Conflicting explicit exceptions must not depend on the list's edit order.
     fun orderedRules(rules: List<Rule>) = rules.sortedBy { when (it.action) {
-        Action.Block -> 0; Action.Tunnel -> 1; Action.Bypass -> 2; Action.Disabled -> 3
+        Action.Block -> 0; Action.Exclude -> 1; Action.Tunnel -> 2; Action.Bypass -> 3; Action.Disabled -> 4
     } }
 }
 
