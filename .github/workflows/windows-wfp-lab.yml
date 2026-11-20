@@ -1,5 +1,7 @@
 name: Windows WFP bypass lab
 on:
+  push:
+    branches: [codex/windows-wfp-lab]
   workflow_dispatch:
     inputs:
       check:
@@ -21,7 +23,7 @@ jobs:
         shell: pwsh
         run: ./client/windows/lab/wfp-reference-driver.ps1 -Action Start
       - name: Verify device and unload without installing filters
-        if: ${{ inputs.check == 'driver-load' }}
+        if: ${{ inputs.check != 'process-path' }}
         shell: pwsh
         run: ./client/windows/lab/wfp-reference-driver.ps1 -Action Probe
       - name: Run process-path matrix
