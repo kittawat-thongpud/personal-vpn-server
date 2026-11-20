@@ -120,7 +120,7 @@ public sealed class OwnedCore : IDisposable
                         string sample = timingLine.ToString().TrimEnd('\r'); timingLine.Clear();
                         var fields = sample.Split(' ');
                         if (fields.Length == 3 && fields[0] == "pvn-path" &&
-                            fields[1] is ("policy_tcp" or "policy_udp" or "adapter_route" or "socket_dial" or "socket_dial_parallel" or "socket_udp" or "socket_udp_serial") &&
+                            fields[1] is ("policy_tcp" or "policy_udp" or "adapter_route" or "adapter_default" or "socket_dial" or "socket_udp") &&
                             long.TryParse(fields[2], out long ns) && ns >= 0)
                             log.Add("INFO", "backend.path_timing_native", fields[1] + " " + ns.ToString(System.Globalization.CultureInfo.InvariantCulture));
                     }

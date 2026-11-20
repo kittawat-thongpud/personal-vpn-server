@@ -43,31 +43,32 @@ try {
     }
     $package = New-Item -ItemType Directory -Path (Join-Path $source 'common/pvnpath')
     Copy-Item -LiteralPath (Join-Path $patchRoot 'path_timing.go') -Destination $package.FullName
-    $networkText = (Add-PathTiming $networkText).Replace($needle, ("`t`t`t" + 'if remoteAddr.IsValid() { defer pvnpath.Start("adapter_route")(); return tun.PersonalVPNBypassInterface(remoteAddr, r.interfaceMonitor.MyInterfaces()) }' + "`n" + $needle))
+    $networkText = (Add-PathTiming $networkText).Replace($needle, ("`t`t`t" + 'if remoteAddr.IsValid() { defer pvnpath.Start("adapter_route")(); return tun.PersonalVPNBypassInterface(remoteAddr, r.interfaceMonitor.MyInterfaces()) }' + "`n`t`t`t" + 'defer pvnpath.Start("adapter_default")()' + "`n" + $needle))
     [IO.File]::WriteAllText($networkFile,$networkText)
     $routeFile = Join-Path $source 'route/route.go'
     $routeText = Add-PathTiming ([IO.File]::ReadAllText($routeFile).Replace("`r`n","`n"))
     $routeText = Replace-TimingNeedle $routeText 'fatalErr = r.prepareMatchMetadata(ctx, metadata)' ('defer pvnpath.Start("policy_" + metadata.Network)()' + "`n`t" + 'fatalErr = r.prepareMatchMetadata(ctx, metadata)')
     [IO.File]::WriteAllText($routeFile, $routeText)
-    $directFile = Join-Path $source 'protocol/direct/outbound.go'
-    $directText = Add-PathTiming ([IO.File]::ReadAllText($directFile).Replace("`r`n","`n"))
-    foreach ($hook in @(
-        @('return h.dialer.DialContext(ctx, network, destination)', 'socket_dial'),
-        @('conn, err := h.dialer.ListenPacket(ctx, destination)', 'socket_udp'),
-        @('return dialer.DialParallelNetwork(ctx, h.dialer, network, destination, destinationAddresses, len(destinationAddresses) > 0 && destinationAddresses[0].Is6(), nil,', 'socket_dial_parallel'),
-        @('return dialer.DialParallelNetwork(ctx, h.dialer, network, destination, destinationAddresses, len(destinationAddresses) > 0 && destinationAddresses[0].Is6(), networkStrategy,', 'socket_dial_parallel'),
-        @('conn, newDestination, err := dialer.ListenSerialNetworkPacket', 'socket_udp_serial')
-    )) {
-        $directText = Replace-TimingNeedle $directText $hook[0] (('defer pvnpath.Start("' + $hook[1] + '")()') + "`n`t" + $hook[0])
-    }
-    [IO.File]::WriteAllText($directFile, $directText)
+    $connFile = Join-Path $source 'route/conn.go'
+    $connText = Add-PathTiming ([IO.File]::ReadAllText($connFile).Replace("`r`n","`n"))
+    $needleTcp = "`tif len(metadata.DestinationAddresses) > 0 || metadata.Destination.IsIP() {"
+    $connText = Replace-TimingNeedle $connText $needleTcp ("`t" + 'finishDial := pvnpath.Direct(metadata.RouteOutbound, "socket_dial")' + "`n" + $needleTcp)
+    $tcpEnd = $connText.IndexOf("`n`tif err != nil {", $connText.IndexOf($needleTcp))
+    if ($tcpEnd -lt 0) { throw 'Pinned TCP dial timing endpoint changed' }
+    $connText = $connText.Insert($tcpEnd, "`n`tfinishDial()")
+    $udpStart = "`tif metadata.UDPConnect {"
+    $connText = Replace-TimingNeedle $connText $udpStart ("`t" + 'finishDial := pvnpath.Direct(metadata.RouteOutbound, "socket_udp")' + "`n" + $udpStart)
+    $udpEnd = $connText.IndexOf("`n`terr = N.ReportPacketConnHandshakeSuccess", $connText.IndexOf($udpStart))
+    if ($udpEnd -lt 0) { throw 'Pinned UDP setup timing endpoint changed' }
+    $connText = $connText.Insert($udpEnd, "`n`tfinishDial()")
+    [IO.File]::WriteAllText($connFile, $connText)
     $native = Join-Path $source 'vendor/github.com/sagernet/sing-tun'
     foreach ($name in @('personalvpn_route_windows.go','personalvpn_route_windows_test.go','tun_bind_windows.go')) {
         Copy-Item -LiteralPath (Join-Path $patchRoot $name) -Destination (Join-Path $native $name)
     }
     gofmt -w $file
     if ($LASTEXITCODE -ne 0) { throw 'TUN patch formatting failed' }
-    gofmt -w $networkFile $routeFile $directFile (Join-Path $package.FullName 'path_timing.go') $native/personalvpn_route_windows.go $native/personalvpn_route_windows_test.go $native/tun_bind_windows.go
+    gofmt -w $networkFile $routeFile $connFile (Join-Path $package.FullName 'path_timing.go') $native/personalvpn_route_windows.go $native/personalvpn_route_windows_test.go $native/tun_bind_windows.go
     if ($LASTEXITCODE -ne 0) { throw 'Route patch formatting failed' }
     Copy-Item $file (Join-Path (Split-Path $Destination) 'TUN-SOURCE.txt')
     foreach ($name in @('personalvpn_route_windows.go','tun_bind_windows.go')) { Copy-Item (Join-Path $native $name) (Join-Path (Split-Path $Destination) ($name + '.txt')) }

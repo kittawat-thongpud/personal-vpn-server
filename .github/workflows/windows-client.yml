@@ -101,6 +101,28 @@ jobs:
           $p = Start-Process (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--local-proxy-integration','--report',$report) -PassThru -Wait -WindowStyle Hidden
           Get-Content $report
           if ($p.ExitCode -ne 0) { throw 'Proxy integration failed' }
+      - name: Compare Windows TUN stacks with a verified Direct rule
+        if: ${{ inputs.path_timing_lab }}
+        shell: pwsh
+        run: |
+          $services = @(Get-Service -Name SharedAccess,icssvc,RemoteAccess -ErrorAction SilentlyContinue | Where-Object Status -eq Running)
+          try {
+            foreach ($service in $services) { Stop-Service -Name $service.Name -Force -ErrorAction Stop }
+            $report = "$env:RUNNER_TEMP/tun-path-lab.json"
+            $p = Start-Process (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--local-tun-path-lab','--report',$report) -PassThru -WindowStyle Hidden
+            if (-not $p.WaitForExit(240000)) { $p.Kill(); throw 'TUN path timing lab exceeded its deadline' }
+            if (Test-Path $report) { Get-Content $report }
+            if ($p.ExitCode -ne 0) { throw 'TUN path timing lab failed' }
+          } finally {
+            foreach ($service in $services | Sort-Object { if ($_.Name -eq 'SharedAccess') { 0 } else { 1 } }) { Start-Service -Name $service.Name -ErrorAction Continue }
+          }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ always() && !cancelled() && inputs.path_timing_lab }}
+        with:
+          name: windows-tun-path-${{ matrix.arch }}
+          path: ${{ runner.temp }}/tun-path-lab.json
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Verify Home, logs, tray menu and TUN plan
         shell: pwsh
         run: |
@@ -114,8 +136,6 @@ jobs:
           Compress-Archive "$output/*.png" "dist/PersonalVPN-ui-preview-$env:CLIENT_VERSION-${{ matrix.arch }}.zip"
       - name: Verify physical flags, crash recovery and real TUN capture on isolated runner
         shell: pwsh
-        env:
-          PATH_TIMING_LAB: ${{ inputs.path_timing_lab }}
         run: |
           # This fixture deliberately enables forwarding to reproduce the LAN
           # binding failure. Hosted runners can have unrelated sharing services
@@ -134,23 +154,9 @@ jobs:
             if (-not $finished) { $p.Kill(); Start-Sleep -Seconds 5; throw 'TUN integration exceeded its deadline' }
             Get-Content $report
             if ($p.ExitCode -ne 0) { throw 'TUN integration failed' }
-            if ($env:PATH_TIMING_LAB -eq 'true') {
-              $report = "$env:RUNNER_TEMP/tun-path-lab.json"
-              $p = Start-Process (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--local-tun-path-lab','--report',$report) -PassThru -WindowStyle Hidden
-              if (-not $p.WaitForExit(240000)) { $p.Kill(); throw 'TUN path timing lab exceeded its deadline' }
-              if (Test-Path $report) { Get-Content $report }
-              if ($p.ExitCode -ne 0) { throw 'TUN path timing lab failed' }
-            }
           } finally {
             foreach ($service in $services | Sort-Object { if ($_.Name -eq 'SharedAccess') { 0 } else { 1 } }) { Start-Service -Name $service.Name -ErrorAction Continue }
           }
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: ${{ always() && !cancelled() && inputs.path_timing_lab }}
-        with:
-          name: windows-tun-path-${{ matrix.arch }}
-          path: ${{ runner.temp }}/tun-path-lab.json
-          if-no-files-found: ignore
-          retention-days: 7
       - name: Build Windows installer
         # Compilation is independent of UI input tests. Keep its diagnostics
         # available on failed qualifications; release still requires all gates.

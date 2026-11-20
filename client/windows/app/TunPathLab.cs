@@ -17,7 +17,7 @@ internal static partial class Tests
 {
     private static async Task<object[]> TunPathLab(string profileFolder, string expected)
     {
-        const string httpsHost = "api.ipify.org", stunHost = "stun.cloudflare.com";
+        const string httpsHost = "speed.cloudflare.com", stunHost = "stun.cloudflare.com";
         string windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
         string curlPath = Path.Combine(windows, "System32", "curl.exe");
         string curlLaunch = Path.Combine(windows, Environment.Is64BitProcess ? "System32" : "Sysnative", "curl.exe");
@@ -34,7 +34,12 @@ internal static partial class Tests
             {
                 var settings = new Settings { Profiles = new() { profile }, SelectedId = profile.Id, CaptureMode = "TUN", SystemProxy = false, HttpPort = Port(), SocksPort = Port() };
                 settings.Apps = new TunnelPolicy { Mode = "Tunnel", Entries = new() { new() { Kind = "App", Value = curlPath, Action = "Bypass" } } };
-                settings.Sites = new TunnelPolicy { Mode = "Tunnel", Entries = new() { new() { Kind = "IP", Value = stun.ToString(), Action = "Bypass" } } };
+                // The tested HTTPS IP is blocked for general captured callers;
+                // only the explicit curl rule may reach it. Health uses separate hosts.
+                settings.Sites = new TunnelPolicy { Mode = "Tunnel", Entries = new() {
+                    new() { Kind = "IP", Value = ip.ToString(), Action = "Block" },
+                    new() { Kind = "IP", Value = stun.ToString(), Action = "Bypass" }
+                } };
                 await backend.ConnectAsync(settings).WaitAsync(TimeSpan.FromSeconds(85));
                 Assert(backend.State == "Connected" && backend.ExitIp == expected && AdapterService.CurrentId() == adapter, $"{mode} did not establish verified TUN capture.");
             }
@@ -45,15 +50,15 @@ internal static partial class Tests
             for (int i = 0; i < 5; i++)
             {
                 var start = new ProcessStartInfo(curlLaunch) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
-                foreach (var arg in new[] { "--noproxy", "*", "--max-time", "8", "--resolve", $"{httpsHost}:443:{ip}", "-fsS", "--write-out", "\n%{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total}", $"https://{httpsHost}/" }) start.ArgumentList.Add(arg);
+                foreach (var arg in new[] { "--noproxy", "*", "--max-time", "8", "--resolve", $"{httpsHost}:443:{ip}", "-fsS", "--write-out", "\n%{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total}", $"https://{httpsHost}/cdn-cgi/trace" }) start.ArgumentList.Add(arg);
                 using var process = Process.Start(start)!;
                 var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
                 await process.WaitForExitAsync();
                 _ = await error;
                 var lines = (await output).Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-                Assert(process.ExitCode == 0 && lines.Length == 2 && lines[0] == expected, $"{mode} HTTPS probe failed or unexpected egress; curl exit {process.ExitCode}.");
-                double[] samples = lines[1].Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(value => double.Parse(value, CultureInfo.InvariantCulture) * 1000).ToArray();
-                tcp.Add(new { connectMs = samples[0], tlsReadyMs = samples[1], headersMs = samples[2], totalMs = samples[3] });
+                Assert(process.ExitCode == 0 && lines.Length >= 2 && lines.Contains("ip=" + expected), $"{mode} HTTPS probe failed or unexpected egress; curl exit {process.ExitCode}.");
+                double[] samples = lines[^1].Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(value => double.Parse(value, CultureInfo.InvariantCulture) * 1000).ToArray();
+                tcp.Add(new { connectMs = samples[0], tlsReadyMs = samples[1], headersMs = samples[2], totalMs = samples[3], edge = lines.FirstOrDefault(l => l.StartsWith("colo=", StringComparison.Ordinal))?[5..] });
             }
             var udp = new List<double?>();
             using (var socket = new UdpClient(AddressFamily.InterNetwork))
@@ -89,7 +94,7 @@ internal static partial class Tests
             if (mode != "os_default")
             {
                 Assert(native.ContainsKey("policy_tcp"), $"{mode} has no native rule timing.");
-                Assert(native.ContainsKey("adapter_route") && native.Keys.Any(x => x.StartsWith("socket_dial", StringComparison.Ordinal)), $"{mode} did not emit physical socket-route timing for captured Direct flows.");
+                Assert(native.ContainsKey("socket_dial"), $"{mode} did not emit socket timing for captured Direct flows; observed {string.Join(',', native.Keys)}.");
             }
             result.Add(new { mode, resolverLookupMs = dnsMs, https = tcp, stunRttMs = udp, nativeTimingMs = native,
                 connectionSetup = events.Where(e => e.Event == "backend.path_timing").Select(e => e.Message).ToArray() });

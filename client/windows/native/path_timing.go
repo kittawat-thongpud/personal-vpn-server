@@ -22,3 +22,10 @@ func Start(stage string) func() {
 	start := time.Now()
 	return func() { fmt.Fprintf(os.Stderr, "pvn-path %s %d\n", stage, time.Since(start).Nanoseconds()) }
 }
+
+func Direct(outbound, stage string) func() {
+	if outbound != "direct" {
+		return noop
+	}
+	return Start(stage)
+}
