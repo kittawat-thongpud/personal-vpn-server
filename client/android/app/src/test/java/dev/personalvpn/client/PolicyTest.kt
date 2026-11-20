@@ -63,6 +63,9 @@ class PolicyTest {
         assertEquals(listOf(first, second), CaptureBypass.resolve(whole, false, owner))
         val p = profile(); val config = Config(listOf(p), p.id, apps = whole)
         assertEquals(config, Config.parse(config.json().toString()))
+        val persisted = whole.json().getJSONArray("rules").getJSONObject(0)
+        assertEquals("Block", persisted.getString("action"))
+        assertTrue(persisted.getBoolean("outsideVpn"))
         val rules = JSONObject(EngineConfig.compile(config, "192.0.2.1")).getJSONObject("route").getJSONArray("rules").objects()
         assertEquals("reject", rules.single { it.optJSONArray("package_name").strings() == listOf(first) }.getString("action"))
         assertThrows(IllegalArgumentException::class.java) { EngineConfig.compile(config.copy(apps = whole.copy(mode = Action.Exclude)), "192.0.2.1") }

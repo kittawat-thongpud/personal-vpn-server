@@ -10,12 +10,20 @@ import java.util.UUID
 enum class Action { Tunnel, Bypass, Block, Disabled, Exclude }
 data class Rule(val target: String, val action: Action, val kind: String = "Domain", val name: String = "") {
     val displayName: String get()=name.ifBlank { target }
-    fun json() = JSONObject().put("target", target).put("action", action.name).put("kind", kind).put("name",name)
+    // Older clients can still read the store after a downgrade. They see Block
+    // for this app until it is edited, rather than silently tunnelling or bypassing.
+    fun json() = JSONObject().put("target", target).put("action", if (action == Action.Exclude) Action.Block.name else action.name)
+        .put("kind", kind).put("name",name).apply { if (action == Action.Exclude) put("outsideVpn", true) }
 }
 data class Policy(val mode: Action = Action.Disabled, val rules: List<Rule> = emptyList()) {
     fun json() = JSONObject().put("mode", mode.name).put("rules", JSONArray(rules.map { it.json() }))
     companion object {
-        fun parse(o: JSONObject?) = if (o == null) Policy() else Policy(Action.valueOf(o.getString("mode")), o.optJSONArray("rules").objects().map { Rule(it.getString("target"), Action.valueOf(it.getString("action")), it.optString("kind", "Domain"),it.optString("name","")) })
+        fun parse(o: JSONObject?) = if (o == null) Policy() else Policy(Action.valueOf(o.getString("mode")), o.optJSONArray("rules").objects().map {
+            val action = Action.valueOf(it.getString("action"))
+            val kind = it.optString("kind", "Domain")
+            val outside = kind == "App" && action == Action.Block && it.opt("outsideVpn") == true
+            Rule(it.getString("target"), if (outside) Action.Exclude else action, kind, it.optString("name",""))
+        })
     }
 }
 
@@ -157,7 +165,10 @@ object EngineConfig {
         require(config.apps.mode != Action.Exclude) { "Bypass VPN must select specific apps." }
         require(config.apps.rules.map { it.target }.distinct().size == config.apps.rules.size) { "Duplicate app rule." }
         for (rule in config.apps.rules + config.sites.rules) require(rule.action != Action.Disabled && rule.target.isNotBlank()) { "Invalid rule." }
-        for (rule in config.apps.rules) require(AppRules.validPackage(rule.target) && rule.target != APP) { "Choose an installed app package." }
+        for (rule in config.apps.rules) {
+            require(AppRules.validPackage(rule.target) && rule.target != APP) { "Choose an installed app package." }
+            require(rule.action != Action.Exclude || rule.kind == "App") { "Bypass VPN requires an explicit App rule." }
+        }
         SiteTargets.validate(config.sites)
     }
 }
