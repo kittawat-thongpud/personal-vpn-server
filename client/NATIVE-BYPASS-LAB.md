@@ -15,4 +15,13 @@
 
 Windows ยังใช้ Wintun และ App Direct เดิม ตัววัดเปิดเฉพาะ owned core เมื่อเรียก Windows CI ด้วย `path_timing_lab=true`: จับเวลา resolver, router matching (รวม process lookup และ sniff), physical route lookup, Direct socket dial/UDP socket setup และเวลาตั้ง TUN สำหรับ baseline และ `mixed`/`system` ผลเป็นตัวเลขแบบมีขอบเขต ไม่บันทึกชื่อแอป IP หรือข้อมูลแพ็กเก็ตใน event timing กระบวนการทดสอบจริงใช้ HTTPS และ STUN endpoint เดิมในทุกรอบ; ถ้า UDP สาธารณะถูกบล็อกจะบันทึกผลไม่ตอบโดยไม่ตีความเป็น slowdown ของ stack
 
+[Windows lab 44775178764](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/44775178764) ยืนยัน Direct ผ่าน TUN สำหรับทั้ง `mixed` และ `system` บนทั้งสอง runner เปรียบเทียบเฉพาะภายใน runner เดียวกัน (x64 ไป Cloudflare DFW, x86 บน WOW64 ไป ORD) ค่าด้านล่างเป็นมัธยฐานของ HTTPS 5 ครั้งและ STUN 8 ครั้งต่อทาง ทั้งคู่ตอบ UDP 8/8 ทุกทาง
+
+| Runner | Windows ปกติ HTTPS / UDP | `mixed` HTTPS / UDP | `system` HTTPS / UDP |
+| --- | ---: | ---: | ---: |
+| x64 | 68.3 / 17.9 ms | 77.0 / 18.2 ms | 87.1 / 18.1 ms |
+| x86 app (WOW64) | 29.6 / 1.5 ms | 26.6 / 3.0 ms | 36.2 / 2.7 ms |
+
+HTTPS คือเวลาจากเริ่ม connection ใหม่จนได้ header; UDP คือ round trip ของ STUN โดยไม่ใช้ VPS ข้อมูล route lookup มีมัธยฐาน 0.54–0.58 ms และ policy TCP 0.63–2.82 ms (รวมทราฟฟิกอื่นที่ runner จับได้) ช่วง lease/เตรียม adapter ตอนเริ่มหนึ่ง session ใช้ 2.53–7.58 วินาที จึงเป็นจุดที่ควรแยกวัดต่อสำหรับอาการ reconnect ช้า ไม่ใช่ latency ต่อ packet ผลตัวอย่างนี้ยังไม่สนับสนุนให้เปลี่ยน default จาก `mixed` เพราะ `system` ไม่ได้ลด UDP อย่างชัดเจนและ HTTPS สูงกว่าทั้งสอง runner ยังไม่ได้วัด sustained load, IPv6, throughput หรือพฤติกรรมบน LAN/Wi‑Fi ของผู้ใช้
+
 Windows native Bypass เป็นขั้นถัดไปของห้องทดสอบแยก: deploy ไดรเวอร์ WFP ที่ได้รับอนุญาตให้โหลดใน VM, scope ตาม app identity และคงการเลือกเส้นทาง LAN/Wi‑Fi ตามปลายทาง, หลีกเลี่ยงการยกเว้นตาม IP ทั้งเครื่อง ทดสอบ Bypass/Tunnel/Block จากสามโปรเซสสู่ IP/พอร์ตเดียวกันพร้อมกัน จับ packet headers ทั้ง Wintun และ NIC, ทดสอบ shared system DNS แยก และทดสอบ rollback/crash, IPv4/IPv6, Windows x64/x86 app และ mesh adapters การทดสอบ stack หรือ egress IP อย่างเดียวไม่พิสูจน์การยกเว้น Wintun โดยไม่รับแพ็กเก็ต
