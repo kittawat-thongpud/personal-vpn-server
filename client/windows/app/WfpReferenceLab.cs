@@ -17,6 +17,7 @@ internal sealed class WfpReferenceLab : IDisposable
 {
     private readonly SafeFileHandle device;
     private IntPtr engine;
+    private Guid baseline, dns;
     private bool initialized;
 
     internal WfpReferenceLab()
@@ -26,9 +27,13 @@ internal sealed class WfpReferenceLab : IDisposable
         try
         {
             if (State != 1) throw new InvalidOperationException("Reference driver already has policy.");
-            var session = new Session { Flags = 1 }; // FWPM_SESSION_FLAG_DYNAMIC
+            // The driver registers filters from its own WFP session. Its filters
+            // cannot reference a sublayer owned by another dynamic session.
+            // These nonpersistent sublayers are deleted after the driver resets.
+            var session = new Session();
             Check(FwpmEngineOpen(null, 10, IntPtr.Zero, ref session, out engine), "Open lab WFP session");
-            Guid baseline = AddSublayer(0x4000), dns = AddSublayer(0x4001);
+            baseline = AddSublayer(0x4000);
+            dns = AddSublayer(0x4001);
             initialized = true;
             Control(1, baseline.ToByteArray().Concat(dns.ToByteArray()).ToArray());
             if (State != 2) throw new InvalidOperationException("Driver did not initialize.");
@@ -134,7 +139,17 @@ internal sealed class WfpReferenceLab : IDisposable
         finally
         {
             device.Dispose();
-            if (engine != IntPtr.Zero) { var handle = engine; engine = IntPtr.Zero; Check(FwpmEngineClose(handle), "Close dynamic lab WFP session"); }
+            if (engine != IntPtr.Zero)
+            {
+                var handle = engine;
+                engine = IntPtr.Zero;
+                uint dnsStatus = dns == Guid.Empty ? 0 : FwpmSubLayerDeleteByKey(handle, ref dns);
+                uint baselineStatus = baseline == Guid.Empty ? 0 : FwpmSubLayerDeleteByKey(handle, ref baseline);
+                uint closeStatus = FwpmEngineClose(handle);
+                Check(dnsStatus, "Remove lab WFP DNS sublayer");
+                Check(baselineStatus, "Remove lab WFP baseline sublayer");
+                Check(closeStatus, "Close lab WFP session");
+            }
         }
     }
 
@@ -152,6 +167,7 @@ internal sealed class WfpReferenceLab : IDisposable
     [DllImport("fwpuclnt.dll", EntryPoint = "FwpmEngineOpen0", CharSet = CharSet.Unicode)] private static extern uint FwpmEngineOpen(string? server, uint authentication, IntPtr identity, ref Session session, out IntPtr handle);
     [DllImport("fwpuclnt.dll", EntryPoint = "FwpmEngineClose0")] private static extern uint FwpmEngineClose(IntPtr handle);
     [DllImport("fwpuclnt.dll", EntryPoint = "FwpmSubLayerAdd0")] private static extern uint FwpmSubLayerAdd(IntPtr handle, ref Sublayer sublayer, IntPtr descriptor);
+    [DllImport("fwpuclnt.dll", EntryPoint = "FwpmSubLayerDeleteByKey0")] private static extern uint FwpmSubLayerDeleteByKey(IntPtr handle, ref Guid key);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern SafeFileHandle CreateFile(string path, uint access, uint sharing, IntPtr security, uint creation, uint flags, IntPtr template);
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool DeviceIoControl(SafeFileHandle handle, uint control, byte[]? input, uint inputLength, [Out] byte[] output, uint outputLength, out uint written, IntPtr overlapped);
     [DllImport("kernel32.dll", SetLastError = true)] private static extern SafeFileHandle CreateToolhelp32Snapshot(uint flags, uint process);
