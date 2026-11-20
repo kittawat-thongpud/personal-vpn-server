@@ -10,12 +10,19 @@ on:
         description: Stage checked Windows installers in a private draft for desktop acceptance
         type: boolean
         default: true
+      path_timing_lab:
+        description: Compare experimental Windows TUN stacks on isolated runners
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       client_version:
         required: true
         type: string
       stage_installers:
+        type: boolean
+        default: false
+      path_timing_lab:
         type: boolean
         default: false
 permissions:
@@ -107,6 +114,8 @@ jobs:
           Compress-Archive "$output/*.png" "dist/PersonalVPN-ui-preview-$env:CLIENT_VERSION-${{ matrix.arch }}.zip"
       - name: Verify physical flags, crash recovery and real TUN capture on isolated runner
         shell: pwsh
+        env:
+          PATH_TIMING_LAB: ${{ inputs.path_timing_lab }}
         run: |
           # This fixture deliberately enables forwarding to reproduce the LAN
           # binding failure. Hosted runners can have unrelated sharing services
@@ -125,16 +134,18 @@ jobs:
             if (-not $finished) { $p.Kill(); Start-Sleep -Seconds 5; throw 'TUN integration exceeded its deadline' }
             Get-Content $report
             if ($p.ExitCode -ne 0) { throw 'TUN integration failed' }
-            $report = "$env:RUNNER_TEMP/tun-path-lab.json"
-            $p = Start-Process (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--local-tun-path-lab','--report',$report) -PassThru -WindowStyle Hidden
-            if (-not $p.WaitForExit(240000)) { $p.Kill(); throw 'TUN path timing lab exceeded its deadline' }
-            if (Test-Path $report) { Get-Content $report }
-            if ($p.ExitCode -ne 0) { throw 'TUN path timing lab failed' }
+            if ($env:PATH_TIMING_LAB -eq 'true') {
+              $report = "$env:RUNNER_TEMP/tun-path-lab.json"
+              $p = Start-Process (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--local-tun-path-lab','--report',$report) -PassThru -WindowStyle Hidden
+              if (-not $p.WaitForExit(240000)) { $p.Kill(); throw 'TUN path timing lab exceeded its deadline' }
+              if (Test-Path $report) { Get-Content $report }
+              if ($p.ExitCode -ne 0) { throw 'TUN path timing lab failed' }
+            }
           } finally {
             foreach ($service in $services | Sort-Object { if ($_.Name -eq 'SharedAccess') { 0 } else { 1 } }) { Start-Service -Name $service.Name -ErrorAction Continue }
           }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: ${{ always() && !cancelled() }}
+        if: ${{ always() && !cancelled() && inputs.path_timing_lab }}
         with:
           name: windows-tun-path-${{ matrix.arch }}
           path: ${{ runner.temp }}/tun-path-lab.json
