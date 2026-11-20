@@ -730,6 +730,7 @@ public sealed class Backend : IAsyncDisposable
         lock (gate) { var process = cores.LastOrDefault()?.Process ?? throw new InvalidOperationException("No owned core."); process.Kill(); }
     }
     internal int RouterPidForTest { get { lock (gate) return cores.Last().Process.Id; } }
+    internal int? CapturePidForTest { get { lock (gate) return cores.LastOrDefault(x => x.Name == "sing-box")?.Process.Id; } }
     internal void SignalNetworkChangeForTest()
     {
         lock (gate)

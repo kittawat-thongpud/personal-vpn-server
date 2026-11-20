@@ -30,6 +30,7 @@ internal static partial class Tests
         foreach (string mode in new[] { "os_default", "mixed", "system" })
         {
             await using var backend = new Backend(mode == "os_default" ? null : mode);
+            int? capturePid = null;
             if (mode != "os_default")
             {
                 var settings = new Settings { Profiles = new() { profile }, SelectedId = profile.Id, CaptureMode = "TUN", SystemProxy = false, HttpPort = Port(), SocksPort = Port() };
@@ -42,6 +43,7 @@ internal static partial class Tests
                 } };
                 await backend.ConnectAsync(settings).WaitAsync(TimeSpan.FromSeconds(85));
                 Assert(backend.State == "Connected" && backend.ExitIp == expected && AdapterService.CurrentId() == adapter, $"{mode} did not establish verified TUN capture.");
+                capturePid = backend.CapturePidForTest;
             }
             long beforeDns = Stopwatch.GetTimestamp();
             _ = await Dns.GetHostAddressesAsync(httpsHost, AddressFamily.InterNetwork);
@@ -87,16 +89,17 @@ internal static partial class Tests
                     udp.Add(rtt);
                 }
             }
+            bool stableCapture = capturePid != null && backend.State == "Connected" && backend.CapturePidForTest == capturePid;
             await backend.StopAsync();
             var events = backend.Log.Snapshot();
             var native = events.Where(e => e.Event == "backend.path_timing_native").Select(e => e.Message.Split(' '))
                 .GroupBy(x => x[0]).ToDictionary(g => g.Key, g => g.Select(x => double.Parse(x[1], CultureInfo.InvariantCulture) / 1_000_000).OrderBy(x => x).ToArray());
-            if (mode != "os_default")
-            {
-                Assert(native.ContainsKey("policy_tcp"), $"{mode} has no native rule timing.");
-                Assert(native.ContainsKey("socket_dial"), $"{mode} did not emit socket timing for captured Direct flows; observed {string.Join(',', native.Keys)}.");
-            }
-            result.Add(new { mode, resolverLookupMs = dnsMs, https = tcp, stunRttMs = udp, nativeTimingMs = native,
+            bool verified = mode == "os_default" || (stableCapture && native.ContainsKey("policy_tcp") && native.ContainsKey("socket_dial"));
+            Assert(mode != "mixed" || verified, $"{mode} did not prove a stable captured Direct flow; observed stages: {string.Join(',', native.Keys)}.");
+            // The supported stack must prove its path. A candidate without the
+            // same proof is a recorded negative outcome, not a performance win.
+            result.Add(new { mode, verified, issue = verified ? null : "Captured Direct path was not verified; do not compare timings.",
+                resolverLookupMs = dnsMs, https = tcp, stunRttMs = udp, nativeTimingMs = native,
                 connectionSetup = events.Where(e => e.Event == "backend.path_timing").Select(e => e.Message).ToArray() });
             Assert(AdapterService.CurrentId() == adapter && WindowsProxy.Matches(WindowsProxy.Read(), proxyBefore), "Path lab did not restore capture settings or changed the adapter.");
         }
