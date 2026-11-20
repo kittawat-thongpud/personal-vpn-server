@@ -125,9 +125,21 @@ jobs:
             if (-not $finished) { $p.Kill(); Start-Sleep -Seconds 5; throw 'TUN integration exceeded its deadline' }
             Get-Content $report
             if ($p.ExitCode -ne 0) { throw 'TUN integration failed' }
+            $report = "$env:RUNNER_TEMP/tun-path-lab.json"
+            $p = Start-Process (Resolve-Path dist/windows/PersonalVPN.exe) -ArgumentList @('--local-tun-path-lab','--report',$report) -PassThru -WindowStyle Hidden
+            if (-not $p.WaitForExit(240000)) { $p.Kill(); throw 'TUN path timing lab exceeded its deadline' }
+            if (Test-Path $report) { Get-Content $report }
+            if ($p.ExitCode -ne 0) { throw 'TUN path timing lab failed' }
           } finally {
             foreach ($service in $services | Sort-Object { if ($_.Name -eq 'SharedAccess') { 0 } else { 1 } }) { Start-Service -Name $service.Name -ErrorAction Continue }
           }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ always() && !cancelled() }}
+        with:
+          name: windows-tun-path-${{ matrix.arch }}
+          path: ${{ runner.temp }}/tun-path-lab.json
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Build Windows installer
         # Compilation is independent of UI input tests. Keep its diagnostics
         # available on failed qualifications; release still requires all gates.

@@ -45,7 +45,8 @@ public static class Program
         if (arguments.Contains("--tun-lease-child")) return Tests.TunLeaseChild(arguments).GetAwaiter().GetResult();
         if (arguments.Contains("--network-recovery-integration")) return Tests.NetworkRecoveryIntegration(arguments).GetAwaiter().GetResult();
         if (arguments.Contains("--system-tun-test")) return Tests.HostTunTest(arguments).GetAwaiter().GetResult();
-        if (arguments.Contains("--local-tun-integration")) return Tests.LocalProxyIntegration(arguments).GetAwaiter().GetResult();
+        if (arguments.Contains("--local-tun-path-lab") && Environment.GetEnvironmentVariable("CI") != "true") return 2;
+        if (arguments.Contains("--local-tun-integration") || arguments.Contains("--local-tun-path-lab")) return Tests.LocalProxyIntegration(arguments).GetAwaiter().GetResult();
         if (arguments.Contains("--proxy-lease-child")) return Tests.LeaseChild(arguments);
         if (arguments.Contains("--self-test")) return Tests.SelfTest(arguments);
         if (arguments.Contains("--layout-test")) return MobileValidation.Run(arguments);
@@ -384,6 +385,7 @@ internal static partial class Tests
             using var direct = new HttpClient(new SocketsHttpHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(20) };
             string expected = JsonNode.Parse(await direct.GetStringAsync("https://api.ipify.org/?format=json"))!["ip"]!.GetValue<string>();
             string reportPath = Program.Option(args, "--report") ?? Path.Combine(root, "report.json");
+            if (args.Contains("--local-tun-path-lab")) return Report(args, new { result = "PASS", matrix = await TunPathLab(root, expected) }, 0);
             if (args.Contains("--local-tun-integration")) return Report(args, new { result = "PASS", checks = await TunIntegration(root, expected, reportPath + ".progress") }, 0);
             int result = await ProxyTest(new[] { "--profile-dir", root, "--expected-exit", expected, "--report", reportPath });
             if (result != 0) return result;

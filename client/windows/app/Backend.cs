@@ -83,16 +83,19 @@ public sealed class OwnedCore : IDisposable
     private readonly Task reader;
     private readonly Task errorReader;
     private readonly SessionLog log;
+    private readonly bool pathTiming;
     private int errorCount;
-    public OwnedCore(ProcessJob job, string binary, string[] arguments, SessionLog log)
+    public OwnedCore(ProcessJob job, string binary, string[] arguments, SessionLog log, bool pathTiming = false)
     {
-        this.log = log; Name = Path.GetFileNameWithoutExtension(binary);
+        this.log = log; Name = Path.GetFileNameWithoutExtension(binary); this.pathTiming = pathTiming && Name == "sing-box";
         var info = new ProcessStartInfo(binary) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = AppContext.BaseDirectory };
         if (Name == "sing-box") { info.CreateNoWindow = false; info.WindowStyle = ProcessWindowStyle.Hidden; }
         foreach (string arg in arguments) info.ArgumentList.Add(arg);
         foreach (string variable in info.Environment.Keys.Where(x => x.StartsWith("HYSTERIA_", StringComparison.OrdinalIgnoreCase) || x.StartsWith("XRAY_", StringComparison.OrdinalIgnoreCase)).ToArray())
             info.Environment.Remove(variable);
         info.Environment["HYSTERIA_DISABLE_UPDATE_CHECK"] = "1";
+        info.Environment.Remove("PVN_PATH_TIMING");
+        if (this.pathTiming) info.Environment["PVN_PATH_TIMING"] = "1";
         Process = Process.Start(info) ?? throw new InvalidOperationException("VPN core failed to launch.");
         job.Add(Process);
         reader = Drain(Process.StandardOutput);
@@ -103,11 +106,25 @@ public sealed class OwnedCore : IDisposable
     {
         // Fixed-size reads also bound a malicious or broken core's unterminated line.
         char[] buffer = new char[1024];
+        var timingLine = pathTiming ? new System.Text.StringBuilder(160) : null;
         try
         {
             int count;
             while ((count = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
             {
+                if (timingLine != null)
+                {
+                    for (int i = 0; i < count; i++)
+                    {
+                        if (buffer[i] != '\n') { if (timingLine.Length < 160) timingLine.Append(buffer[i]); continue; }
+                        string sample = timingLine.ToString().TrimEnd('\r'); timingLine.Clear();
+                        var fields = sample.Split(' ');
+                        if (fields.Length == 3 && fields[0] == "pvn-path" &&
+                            fields[1] is ("policy_tcp" or "policy_udp" or "adapter_route" or "socket_dial" or "socket_dial_parallel" or "socket_udp" or "socket_udp_serial") &&
+                            long.TryParse(fields[2], out long ns) && ns >= 0)
+                            log.Add("INFO", "backend.path_timing_native", fields[1] + " " + ns.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    }
+                }
                 var line = new string(buffer, 0, count).ToLowerInvariant();
                 if (Name == "sing-box" && Environment.GetEnvironmentVariable("CI") == "true") startupDiagnostic = (startupDiagnostic + line)[^Math.Min(4096, startupDiagnostic.Length + line.Length)..];
                 if (Name == "sing-box" && (line.Contains("forwarding") || line.Contains("weak host") || line.Contains("unsafe interface binding")))
@@ -156,6 +173,7 @@ public sealed class Backend : IAsyncDisposable
     private SystemProxyLease? proxyLease;
     private string captureStatus = "Not captured";
     private string lastTunnelExit = "—";
+    private readonly string? labStack;
     public SessionLog Log { get; } = new();
     public TrafficMeter Traffic { get; } = new();
     public string State { get { lock (gate) return state; } }
@@ -165,8 +183,12 @@ public sealed class Backend : IAsyncDisposable
     public bool Running { get { lock (gate) return session != null; } }
     public string NativeTunDiagnostic { get { lock (gate) return Environment.GetEnvironmentVariable("CI") == "true" ? cores.LastOrDefault(x => x.Name == "sing-box")?.StartupDiagnostic ?? "" : ""; } }
     public string CaptureStatus { get { lock (gate) return captureStatus; } }
-    public Backend()
+    public Backend() : this(null) { }
+    internal Backend(string? labStack)
     {
+        if (labStack != null && (Environment.GetEnvironmentVariable("CI") != "true" || labStack is not ("mixed" or "system")))
+            throw new InvalidOperationException("Path timing is limited to the isolated Windows lab.");
+        this.labStack = labStack;
         networkDebounce = new Timer(_ => NetworkChanged(), null, Timeout.Infinite, Timeout.Infinite);
         NetworkChange.NetworkAddressChanged += OnNetworkChange;
         NetworkChange.NetworkAvailabilityChanged += OnAvailabilityChange;
@@ -449,9 +471,16 @@ public sealed class Backend : IAsyncDisposable
         var owned = new List<OwnedCore>();
         TunLease? adapterLease = null; bool tun = settings.CaptureMode == "TUN";
         var transports = Array.Empty<IPAddress>();
+        void Timing(string phase, long started)
+        {
+            if (labStack != null) Log.Add("INFO", "backend.path_timing", FormattableString.Invariant($"{phase} {Stopwatch.GetElapsedTime(started).TotalMilliseconds:F3}"));
+        }
         try
         {
+            long started = Stopwatch.GetTimestamp();
             if (tun) transports = await TunSupport.Resolve(settings, token);
+            if (tun) Timing("endpoint_dns", started);
+            started = Stopwatch.GetTimestamp();
             // Fail before launch if another program owns one of our public proxy ports.
             foreach (int port in new[] { settings.HttpPort, settings.SocksPort })
             {
@@ -507,6 +536,7 @@ public sealed class Backend : IAsyncDisposable
             owned.Add(new OwnedCore(job, VerifyCore("xray.exe"), new[] { "run", "-config", routerPath }, Log));
             lock (gate) { cores.Clear(); cores.AddRange(owned); }
             await WaitForListeners(owned, new[] { settings.HttpPort, settings.SocksPort, health }, token);
+            Timing("transport_ready", started);
             Traffic.BeginCore(); trafficTask = CollectTraffic(stats, trafficCancellation.Token);
             SetState("Verifying", "Checking authenticated HTTPS through the selected server.", expected);
             using var healthHandler = new SocketsHttpHandler { Proxy = new WebProxy("socks5://127.0.0.1:" + health), UseProxy = true, ConnectTimeout = TimeSpan.FromSeconds(8), PooledConnectionLifetime = TimeSpan.Zero };
@@ -528,26 +558,40 @@ public sealed class Backend : IAsyncDisposable
                 }
                 try
                 {
+                    bool firstCapture = tun && adapterLease == null;
+                    started = Stopwatch.GetTimestamp();
                     string observed = await Health(client, token);
+                    if (firstCapture) Timing("authenticated_https", started);
                     token.ThrowIfCancellationRequested();
                     if (tun && adapterLease == null)
                     {
                         SetState("Verifying", "Authenticated server verified; preparing TUN adapter and checking the captured path.", expected);
+                        started = Stopwatch.GetTimestamp();
                         adapterLease = await TunLease.Start(folder, token);
+                        Timing("capture_lease", started);
                         foreach (var (nic, row) in PhysicalNetwork.Rows()) Log.Add("INFO", "backend.physical_link", nic.Name + " · " + (row.Family == 2 ? "IPv4" : "IPv6") + " · index " + row.Index + " · metric " + row.Metric + " · MTU " + row.Mtu + "; strong-host binding prepared. Direct uses destination routes, not a fixed Wi-Fi/LAN preference.");
                         Log.Add("INFO", "backend.adapter_reused", "Persistent adapter opened: " + adapterLease.AdapterId + ". No device creation or deletion for this session.");
-                        var plan = TunPlan.Compile(settings, transports.Select(x => x.ToString()), new[] { VerifyCore("xray.exe"), VerifyCore("hysteria.exe") }, adapterLease.InterfaceName, TunSupport.MeshPrefixes(), Environment.ProcessPath);
+                        started = Stopwatch.GetTimestamp();
+                        // The lab app also emits a STUN flow with a narrow Site
+                        // rule; ordinary lab health still uses the Tunnel default.
+                        var plan = TunPlan.Compile(settings, transports.Select(x => x.ToString()), new[] { VerifyCore("xray.exe"), VerifyCore("hysteria.exe") }, adapterLease.InterfaceName, TunSupport.MeshPrefixes(), labStack == null ? Environment.ProcessPath : null);
+                        if (labStack != null) plan["inbounds"]![0]!["stack"] = labStack;
+                        Timing("compile_policy", started);
                         if (Environment.GetEnvironmentVariable("CI") == "true") plan["log"]!["level"] = "debug";
                         string path = Path.Combine(folder, "tun.json"); await File.WriteAllTextAsync(path, plan.ToJsonString(), token);
-                        var tunCore = new OwnedCore(job, VerifyCore("sing-box.exe"), new[] { "run", "-c", path }, Log); owned.Add(tunCore);
+                        started = Stopwatch.GetTimestamp();
+                        var tunCore = new OwnedCore(job, VerifyCore("sing-box.exe"), new[] { "run", "-c", path }, Log, pathTiming: labStack != null); owned.Add(tunCore);
                         lock (gate) { cores.Clear(); cores.AddRange(owned); }
                         await TunSupport.WaitForAdapter(adapterLease, token, () => tunCore.Exited ? "TUN core stopped before adapter readiness. " + tunCore.StartupDiagnostic : null);
+                        Timing("capture_ready", started);
                         Log.Add("INFO", "backend.tun_started", "Owned TUN adapter ready; verifying DNS and HTTPS through system capture.");
                     }
                     if (tun)
                     {
                         if (adapterLease!.Exited) throw new InvalidOperationException("Adapter recovery guard stopped.");
+                        started = Stopwatch.GetTimestamp();
                         string capturedExit = await Health(tunHealth, token);
+                        if (firstCapture) Timing("captured_https", started);
                         if (capturedExit != observed) throw new InvalidDataException("Captured path did not use the authenticated VPN exit.");
                         observed = capturedExit;
                     }
