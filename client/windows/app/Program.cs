@@ -393,7 +393,7 @@ internal static partial class Tests
             string expected = JsonNode.Parse(await direct.GetStringAsync("https://api.ipify.org/?format=json"))!["ip"]!.GetValue<string>();
             string reportPath = Program.Option(args, "--report") ?? Path.Combine(root, "report.json");
 #if PVN_WFP_LAB
-            if (args.Contains("--local-wfp-reference-lab")) return Report(args, await NativeWfpMatrix(root, expected, Program.Option(args, "--probe")!, reportPath + ".progress"), 0);
+            if (args.Contains("--local-wfp-reference-lab")) return Report(args, await NativeWfpMatrix(root, expected, Program.Option(args, "--probe")!, reportPath + ".progress", Program.Option(args, "--packet-dir")), 0);
 #endif
             if (args.Contains("--local-tun-path-lab")) return Report(args, new { result = "PASS", matrix = await TunPathLab(root, expected) }, 0);
             if (args.Contains("--local-tun-integration")) return Report(args, new { result = "PASS", checks = await TunIntegration(root, expected, reportPath + ".progress") }, 0);

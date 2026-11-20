@@ -64,6 +64,7 @@ jobs:
           key: windows-native-v2-x64-${{ hashFiles('client/windows/package.ps1', 'client/windows/build-tun-core.ps1', 'client/windows/native/**') }}
       - name: Run process-path matrix
         if: ${{ inputs.check != 'driver-load' }}
+        id: process-path
         shell: pwsh
         run: |
           $report = "$env:RUNNER_TEMP/pvn-wfp-evidence/process-matrix.json"
@@ -71,14 +72,25 @@ jobs:
           $services = @(Get-Service -Name SharedAccess,icssvc,RemoteAccess -ErrorAction SilentlyContinue | Where-Object Status -eq Running)
           try {
             foreach ($service in $services) { Stop-Service -Name $service.Name -Force -ErrorAction Stop }
-            $child = Start-Process $app -ArgumentList @('--local-wfp-reference-lab','--report',$report,'--probe',"$env:RUNNER_TEMP/pvn-probe.exe") -PassThru -WindowStyle Hidden
-            if (-not $child.WaitForExit(175000)) { $child.Kill(); throw 'Process matrix timed out.' }
+            $child = Start-Process $app -ArgumentList @('--local-wfp-reference-lab','--report',$report,'--probe',"$env:RUNNER_TEMP/pvn-probe.exe",'--packet-dir',"$env:RUNNER_TEMP/pvn-wfp-capture") -PassThru -WindowStyle Hidden
+            if (-not $child.WaitForExit(240000)) { $child.Kill(); throw 'Process matrix timed out.' }
             if (Test-Path $report) { Get-Content $report }
             if (Test-Path "$report.progress") { Move-Item -LiteralPath "$report.progress" -Destination "$env:RUNNER_TEMP/pvn-wfp-evidence/process-matrix-observed.json" }
             if ($child.ExitCode -ne 0) { throw 'Process-path matrix did not pass.' }
           } finally {
             foreach ($service in $services | Sort-Object { if ($_.Name -eq 'SharedAccess') { 0 } else { 1 } }) { Start-Service -Name $service.Name }
           }
+      - name: Match packet headers and the Windows DNS queries to the two adapters
+        if: ${{ always() && !cancelled() && steps.process-path.outcome != 'skipped' }}
+        shell: pwsh
+        run: |
+          $capture = "$env:RUNNER_TEMP/pvn-wfp-capture"
+          $report = "$env:RUNNER_TEMP/pvn-wfp-evidence/packet-evidence.json"
+          if (-not (Test-Path -LiteralPath $capture/manifest.json)) { throw 'The process test did not produce packet metadata.' }
+          python client/windows/lab/check-wfp-packets.py $capture $report
+          $result = $LASTEXITCODE
+          if (Test-Path $report) { Get-Content $report }
+          if ($result -ne 0) { throw 'Packet or Windows DNS coverage did not pass.' }
       - name: Remove the runner-owned reference driver
         if: ${{ always() && !cancelled() }}
         shell: pwsh

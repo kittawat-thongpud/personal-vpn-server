@@ -16,8 +16,10 @@ namespace PersonalVpn;
 internal static partial class Tests
 {
     private sealed record WfpObservation(string Stage, string App, string Protocol, bool Reached, string SourcePath, bool? DriverExcluded);
+    private sealed record PacketFlow(string Stage, string App, string Protocol, string Local, int Port, string Endpoint);
+    private sealed record PacketDns(string App, string Name, uint Status);
 
-    private static async Task<object> NativeWfpMatrix(string root, string expected, string probeExecutable, string progress)
+    private static async Task<object> NativeWfpMatrix(string root, string expected, string probeExecutable, string progress, string? packetDir)
     {
         const string https = "speed.cloudflare.com", stun = "stun.cloudflare.com";
         var tunnelIP = IPAddress.Parse("172.28.255.1");
@@ -28,12 +30,17 @@ internal static partial class Tests
         var probes = new[] { "bypass", "tunneled", "blocked" }.ToDictionary(role => role, role => Path.Combine(root, role + "-probe.exe"));
         foreach (var path in probes.Values) File.Copy(probeExecutable, path);
         var trace = new List<WfpObservation>();
+        var flows = new List<PacketFlow>();
+        var dns = new List<PacketDns>();
         var physical = new Dictionary<string, IPAddress>();
+        var dnsNames = probes.Keys.ToDictionary(role => role, _ => "pvn-" + Guid.NewGuid().ToString("N")[..8] + ".example.com.");
+
+        Task SavePacketManifest() => File.WriteAllTextAsync(Path.Combine(packetDir!, "manifest.json"), JsonSerializer.Serialize(new { flows, dns }));
 
         async Task<WfpObservation> RunProbe(string stage, string role, string protocol, WfpReferenceLab? driver = null)
         {
             var info = new ProcessStartInfo(probes[role]) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
-            foreach (string value in new[] { protocol, targets[protocol], https }) info.ArgumentList.Add(value);
+            foreach (string value in protocol == "dns" ? new[] { protocol, "unused", dnsNames[role] } : new[] { protocol, targets[protocol], https }) info.ArgumentList.Add(value);
             using var process = Process.Start(info)!;
             var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
             try
@@ -48,7 +55,7 @@ internal static partial class Tests
                     }
                 }
                 await process.StandardInput.WriteLineAsync("probe"); process.StandardInput.Close();
-                await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(11));
+                await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(protocol == "dns" ? 18 : 11));
                 _ = await error;
                 Assert(process.ExitCode == 0, $"{stage}: {role} {protocol} probe process failed.");
                 using var result = JsonDocument.Parse(await output);
@@ -61,6 +68,12 @@ internal static partial class Tests
                     physical[protocol] = local!;
                 }
                 string path = local == null ? "unavailable" : local.Equals(tunnelIP) ? "wintun" : local.Equals(physical[protocol]) ? "physical" : "other";
+                if (packetDir != null && stage != "without_capture")
+                {
+                    if (protocol == "dns") dns.Add(new PacketDns(role, dnsNames[role], json.GetProperty("dnsStatus").GetUInt32()));
+                    else if (local != null && json.TryGetProperty("localPort", out var port)) flows.Add(new PacketFlow(stage, role, protocol, local.ToString(), port.GetInt32(), targets[protocol]));
+                    await SavePacketManifest();
+                }
                 var row = new WfpObservation(stage, role, protocol, reached, path, split);
                 trace.Add(row);
                 await File.WriteAllTextAsync(progress, JsonSerializer.Serialize(trace));
@@ -96,11 +109,18 @@ internal static partial class Tests
             Assert(backend.State == "Connected" && initialCapture == backend.CapturePidForTest, "Wintun restarted during the comparison.");
         }
 
-        await Wave("capture_without_exclusion", false);
-        using (var reference = new WfpReferenceLab())
+        using (var packetTrace = packetDir == null ? null : new WfpPacketTrace(packetDir, targets, physical["tcp"], tunnelIP))
         {
+            await Wave("capture_without_exclusion", false);
+            using var reference = new WfpReferenceLab();
             reference.Configure(probes["bypass"], tunnelIP, physical["tcp"]);
             await Wave("capture_with_reference_exclusion", true, reference);
+            if (packetTrace != null)
+                foreach (var role in probes.Keys)
+                {
+                    var row = await RunProbe("windows_dns", role, "dns", reference);
+                    Assert(row.DriverExcluded == (role == "bypass"), $"{role} DNS probe was classified incorrectly.");
+                }
             reference.Clear();
             await Wave("capture_after_exclusion_removal", false, reference);
         }
