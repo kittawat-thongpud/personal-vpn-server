@@ -1,3 +1,20 @@
+## Client 0.9.6
+
+- Android keeps an in-progress tunnel check when internet validation changes
+  on the same network path. It retries transient HTTPS failures with the
+  current core and stops recovery when Android revokes VPN permission.
+- Backend logs open at the newest event. Entries show millisecond timestamps,
+  the failing check phase, timing, network changes and recovery outcomes.
+  Export captures the session log when you tap the button.
+- This Stable release includes a signed Android APK and Windows x86 and x64
+  installers.
+
+Android can update in place from 0.9.5. If you are switching back from
+0.10.0-alpha.1, export your profiles before removing the Alpha app.
+Android blocks installing a lower version code over a higher one.
+
+## Earlier client releases
+
 Client 0.9.5 aligns the Windows and Android connection controls. Windows Home
 and the notification-area menu offer Cancel during connection, verification,
 and automatic recovery. Stopping stays readable while the app releases capture.

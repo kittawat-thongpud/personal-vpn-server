@@ -80,6 +80,16 @@ def preserve_branch(repository: str, branch: str, sha: str) -> None:
             raise ValueError(f"Refusing to overwrite existing source branch {branch}")
 
 
+def preserve_previous_clients(repository: str) -> None:
+    for legacy in ("windows-v0.6.3", "android-v0.1.0"):
+        preserve_branch(repository, f"legacy/{legacy}", source_sha(repository, f"tags/{legacy}"))
+    releases = gh("release", "list", "--repo", repository, "--limit", "100", "--json", "tagName,isDraft,isPrerelease")
+    for release in releases:
+        tag = release["tagName"]
+        if tag.startswith("client-v") and not release["isDraft"] and not release["isPrerelease"]:
+            preserve_branch(repository, f"legacy/{tag}", source_sha(repository, f"tags/{tag}"))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--assets", type=Path, required=True)
@@ -95,15 +105,7 @@ def main() -> None:
     branch = os.environ["GITHUB_REF_NAME"]
     if source_sha(repository, f"heads/{branch}") != sha:
         raise ValueError("A newer source commit exists; only the current qualified commit may publish")
-    # Preserve the last independently versioned clients during migration.
-    for legacy in ("windows-v0.6.3", "android-v0.1.0"):
-        preserve_branch(repository, f"legacy/{legacy}", source_sha(repository, f"tags/{legacy}"))
-    # On subsequent releases, archive every earlier unified client source too.
-    releases = gh("release", "list", "--repo", repository, "--limit", "100", "--json", "tagName,isDraft")
-    for release in releases:
-        tag = release["tagName"]
-        if tag.startswith("client-v") and not release["isDraft"]:
-            preserve_branch(repository, f"legacy/{tag}", source_sha(repository, f"tags/{tag}"))
+    preserve_previous_clients(repository)
     for prefix in ("base", "release"):
         preserve_branch(repository, f"{prefix}/client-v{version}", sha)
     for platform in ("Android", "Windows"):

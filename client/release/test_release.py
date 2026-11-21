@@ -45,5 +45,23 @@ class CompleteBundleTest(unittest.TestCase):
         api.assert_not_called()
 
 
+class StableReleaseHistoryTest(unittest.TestCase):
+    @patch("publish.preserve_branch")
+    @patch("publish.source_sha", return_value="qualified-commit")
+    @patch("publish.gh")
+    def test_stable_history_skips_prereleases_drafts_and_server_releases(self, api, resolve, preserve):
+        api.return_value = [
+            {"tagName": "client-v0.9.5", "isDraft": False, "isPrerelease": False},
+            {"tagName": "client-v0.10.0-alpha.1", "isDraft": False, "isPrerelease": True},
+            {"tagName": "client-v0.9.6", "isDraft": True, "isPrerelease": False},
+            {"tagName": "server-v0.1.0", "isDraft": False, "isPrerelease": False},
+        ]
+        publish.preserve_previous_clients("owner/repo")
+        self.assertEqual([args[1] for args, _ in preserve.call_args_list],
+                         ["legacy/windows-v0.6.3", "legacy/android-v0.1.0", "legacy/client-v0.9.5"])
+        self.assertEqual([args[1] for args, _ in resolve.call_args_list],
+                         ["tags/windows-v0.6.3", "tags/android-v0.1.0", "tags/client-v0.9.5"])
+
+
 if __name__ == "__main__":
     unittest.main()
