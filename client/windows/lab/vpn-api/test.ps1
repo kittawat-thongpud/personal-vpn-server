@@ -25,6 +25,8 @@ $manifest.Package.Identity.Name = 'PersonalVpn.WindowsVpnApiLab'
 $manifest.Package.Identity.Publisher = 'CN=Personal VPN API Lab'
 $manifest.Package.Properties.DisplayName = 'Personal VPN API Lab'
 $manifest.Package.Properties.PublisherDisplayName = 'Personal VPN API Lab'
+$manifest.Package.Dependencies.TargetDeviceFamily.MinVersion = '10.0.22000.0'
+$manifest.Package.Dependencies.TargetDeviceFamily.MaxVersionTested = '10.0.26100.0'
 $manifest.Save($manifestPath)
 
 $sdkRoot = ${env:ProgramFiles(x86)} + '/Windows Kits/10'
@@ -34,7 +36,7 @@ $sdk = Get-ChildItem -LiteralPath (Join-Path $sdkRoot 'bin') -Directory |
 if (!$sdk) { throw 'Windows SDK and SignTool not found.' }
 $msbuild = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
 if (!$msbuild) { throw 'Visual Studio MSBuild not found.' }
-& $msbuild (Join-Path $sample 'CSharp/TestVpnPluginApp.sln') /restore /m /v:minimal /p:Configuration=Debug /p:Platform=x64 "/p:TargetPlatformVersion=$($sdk.Name)" /p:UseDotNetNativeToolchain=false /p:AppxPackageSigningEnabled=false /p:AppxBundle=Never /p:AppxAutoIncrementPackageRevision=false /p:UapAppxPackageBuildMode=SideloadOnly /p:GenerateAppxPackageOnBuild=true "/p:AppxPackageDir=$stage\"
+& $msbuild (Join-Path $sample 'CSharp/TestVpnPluginApp.sln') /restore /m /v:minimal /p:Configuration=Debug /p:Platform=x64 "/p:TargetPlatformVersion=$($sdk.Name)" /p:TargetPlatformMinVersion=10.0.22000.0 /p:UseDotNetNativeToolchain=false /p:AppxPackageSigningEnabled=false /p:AppxBundle=Never /p:AppxAutoIncrementPackageRevision=false /p:UapAppxPackageBuildMode=SideloadOnly /p:GenerateAppxPackageOnBuild=true "/p:AppxPackageDir=$stage\"
 if ($LASTEXITCODE -ne 0) { throw 'The UWP test package did not build.' }
 $package = Get-ChildItem -LiteralPath $stage -Recurse -File -Filter '*.appx' |
     Where-Object { $_.Name -like '*_x64_Debug.appx' -and $_.DirectoryName -notmatch '[\\/]Dependencies[\\/]' } | Select-Object -First 1

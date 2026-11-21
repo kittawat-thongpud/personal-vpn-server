@@ -64,6 +64,7 @@ namespace TestVpnPluginAppBg
                 // incoming probe packets deliberately so the two paths differ.
                 using (var reader = DataReader.FromBuffer(buffer))
                 {
+                    reader.ByteOrder = ByteOrder.BigEndian;
                     byte first = reader.ReadByte();
                     uint headerLength = (uint)((first & 15) * 4);
                     if ((first >> 4) != 4 || headerLength < 20 || buffer.Length < headerLength + 4) continue;
@@ -76,7 +77,7 @@ namespace TestVpnPluginAppBg
                     reader.ReadBytes(source);
                     reader.ReadBytes(destination);
                     if (destination[0] != 1 || destination[1] != 1 || destination[2] != 1 || destination[3] != 1) continue;
-                    reader.ReadBytes(new byte[headerLength - 20]);
+                    if (headerLength > 20) reader.ReadBytes(new byte[headerLength - 20]);
                     reader.ReadUInt16();
                     if (reader.ReadUInt16() != 443) continue;
                     captured++;
