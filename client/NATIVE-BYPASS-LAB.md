@@ -42,4 +42,10 @@ Packet Monitor จับแพ็กเก็ตบน Wintun และ NIC อ�
 
 ทดสอบ Windows DNS Client ด้วยชื่อที่มี A record และชื่อสุ่มที่ไม่มี record อย่างละหนึ่งชื่อต่อแอป ทั้งสามแอปได้ผลเหมือนกัน เหตุการณ์ส่งคำขอของ Windows ระบุทั้ง DNS server ของ Wintun และ DNS server ของอะแดปเตอร์อื่น ส่วนเหตุการณ์รับคำตอบระบุเฉพาะ DNS server ของ Wintun แอปที่ตั้ง Block ยังเรียก shared DNS ได้ แม้ socket ของตัวแอปถูกบล็อก หลักฐาน DNS มาจาก ETW ของ Windows DNS Client และยังไม่มีแพ็กเก็ต DNS ที่จับคู่ยืนยันการออก NIC อื่นในรอบนี้ [ผล ETW ของ Windows DNS Client](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/44874716682)
 
-ผล packet capture ครอบคลุม IPv4 บน Windows Server 2025 x64 runner การวัด latency ของ native Bypass, IPv6, การสลับ LAN/Wi-Fi, ZeroTier/Tailscale และ cleanup เมื่อ process crash ยังต้องตรวจแยก โค้ดทดสอบอยู่ใน `codex/windows-wfp-lab` และเปิดใช้เฉพาะ build ของ runner
+### เชื่อมกฎกับ Windows client
+
+กฎ App Tunnel เดิมใช้ค่า `Bypass` ในโปรไฟล์และแสดงชื่อ **Direct via TUN** ส่วนข้อยกเว้น **Bypass VPN** ใช้ค่า `Exclude` และอยู่ก่อน Wintun ใน Windows x64 build ทดสอบ หากทราฟฟิกของแอปที่ยกเว้นยังมาถึง TUN กฎจะปฏิเสธ flow นั้น กฎเก่าและกฎ Site ใช้รูปแบบโปรไฟล์เดิม
+
+ทดสอบ Apply และ Remove ผ่านการเชื่อมต่อปกติของ backend แล้ว แอปที่ยกเว้นออกตรงทั้ง TCP และ UDP กฎ Tunnel/Block ของโปรเซสทดสอบอื่นทำงานขณะเดียวกัน และเมื่อถอดข้อยกเว้น แอปเดิมกลับเข้า TUN นอกจากนี้ยังจงใจหยุด recovery guard แล้วตรวจว่ากู้ WFP จาก journal, เปิดอะแดปเตอร์เดิมได้ และถอนบริการไดรเวอร์ทดสอบได้ [ผลทดสอบ Windows client และ recovery](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/44890008957)
+
+การจับแพ็กเก็ตครอบคลุม IPv4 บน Windows Server 2025 x64 runner การวัด latency, IPv6, การสลับ LAN/Wi-Fi และ ZeroTier/Tailscale ยังต้องตรวจแยก ไดรเวอร์อ้างอิงสามารถส่งข้อยกเว้นไปยังโปรเซสลูก จึงเปิด native Bypass เฉพาะ build ของ runner ใน `codex/windows-wfp-lab` การเปิดในรุ่นหลักต้องใช้การเลือกกฎตาม executable ที่รักษากฎ Tunnel/Block ของโปรเซสลูกได้ [สถาปัตยกรรมไดรเวอร์อ้างอิง](https://raw.githubusercontent.com/mullvad/win-split-tunnel/0a0eb97f67d1dbcb3d08bda66d3b24f465d95475/README.md)
