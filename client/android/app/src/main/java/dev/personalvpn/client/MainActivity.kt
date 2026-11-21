@@ -13,6 +13,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -37,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -46,6 +48,10 @@ import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+internal class BackendLogExport : ViewModel() {
+    var snapshot: List<BackendEvent>? = null
+}
 
 class MainActivity : ComponentActivity() {
     private val latency by lazy { ServerLatency(applicationContext) }
@@ -73,7 +79,29 @@ class MainActivity : ComponentActivity() {
             } catch (_: Exception) { message = "Could not import profile. Choose xray.json and hysteria.json, or paste the exported share links." }
         }
     }
-    private val exportLogs = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> if (uri != null) lifecycleScope.launch(Dispatchers.IO) { runCatching { val logs = JSONArray(Repository.logs.value.map { JSONObject().put("time", it.time).put("level", it.level).put("code", it.code).put("result", it.detail) }); contentResolver.openOutputStream(uri)?.use { it.write(logs.toString(2).toByteArray()) } }.onFailure { withContext(Dispatchers.Main) { message = "Log export failed." } } } }
+    private val logExport by viewModels<BackendLogExport>()
+    private val exportLogs = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        val snapshot = logExport.snapshot
+        logExport.snapshot = null
+        if (uri != null) {
+            if (snapshot == null) message = "The log snapshot expired. Tap Export again."
+            else lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        val logs = JSONArray(snapshot.map {
+                            JSONObject().put("time", it.time).put("level", it.level).put("code", it.code).put("result", it.detail)
+                        })
+                        val stream = contentResolver.openOutputStream(uri) ?: error("Could not open log file.")
+                        stream.use { it.write(logs.toString(2).toByteArray()) }
+                    }
+                } catch (cancel: kotlinx.coroutines.CancellationException) {
+                    throw cancel
+                } catch (_: Exception) {
+                    message = "Log export failed."
+                }
+            }
+        }
+    }
     private val importSiteTunnel = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) lifecycleScope.launch {
             try {
@@ -244,7 +272,10 @@ class MainActivity : ComponentActivity() {
                                     onImport = { importSiteTunnel.launch(arrayOf("application/json", "application/octet-stream", "text/plain")) },
                                     onExport = { exportSiteTunnel.launch(SiteTunnelProfile.FILE_NAME) }
                                 ) { save(Repository.config.value.copy(sites = it)) }
-                                "Backend logs" -> Logs { exportLogs.launch("personal-vpn-session.json") }
+                                "Backend logs" -> Logs {
+                                    logExport.snapshot = Repository.logs.value
+                                    exportLogs.launch("personal-vpn-session.json")
+                                }
                             }
                         }
                         if(page in listOf("Home","Settings")) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { for (tab in listOf("Home", "Settings")) Button(onClick = { page = tab }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = if (page == tab) Color(0xFF225367) else Color(0xFF19283B), contentColor = Color.White)) { Text(tab) } }
@@ -320,8 +351,29 @@ class MainActivity : ComponentActivity() {
     }
 }
 @Composable private fun Logs(export: () -> Unit) {
-    val logs by Repository.logs.collectAsStateWithLifecycle(); val formatter = remember { SimpleDateFormat("HH:mm:ss", Locale.US) }
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) { Row { OutlinedButton(onClick = { Repository.clearLogs() }) { Text("Clear") }; Spacer(Modifier.width(10.dp)); OutlinedButton(onClick = export) { Text("Export") } }; LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) { items(logs) { event -> Column { Text("${formatter.format(Date(event.time))}  ${event.level}  ${event.code}", fontSize = 12.sp, color = if (event.level == "ERROR") Color(0xFFFFBA9B) else Color(0xFF8FDACF)); if (event.detail.isNotEmpty()) Text(event.detail, fontSize = 12.sp) } } } }
+    val logs by Repository.logs.collectAsStateWithLifecycle()
+    val formatter = remember { SimpleDateFormat("HH:mm:ss.SSS", Locale.US) }
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(onClick = { Repository.clearLogs() }) { Text("Clear") }
+            OutlinedButton(onClick = export) { Text("Export") }
+        }
+        // Anchor new page visits at the newest event and keep stable item keys
+        // so new events do not displace a reader looking at older entries.
+        LazyColumn(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            reverseLayout = true,
+            verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)
+        ) {
+            items(logs.asReversed(), key = { it.sequence }) { event ->
+                Column {
+                    Text("${formatter.format(Date(event.time))}  ${event.level}  ${event.code}",
+                        fontSize = 12.sp, color = if (event.level == "ERROR") Color(0xFFFFBA9B) else Color(0xFF8FDACF))
+                    if (event.detail.isNotEmpty()) Text(event.detail, fontSize = 12.sp)
+                }
+            }
+        }
+    }
 }
 @Composable private fun PasteDialog(dismiss: ()->Unit,add: (String)->Unit) { var text by remember { mutableStateOf("") };VpnSheet("Import profile",dismiss) { OutlinedTextField(text,{text=it},label={Text("VLESS / Hysteria links or export JSON")},modifier=Modifier.fillMaxWidth().height(200.dp));Button(onClick={add(text)},enabled=text.isNotBlank(),modifier=Modifier.fillMaxWidth()) { Text("Import") } } }
 @Composable private fun ProfileDialog(profile: Profile, dismiss: () -> Unit, save: (Profile) -> Unit) {

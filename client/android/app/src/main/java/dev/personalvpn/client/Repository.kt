@@ -44,11 +44,12 @@ class SecureStore(context: Context) {
         try { output.write(encrypted); file.finishWrite(output) } catch (e: Exception) { file.failWrite(output); throw e }
     }
 }
-data class BackendEvent(val time: Long, val level: String, val code: String, val detail: String)
+data class BackendEvent(val sequence: Long, val time: Long, val level: String, val code: String, val detail: String)
 class EventRing {
     private val values = ArrayDeque<BackendEvent>(); private var bytes = 0
+    private var sequence = 0L
     @Synchronized fun add(level: String, code: String, detail: String): List<BackendEvent> {
-        val event = BackendEvent(System.currentTimeMillis(), level.take(8), code.take(80), detail.take(1024))
+        val event = BackendEvent(++sequence, System.currentTimeMillis(), level.take(8), code.take(80), detail.take(1024))
         values.addLast(event); bytes += size(event)
         while (values.size > 1000 || bytes > 1024 * 1024) bytes -= size(values.removeFirst())
         return values.toList()

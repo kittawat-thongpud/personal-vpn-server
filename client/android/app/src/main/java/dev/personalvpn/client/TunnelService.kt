@@ -184,7 +184,7 @@ class TunnelService : VpnService() {
                                 currentCoroutineContext().ensureActive(); checkEpoch(epoch)
                                 appliedPath = physical.choice.path
                                 mutateState { it.copy(appliedConfig = config.fingerprint(), profileName = config.selectedProfile().name, protocol = config.protocol) }
-                                Repository.log("INFO", "core.started", "${config.protocol}; generation=${epoch.generation}")
+                                Repository.log("INFO", "core.started", "${config.protocol}; generation=${epoch.generation}; client=${BuildConfig.VERSION_NAME}")
                             }
                             phase = "health"
                             verifyNetwork(config, epoch) { attempt = 0 }
@@ -225,6 +225,7 @@ class TunnelService : VpnService() {
     private suspend fun verifyNetwork(config: Config, epoch: NetworkEpoch, healthy: () -> Unit) {
         val failures = HealthFailures()
         var connected = false
+        var degradedAt = 0L
         checkEpoch(epoch)
         update("Verifying", true, true)
         while (currentCoroutineContext().isActive) {
@@ -234,6 +235,7 @@ class TunnelService : VpnService() {
             var lastFailure: Exception = IOException("HTTPS health failed")
             for (target in healthTargets()) {
                 checkEpoch(epoch)
+                val probeStarted = SystemClock.elapsedRealtime()
                 var phase = "outbound"
                 try {
                     val current = core ?: throw IOException("Core closed")
@@ -254,7 +256,9 @@ class TunnelService : VpnService() {
                     currentCoroutineContext().ensureActive();checkEpoch(epoch)
                     lastFailure = error
                     val reason = Repository.cause(error)
-                    Repository.log("WARN", "health.target_failed", "${target.label}; generation=${epoch.generation}; phase=$phase; reason=$reason")
+                    val elapsed = SystemClock.elapsedRealtime() - probeStarted
+                    Repository.log("WARN", "health.target_failed",
+                        "target=${target.label}; generation=${epoch.generation}; phase=$phase; reason=$reason; elapsed=${elapsed}ms")
                     if (reason in setOf("certificate_pin", "reality_authentication", "authentication")) throw SessionBlocked(reason, epoch.generation)
                 }
             }
@@ -268,13 +272,20 @@ class TunnelService : VpnService() {
                 // Commit the result atomically with the generation check.
                 synchronized(control) {
                     checkEpoch(epoch)
+                    if (degradedAt != 0L) {
+                        Repository.log("INFO", "health.recovered",
+                            "generation=${epoch.generation}; retry_elapsed=${SystemClock.elapsedRealtime() - degradedAt}ms; core retained.")
+                        degradedAt = 0L
+                    }
                     mutateState { it.copy(status = "Connected", active = true, busy = false, exitIp = verifiedExit, detail = config.protocol) }
                 }
                 Surfaces.refresh(this)
             } else {
                 if (failures.failed()) throw IOException("Consecutive HTTPS health checks failed", lastFailure)
+                degradedAt = SystemClock.elapsedRealtime()
                 update("Degraded", true, false, "HTTPS verification retry; capture and core retained")
-                Repository.log("WARN", "health.degraded", "generation=${epoch.generation}; retry=${failures.count}/2; core retained.")
+                Repository.log("WARN", "health.degraded",
+                    "generation=${epoch.generation}; failed_rounds=${failures.count}/2; next_check=3000ms; core retained.")
             }
             delay(if (result == null) 3000 else 15000)
         }
@@ -296,23 +307,32 @@ class TunnelService : VpnService() {
         val choice = chooseNetwork(values.map { it.choice }, networkEpoch.physical?.choice?.id)
         val selected = values.firstOrNull { it.choice == choice }
         val changed: Boolean
-        val validationRecovered: Boolean
+        val previous: NetworkChoice?
         val epoch: NetworkEpoch
         synchronized(control) {
-            val previous = networkEpoch
-            changed = previous.physical?.choice?.generationKey != selected?.choice?.generationKey
-            validationRecovered = previous.physical?.choice?.validated == false && choice?.validated == true
-            epoch = NetworkEpoch(previous.generation + if (changed) 1 else 0, selected)
+            val before = networkEpoch
+            previous = before.physical?.choice
+            changed = previous?.generationKey != choice?.generationKey
+            epoch = NetworkEpoch(before.generation + if (changed) 1 else 0, selected)
             networkEpoch = epoch
         }
         applyUnderlying(epoch)
         if (changed) {
             val transport = when { selected == null -> "none"; choice?.wifi == true -> "wifi"; selected.capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"; else -> "other" }
-            Repository.log("INFO", "network.changed", "generation=${epoch.generation}; transport=$transport; validated=${choice?.validated == true}; TUN retained.")
+            val change = when {
+                choice == null -> "lost"
+                previous == null -> "available"
+                previous.id != choice.id -> "handover"
+                previous.suspended != choice.suspended -> if (choice.suspended) "suspended" else "resumed"
+                else -> "path"
+            }
+            Repository.log("INFO", "network.changed",
+                "generation=${epoch.generation}; transport=$transport; change=$change; validated=${choice?.validated == true}; capture=${if (tun == null) "absent" else "retained"}.")
             cancelPending()
-        } else if (validationRecovered) {
-            Repository.log("INFO", "network.validated", "generation=${epoch.generation}; same physical path.")
-            wake.trySend(Unit)
+        } else if (previous != null && choice != null && previous.validated != choice.validated) {
+            Repository.log("INFO", "network.validation_changed",
+                "generation=${epoch.generation}; validated=${choice.validated}; same physical path.")
+            if (choice.validated) wake.trySend(Unit)
         }
     }
     private fun applyUnderlying(epoch: NetworkEpoch) {
@@ -398,7 +418,9 @@ class TunnelService : VpnService() {
         // Android may deliver revocation off the main thread. Serialize it with
         // command entry points and use the same generation-guarded teardown.
         scope.launch(Dispatchers.Main.immediate) {
-            Repository.log("WARN", "vpn.revoked", "Android revoked this VPN session")
+            val state = Repository.state.value
+            Repository.log("WARN", "vpn.revoked",
+                "Android revoked this VPN session; generation=${networkEpoch.generation}; state=${state.status}; protocol=${state.protocol.ifEmpty { "not_started" }}.")
             stopTunnel("revoked",revoked=true)
         }
     }

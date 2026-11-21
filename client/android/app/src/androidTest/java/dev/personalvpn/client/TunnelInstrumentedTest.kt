@@ -371,9 +371,13 @@ class TunnelInstrumentedTest {
                     val events = Repository.logs.value.drop(healthEvents)
                     val degraded = events.indexOfFirst { it.code == "state.degraded" }
                     assertTrue("Initial failure should record the failing phase",
-                        events.any { it.code == "health.target_failed" && it.detail.contains("phase=outbound") })
+                        events.any { it.code == "health.target_failed" &&
+                            it.detail.contains("target=primary") && it.detail.contains("phase=outbound") &&
+                            Regex("elapsed=[0-9]+ms").containsMatchIn(it.detail) })
                     assertTrue("A retained core should stay Degraded until verified",
                         degraded >= 0 && events.drop(degraded + 1).none { it.code == "state.verifying" || it.code == "core.stopped" })
+                    assertTrue("Recovery on the same core needs its own event",
+                        events.drop(degraded + 1).any { it.code == "health.recovered" && it.detail.contains("core retained") })
                     println("Recovery verified: initial health outage stayed Degraded until verified without core restart")
                 }
                 assertNotEquals("—", Repository.state.value.exitIp)
@@ -503,6 +507,45 @@ class TunnelInstrumentedTest {
             assertEquals("www.google.com, www.youtube.com",Repository.config.value.sites.rules.single().displayName)
         } } finally { Repository.save(original) }
     }
+    @Test fun backendLogsOpenAtLatestAndSupportHistoryAndClear() {
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        Repository.clearLogs()
+        repeat(100) { Repository.log("INFO", "backend.retry", "Fixture retry ${it + 1}") }
+        try {
+            launchHome().use {
+                openSettingsDestination("Backend logs")
+                waitFor("Newest logs on page entry", 15) {
+                    refreshAccessibility()
+                    device.hasObject(By.text("Fixture retry 100"))
+                }
+                val latest = device.findObject(By.text("Fixture retry 100")).visibleBounds
+                val previous = device.findObject(By.text("Fixture retry 99")).visibleBounds
+                assertTrue("Newer logs belong at the bottom", latest.centerY() > previous.centerY())
+                assertFalse("Old entries must be offscreen on entry", device.hasObject(By.text("Fixture retry 1")))
+                val x = device.displayWidth / 2
+                assertTrue(device.swipe(x, device.displayHeight / 3, x, device.displayHeight * 4 / 5, 18))
+                waitFor("Scrollable log history", 15) {
+                    refreshAccessibility()
+                    !device.hasObject(By.text("Fixture retry 100"))
+                }
+                clickFresh(By.text("‹ Back"))
+                openSettingsDestination("Backend logs")
+                waitFor("Newest logs on reopening", 15) {
+                    refreshAccessibility()
+                    device.hasObject(By.text("Fixture retry 100"))
+                }
+                clickFresh(By.text("Clear"))
+                waitFor("Cleared log view", 15) {
+                    refreshAccessibility()
+                    !device.hasObject(By.text("Fixture retry 100")) && Repository.logs.value.none { e -> e.detail.startsWith("Fixture retry ") }
+                }
+                println("Backend logs verified: newest visible on entry and reopening, prior events scrollable, Clear removes records")
+            }
+        } finally {
+            Repository.clearLogs()
+        }
+    }
+
     @Test fun homeControlsFitInsideTheScreen() {
         val original=Repository.config.value
         val profile=Profile(name="Japan · preview",reality=fixture().getJSONObject("reality").toString())
