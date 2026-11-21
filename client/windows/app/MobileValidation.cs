@@ -152,8 +152,35 @@ public static class MobileValidation
             var appRoot=window.LayoutForTest("AppTunnel",new Size(438,750));
             var appBitmap=new RenderTargetBitmap(438,750,96,96,PixelFormats.Pbgra32);appBitmap.Render(appRoot);
             var appEncoder=new PngBitmapEncoder();appEncoder.Frames.Add(BitmapFrame.Create(appBitmap));using(var file=File.Create(Path.Combine(output,"AppTunnel-TUN.png")))appEncoder.Save(file);
+            var appEditor = Elements(window.RuleEditorForTest(new Size(438, 750), apps: true)).ToArray();
+            var appActions = appEditor.OfType<ComboBox>().Single(box => box.Name == "ExceptionAction");
+            var bypass = appActions.Items.OfType<ComboBoxItem>().Single(item => Equals(item.Tag, Policy.NativeBypassAction));
+            Assert(Equals(bypass.Content, "Bypass VPN") && bypass.IsEnabled == NativeBypass.Available,
+                "App editor must show Bypass VPN and enable it only with a supported runtime.");
+            Assert(Equals(appActions.SelectedValue, "Bypass") && Equals(((ComboBoxItem)appActions.SelectedItem).Content, "Direct via TUN"),
+                "Existing direct rules must retain their action and display the Direct via TUN label.");
+            if (!NativeBypass.Available)
+            {
+                Assert(appEditor.OfType<TextBlock>().Any(text => text.Text.Contains("requires a signed Windows driver")),
+                    "The unavailable Bypass VPN action needs a visible explanation.");
+                settings.Apps.Entries[0].Action = Policy.NativeBypassAction;
+                appEditor = Elements(window.RuleEditorForTest(new Size(438, 750), apps: true)).ToArray();
+                appActions = appEditor.OfType<ComboBox>().Single(box => box.Name == "ExceptionAction");
+                var appSave = appEditor.OfType<Button>().Single(button => Equals(button.Content, "Save exception"));
+                Assert(!appSave.IsEnabled, "An unsupported saved Bypass VPN rule cannot be saved again.");
+                appSave.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert(settings.Apps.Entries[0].Action == Policy.NativeBypassAction, "The unsupported rule was silently changed.");
+                appActions.SelectedValue = "Bypass";
+                Assert(appSave.IsEnabled, "Switching to Direct via TUN must enable Save.");
+                appSave.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert(settings.Apps.Entries[0].Action == "Bypass", "An explicit switch to Direct via TUN was not saved.");
+            }
+            checks.Add("Bypass VPN remains visible in App Tunnel and unavailable rules require an explicit replacement");
             settings.CaptureMode="Proxy";
             var editor=window.RuleEditorForTest(new Size(438,750));var editorElements=Elements(editor).ToArray();
+            var siteActions = editorElements.OfType<ComboBox>().Single(box => box.Name == "ExceptionAction");
+            Assert(!siteActions.Items.OfType<ComboBoxItem>().Any(item => Equals(item.Tag, Policy.NativeBypassAction)),
+                "Site rules must retain their separate Bypass action.");
             var targets=editorElements.OfType<TextBox>().Single(x=>x.Name=="ExceptionTargets");
             var groupName=editorElements.OfType<TextBox>().Single(x=>x.Name=="SiteGroupName");
             Assert(targets.Text.Contains("2.2.2.*") && groupName.Text=="Private lab" && targets.AcceptsReturn,"Site editor lost the optional name or full target list.");

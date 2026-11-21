@@ -55,6 +55,8 @@ the TUN capture plan.
 
 App rules support Tunnel, Direct via TUN and Block. Site rules support Tunnel,
 Bypass and Block. Direct via TUN captures the app and uses a direct outbound.
+The App Tunnel editor shows Bypass VPN as unavailable in builds that lack
+the signed Windows driver for per-app exclusion.
 Rules off retains and ignores that module's list. Explicit App rules
 win over conflicting Site rules. App default follows exceptions; when App rules
 are off the Site default applies. With both modules off captured traffic tunnels.

@@ -204,24 +204,46 @@ public sealed partial class MainWindow
         if (!apps) { panel.Children.Add(Text("Group name (optional)", 13)); panel.Children.Add(name); panel.Children.Add(Text("Targets", 13)); }
         var value = new TextBox { Name="ExceptionTargets", Text = previous?.Value ?? selected ?? "", MaxLength = apps ? 1024 : SiteTargets.InputLimit, AcceptsReturn = !apps, MinHeight = apps ? 0 : 100, MaxHeight = 180, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }; panel.Children.Add(value);
         panel.Children.Add(Text(apps ? "Full .exe path." : "Separate targets with commas or new lines. Domain includes subdomains. IP supports IPv4, IPv6, CIDR and trailing wildcards such as 2.2.2.*.", 11, "#9BAECD")); panel.Children.Add(Text("Action", 13));
-        var actions = apps && (NativeBypass.Available || previous?.Action == Policy.NativeBypassAction)
-            ? new[] { "Tunnel", "Bypass", Policy.NativeBypassAction, "Block" } : new[] { "Tunnel", "Bypass", "Block" };
-        var labels = actions.Select(value => Policy.ActionLabel(value, apps)).ToArray();
-        var action = Combo(labels, Policy.ActionLabel(previous?.Action ?? "Tunnel", apps), _ => { }); panel.Children.Add(action);
-        if (apps && NativeBypass.Available) panel.Children.Add(Text("Bypass VPN · Windows test build. The reference driver can also exclude child processes. System DNS uses its own route.", 11, "#E9BB72"));
-        var error = Text("", 12, "#F29C9F"); panel.Children.Add(error);
-        panel.Children.Add(Action("Save exception", () =>
+        var actions = apps ? new[] { "Tunnel", "Bypass", Policy.NativeBypassAction, "Block" } : new[] { "Tunnel", "Bypass", "Block" };
+        bool nativeBypassAvailable = NativeBypass.Available;
+        var action = new ComboBox { Name = "ExceptionAction", MinWidth = 125, SelectedValuePath = nameof(ComboBoxItem.Tag) };
+        foreach (string key in actions)
         {
+            action.Items.Add(new ComboBoxItem
+            {
+                Content = Policy.ActionLabel(key, apps),
+                Tag = key,
+                IsEnabled = key != Policy.NativeBypassAction || nativeBypassAvailable
+            });
+        }
+        action.SelectedValue = previous?.Action ?? "Tunnel";
+        panel.Children.Add(action);
+        if (apps)
+        {
+            string hint = nativeBypassAvailable
+                ? "Bypass VPN · Windows test build. The reference driver can also exclude child processes. System DNS uses its own route."
+                : "Bypass VPN requires a signed Windows driver. Direct via TUN sends traffic directly after capture.";
+            panel.Children.Add(Text(hint, 11, "#E9BB72"));
+        }
+        var error = Text("", 12, "#F29C9F"); panel.Children.Add(error);
+        var save = Action("Save exception", () =>
+        {
+            if (action.SelectedItem is not ComboBoxItem { IsEnabled: true, Tag: string selectedAction }) return;
             try
             {
-                var next = new TunnelException { Kind = (string)kind.SelectedItem, Name = apps ? "" : name.Text.Trim(), Value = apps ? value.Text.Trim() : SiteTargets.Clean((string)kind.SelectedItem, value.Text), Action = actions[Array.IndexOf(labels, (string)action.SelectedItem)] };
+                var next = new TunnelException { Kind = (string)kind.SelectedItem, Name = apps ? "" : name.Text.Trim(), Value = apps ? value.Text.Trim() : SiteTargets.Clean((string)kind.SelectedItem, value.Text), Action = selectedAction };
                 var entries = policy.Entries.ToList(); if (previous == null) entries.Add(next); else entries[entries.IndexOf(previous)] = next;
                 Policy.ValidateTunnel(new TunnelPolicy { Mode = policy.Mode, Entries = entries }, apps);
                 policy.Entries = entries;
                 Changed(!apps || settings.CaptureMode == "TUN"); CloseSheet(); Navigate(apps ? "AppTunnel" : "SiteTunnel");
             }
             catch (InvalidOperationException e) { error.Text = e.Message; }
-        })); ShowSheet(previous == null ? "Add exception" : "Edit exception", panel);
+        });
+        void UpdateSave() => save.IsEnabled = action.SelectedItem is ComboBoxItem { IsEnabled: true };
+        action.SelectionChanged += (_, _) => UpdateSave();
+        UpdateSave();
+        panel.Children.Add(save);
+        ShowSheet(previous == null ? "Add exception" : "Edit exception", panel);
     }
     internal FrameworkElement LayoutForTest(string target, Size size)
     {
@@ -229,7 +251,14 @@ public sealed partial class MainWindow
         Navigate(target); layoutRoot.InvalidateMeasure(); layoutRoot.Measure(size); layoutRoot.Arrange(new Rect(size)); layoutRoot.UpdateLayout();
         Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle); return layoutRoot;
     }
-    internal FrameworkElement RuleEditorForTest(Size size) { LayoutForTest("SiteTunnel",size);EditException(settings.Sites!,false,settings.Sites!.Entries[0]);layoutRoot.UpdateLayout();return layoutRoot; }
+    internal FrameworkElement RuleEditorForTest(Size size, bool apps = false)
+    {
+        LayoutForTest(apps ? "AppTunnel" : "SiteTunnel", size);
+        var policy = apps ? settings.Apps : settings.Sites!;
+        EditException(policy, apps, policy.Entries[0]);
+        layoutRoot.UpdateLayout();
+        return layoutRoot;
+    }
     internal void FillPreviewLogs() { for (int i = 0; i < 200; i++) backend.Log.Add("INFO", "backend.retry", "Synthetic layout preview · retry result " + i); }
     internal void StopPreview() { exiting = true; timer.Stop(); backend.DisposeAsync().AsTask().GetAwaiter().GetResult(); Close(); }
 }
