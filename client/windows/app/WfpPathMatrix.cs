@@ -105,14 +105,18 @@ internal static partial class Tests
         async Task Wave(string stage, bool enabled, WfpReferenceLab? driver = null)
         {
             foreach (var protocol in targets.Keys)
+            {
+                int trials = packetDir != null && protocol == "tcp" ? 3 : 1;
                 foreach (var role in probes.Keys)
-                {
-                    var row = await RunProbe(stage, role, protocol, driver);
-                    bool outside = enabled && role == "bypass";
-                    Assert(row.DriverExcluded is null || row.DriverExcluded == outside, $"{stage}: {role} kernel classification differs from the lab policy.");
-                    Assert(row.Reached == (outside || role == "tunneled"), $"{stage}: {role} {protocol} reached={row.Reached}, source={row.SourcePath}.");
-                    if (row.Reached) Assert(row.SourcePath == (outside ? "physical" : "wintun"), $"{stage}: {role} {protocol} selected {row.SourcePath}.");
-                }
+                    for (int trial = 0; trial < trials; trial++)
+                    {
+                        var row = await RunProbe(stage, role, protocol, driver);
+                        bool outside = enabled && role == "bypass";
+                        Assert(row.DriverExcluded is null || row.DriverExcluded == outside, $"{stage}: {role} kernel classification differs from the lab policy.");
+                        Assert(row.Reached == (outside || role == "tunneled"), $"{stage}: {role} {protocol} reached={row.Reached}, source={row.SourcePath}.");
+                        if (row.Reached) Assert(row.SourcePath == (outside ? "physical" : "wintun"), $"{stage}: {role} {protocol} selected {row.SourcePath}.");
+                    }
+            }
             Assert(backend.State == "Connected" && initialCapture == backend.CapturePidForTest, "Wintun restarted during the comparison.");
         }
 

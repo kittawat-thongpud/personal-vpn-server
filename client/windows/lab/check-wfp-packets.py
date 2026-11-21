@@ -120,7 +120,7 @@ def qualify(directory):
         key = (6 if row['Protocol'] == 'tcp' else 17, ipaddress.ip_address(row['Local']).packed,
                row['Port'], ipaddress.ip_address(address).packed, int(port))
         reverse = (key[0], key[3], key[4], key[1], key[2])
-        if key in flows or reverse in flows or role in counts:
+        if key in flows or reverse in flows:
             raise ValueError('Socket tuples in the capture are not unique')
         flows[key] = role
         flows[reverse] = role
@@ -129,7 +129,7 @@ def qualify(directory):
         direct = row['App'] == 'bypass' and row['Stage'] in ('capture_with_reference_exclusion', 'after_disconnect')
         if direct and row.get('WireToken'):
             stun_tokens[bytes.fromhex(row['WireToken'])] = role
-        counts[role] = Counter()
+        counts.setdefault(role, Counter())
 
     queries = {dns_name(row['Name']): row for row in manifest['dns']}
     dns_counts = {name: Counter() for name in queries}
