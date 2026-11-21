@@ -49,3 +49,11 @@ Packet Monitor จับแพ็กเก็ตบน Wintun และ NIC อ�
 ทดสอบ Apply และ Remove ผ่านการเชื่อมต่อปกติของ backend แล้ว แอปที่ยกเว้นออกตรงทั้ง TCP และ UDP กฎ Tunnel/Block ของโปรเซสทดสอบอื่นทำงานขณะเดียวกัน และเมื่อถอดข้อยกเว้น แอปเดิมกลับเข้า TUN นอกจากนี้ยังจงใจหยุด recovery guard แล้วตรวจว่ากู้ WFP จาก journal, เปิดอะแดปเตอร์เดิมได้ และถอนบริการไดรเวอร์ทดสอบได้ [ผลทดสอบ Windows client และ recovery](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/44890008957)
 
 การจับแพ็กเก็ตครอบคลุม IPv4 บน Windows Server 2025 x64 runner การวัด latency, IPv6, การสลับ LAN/Wi-Fi และ ZeroTier/Tailscale ยังต้องตรวจแยก ไดรเวอร์อ้างอิงสามารถส่งข้อยกเว้นไปยังโปรเซสลูก จึงเปิด native Bypass เฉพาะ build ของ runner ใน `codex/windows-wfp-lab` การเปิดในรุ่นหลักต้องใช้การเลือกกฎตาม executable ที่รักษากฎ Tunnel/Block ของโปรเซสลูกได้ [สถาปัตยกรรมไดรเวอร์อ้างอิง](https://raw.githubusercontent.com/mullvad/win-split-tunnel/0a0eb97f67d1dbcb3d08bda66d3b24f465d95475/README.md)
+
+### ไดรเวอร์ที่เลือกตาม executable
+
+แพตช์ของ Personal VPN ใช้โปรเจกต์ Mullvad ที่ pin revision ไว้ภายใต้ MPL-2.0 การ Apply กฎให้โปรเซสที่เปิดอยู่แล้วและการรับโปรเซสใหม่ต่างเทียบ path ของ executable ตัวนั้นโดยตรง โปรเซสลูกที่ใช้ path เดียวกันเข้ากฎเดียวกันตาม path ส่วนโปรเซสลูกที่ใช้คนละ path ใช้กฎของตัวเอง ชื่ออุปกรณ์และ GUID ของ WFP แยกจากไดรเวอร์อ้างอิง
+
+WDK `10.0.28000.2526` คอมไพล์ไดรเวอร์ x64 สำเร็จและ `Inf2Cat` สร้าง catalog จาก `.sys` กับ `.inf` ของ Personal VPN ตรวจ SHA-256 ของทั้งสามไฟล์และแพตช์หลังดาวน์โหลดแล้ว artifact `wfp-x64-unsigned-for-signing` เป็นแพ็กเกจสำหรับขั้นลงนาม หลักฐานรอบนี้ครอบคลุมการคอมไพล์และ catalog โดยยังไม่ได้โหลดไดรเวอร์ใหม่นี้ใน kernel [ผล build และ artifact](https://github.com/kittawat-thongpud/personal-vpn-server/actions/runs/44896811308)
+
+ชุดทดสอบเส้นทางที่ผ่านใช้ไดรเวอร์อ้างอิงที่มีลายเซ็น ไดรเวอร์ใหม่ต้องผ่านการลงนามของ Microsoft ก่อนนำไปทดสอบ kernel ด้วยชุดเดิม พร้อมเคส parent Bypass และ child Tunnel/Block และการทดสอบ DNS, IPv6, handover และ mesh บนอุปกรณ์จริง [ข้อกำหนดลายเซ็น kernel driver](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/kernel-mode-code-signing-policy--windows-vista-and-later-)
