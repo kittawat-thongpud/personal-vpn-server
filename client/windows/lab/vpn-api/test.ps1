@@ -28,6 +28,14 @@ $manifest.Package.Properties.PublisherDisplayName = 'Personal VPN API Lab'
 $manifest.Package.Dependencies.TargetDeviceFamily.MinVersion = '10.0.22000.0'
 $manifest.Package.Dependencies.TargetDeviceFamily.MaxVersionTested = '10.0.26100.0'
 $manifest.Save($manifestPath)
+$appProject = Join-Path $app 'TestVpnPluginApp.csproj'
+[xml]$project = Get-Content -LiteralPath $appProject -Raw
+# This property belongs to the app. Passing it globally also tries to pack
+# the referenced Windows Runtime component, which has no Pack target.
+$packageOnBuild = $project.CreateElement('GenerateAppxPackageOnBuild', $project.DocumentElement.NamespaceURI)
+$packageOnBuild.InnerText = 'true'
+$project.Project.PropertyGroup[0].AppendChild($packageOnBuild) | Out-Null
+$project.Save($appProject)
 
 $sdkRoot = ${env:ProgramFiles(x86)} + '/Windows Kits/10'
 $sdk = Get-ChildItem -LiteralPath (Join-Path $sdkRoot 'bin') -Directory |
@@ -36,7 +44,7 @@ $sdk = Get-ChildItem -LiteralPath (Join-Path $sdkRoot 'bin') -Directory |
 if (!$sdk) { throw 'Windows SDK and SignTool not found.' }
 $msbuild = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
 if (!$msbuild) { throw 'Visual Studio MSBuild not found.' }
-& $msbuild (Join-Path $sample 'CSharp/TestVpnPluginApp.sln') /restore /m /v:minimal /p:Configuration=Debug /p:Platform=x64 "/p:TargetPlatformVersion=$($sdk.Name)" /p:TargetPlatformMinVersion=10.0.22000.0 /p:UseDotNetNativeToolchain=false /p:AppxPackageSigningEnabled=false /p:AppxBundle=Never /p:AppxAutoIncrementPackageRevision=false /p:UapAppxPackageBuildMode=SideloadOnly /p:GenerateAppxPackageOnBuild=true "/p:AppxPackageDir=$stage\"
+& $msbuild $appProject /restore /m /v:minimal /p:Configuration=Debug /p:Platform=x64 "/p:TargetPlatformVersion=$($sdk.Name)" /p:TargetPlatformMinVersion=10.0.22000.0 /p:UseDotNetNativeToolchain=false /p:AppxPackageSigningEnabled=false /p:AppxBundle=Never /p:AppxAutoIncrementPackageRevision=false /p:UapAppxPackageBuildMode=SideloadOnly "/p:AppxPackageDir=$stage\"
 if ($LASTEXITCODE -ne 0) { throw 'The UWP test package did not build.' }
 $package = Get-ChildItem -LiteralPath $stage -Recurse -File -Filter '*.appx' |
     Where-Object { $_.Name -like '*_x64_Debug.appx' -and $_.DirectoryName -notmatch '[\\/]Dependencies[\\/]' } | Select-Object -First 1
