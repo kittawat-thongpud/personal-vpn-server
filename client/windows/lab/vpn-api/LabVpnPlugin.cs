@@ -19,13 +19,15 @@ namespace TestVpnPluginAppBg
         public void Connect(VpnChannel channel)
         {
             var probe = XElement.Parse(channel.Configuration.CustomField);
-            string exe = probe.Value;
+            probeName = probe.Value.Trim();
             string route = (string)probe.Attribute("route");
-            probeName = Path.GetFileNameWithoutExtension(exe);
             Log("plugin-start " + probeName);
             try
             {
-                if (!Path.IsPathRooted(exe) || (probeName != "probe-a" && probeName != "probe-b"))
+                if (probeName != "probe-a" && probeName != "probe-b")
+                    throw new InvalidOperationException("Expected a lab probe");
+                string exe = File.ReadAllText(Path.Combine(ApplicationData.Current.LocalFolder.Path, probeName + ".txt")).Trim();
+                if (!Path.IsPathRooted(exe) || Path.GetFileName(exe) != probeName + ".exe")
                     throw new InvalidOperationException("Expected a lab executable");
                 if (route != "1.1.1.1" && route != "192.0.2.42")
                     throw new InvalidOperationException("Expected a lab route");

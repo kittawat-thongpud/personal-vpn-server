@@ -82,12 +82,13 @@ function Read-Log([string]$Path) {
     if (Test-Path -LiteralPath $Path) { Get-Content -LiteralPath $Path }
 }
 
-function Wait-Log([string]$Path, [string]$Expected, [int]$Seconds = 30) {
+function Wait-Log([string]$Path, [string]$Expected, [int]$Seconds = 30, [switch]$Cleanup) {
     $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
     do {
         $lines = @(Read-Log $Path)
-        if ($lines -match '^error |^channel-error ') { throw ($lines -join [Environment]::NewLine) }
         if ($lines -contains $Expected) { return }
+        $errorPattern = if ($Cleanup) { '^error cleanup ' } else { '^error |^channel-error ' }
+        if ($lines -match $errorPattern) { throw ($lines -join [Environment]::NewLine) }
         Start-Sleep -Milliseconds 300
     } while ([DateTime]::UtcNow -lt $deadline)
     throw "Timed out waiting for '$Expected'."
@@ -109,6 +110,7 @@ function Get-ProbeRoute {
 }
 
 $rows = [System.Collections.Generic.List[object]]::new()
+$failures = [System.Collections.Generic.List[string]]::new()
 $packageInfo = $null
 $identity = $null
 $installCertificate = $null
@@ -153,7 +155,7 @@ try {
         $exit = Invoke-Probe $selected
         $captures = @(Read-Log $channelLog | Where-Object { $_ -match $capturePattern }).Count
         $rows.Add([ordered]@{ phase = $selected; probe = $selected; exitCode = $exit; captured = $captures; systemRoute = (Get-ProbeRoute) })
-        if ($exit -eq 0 -or $captures -eq 0) { throw "The selected process did not stay in the test tunnel ($selected)." }
+        if ($exit -eq 0 -or $captures -eq 0) { $failures.Add("The selected process did not stay in the test tunnel ($selected).") }
         # Drain selected SYN retransmissions before inspecting the other app.
         Start-Sleep -Seconds 3
         $before = @(Read-Log $channelLog | Where-Object { $_ -match $capturePattern }).Count
@@ -161,15 +163,15 @@ try {
         $exit = Invoke-Probe $excluded
         $after = @(Read-Log $channelLog | Where-Object { $_ -match $capturePattern }).Count
         $rows.Add([ordered]@{ phase = $selected; probe = $excluded; exitCode = $exit; captured = $after - $before })
-        if ($exit -ne 0 -or $after -ne $before) { throw "The nonselected process did not retain its direct path ($excluded)." }
+        if ($exit -ne 0 -or $after -ne $before) { $failures.Add("The nonselected process did not retain its direct path ($excluded).") }
     }
-    $result = 'PASS'
+    if (!$failures.Count) { $result = 'PASS' }
 }
 finally {
     if ($identity -and $localLog) {
         try {
             [LabActivation]::Launch($identity, 'cleanup') | Out-Null
-            Wait-Log $localLog 'cleaned'
+            Wait-Log $localLog 'cleaned' -Cleanup
             foreach ($probe in @('probe-a', 'probe-b')) {
                 $exit = Invoke-Probe $probe
                 $rows.Add([ordered]@{ phase = 'cleanup'; probe = $probe; exitCode = $exit })
@@ -181,7 +183,7 @@ finally {
     foreach ($log in @($localLog, $channelLog)) {
         if ($log -and (Test-Path -LiteralPath $log)) { Copy-Item -LiteralPath $log -Destination $evidence }
     }
-    $report = [ordered]@{ result = $result; os = (Get-CimInstance Win32_OperatingSystem).Caption; includedRoute = "$testRoute/32"; rows = $rows.ToArray() }
+    $report = [ordered]@{ result = $result; os = (Get-CimInstance Win32_OperatingSystem).Caption; includedRoute = "$testRoute/32"; rows = $rows.ToArray(); failures = $failures.ToArray() }
     $report | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $evidence 'route-test.json')
     Get-ChildItem -LiteralPath $evidence -Filter '*.log' | ForEach-Object { Get-Content -LiteralPath $_.FullName }
     $report | ConvertTo-Json -Depth 5
