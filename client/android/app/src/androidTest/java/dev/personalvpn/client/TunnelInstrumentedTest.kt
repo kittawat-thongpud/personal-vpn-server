@@ -359,8 +359,24 @@ class TunnelInstrumentedTest {
                     sites = Policy(Action.Tunnel,listOf(Rule("2.2.2.2,10.184.6.32",Action.Bypass,"IP"))))
                 Personalvpn.check(EngineConfig.compile(config, "10.0.2.2", true))
                 Repository.save(config)
+                val coldStart = protocol == "Hysteria 2"
+                val healthEvents = Repository.logs.value.size
+                if (coldStart) Repository.instrumentedHealthFailure = 2
                 TunnelService.command(context, if (Repository.state.value.active) TunnelService.RECONNECT else TunnelService.CONNECT)
+                if (coldStart) {
+                    waitFor("Initial HTTPS failure degrades the session") { Repository.state.value.status == "Degraded" }
+                    Repository.instrumentedHealthFailure = 0
+                }
                 waitFor("Authenticated and captured HTTPS: $protocol") { Repository.state.value.status == "Connected" && Repository.state.value.detail == protocol }
+                if (coldStart) {
+                    val events = Repository.logs.value.drop(healthEvents)
+                    val degraded = events.indexOfFirst { it.code == "state.degraded" }
+                    assertTrue("Initial failure should record the failing phase",
+                        events.any { it.code == "health.target_failed" && it.detail.contains("phase=outbound") })
+                    assertTrue("A retained core should stay Degraded until verified",
+                        degraded >= 0 && events.drop(degraded + 1).none { it.code == "state.verifying" || it.code == "core.stopped" })
+                    println("Recovery verified: initial health outage stayed Degraded until verified without core restart")
+                }
                 assertNotEquals("—", Repository.state.value.exitIp)
                 val name = captureName(); assertNotNull(name)
                 if (firstName == null) firstName = name else assertEquals("Transport changes must retain TUN", firstName, name)

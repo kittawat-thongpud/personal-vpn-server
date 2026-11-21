@@ -20,6 +20,13 @@ class RecoveryTest {
         try { superviseRecovery({ true }, { throw SessionBlocked("configuration") }, { _, _ -> error("blocked retry") }, {}); fail("Expected blocked session") }
         catch (blocked: SessionBlocked) { assertEquals("configuration", blocked.category) }
     }
+    @Test fun transportFailureAfterStopDoesNotReportRetry() = runBlocking {
+        var desired = true
+        superviseRecovery({ desired }, {
+            desired = false
+            throw java.io.IOException("Socket closed when VPN permission was revoked")
+        }, { _, _ -> fail("The stopped session reported a retry") }, { fail("The stopped session entered backoff") })
+    }
     @Test fun validatedCellularWinsOverStaleWifiAndMetadataDoesNotResetTransport() {
         val wifi = NetworkChoice("wifi", "wifi/path", false, false, true, false)
         val mobile = NetworkChoice("mobile", "mobile/path", true, false, false, true)
@@ -27,7 +34,8 @@ class RecoveryTest {
         assertEquals(wifi, chooseNetwork(listOf(wifi, mobile.copy(suspended = true)), mobile.id))
         assertEquals(wifi.generationKey, wifi.copy(metered = true).generationKey)
         assertNotEquals(wifi.generationKey, wifi.copy(path = "wifi/new-address").generationKey)
-        assertNotEquals(wifi.generationKey, wifi.copy(validated = true).generationKey)
+        assertEquals(wifi.generationKey, wifi.copy(validated = true).generationKey)
+        assertNotEquals(wifi.generationKey, wifi.copy(suspended = true).generationKey)
         assertEquals(null, chooseNetwork(emptyList(), wifi.id))
     }
     @Test fun oneFailedVerificationDoesNotRestartAndSuccessClearsMisses() {

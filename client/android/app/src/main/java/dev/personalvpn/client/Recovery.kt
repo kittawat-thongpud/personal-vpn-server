@@ -30,13 +30,18 @@ internal suspend fun superviseRecovery(desired: () -> Boolean, run: suspend () -
         }
         catch (blocked: SessionBlocked) { throw blocked }
         catch (blocked: CaptureBypassUnavailable) { throw blocked }
-        catch (error: Exception) { failures++; failed(failures, error); wait(failures) }
+        catch (error: Exception) {
+            currentCoroutineContext().ensureActive()
+            if (!desired()) return
+            failures++; failed(failures, error); wait(failures)
+        }
     }
 }
 
 internal data class NetworkChoice(val id: String, val path: String, val validated: Boolean,
     val suspended: Boolean, val wifi: Boolean, val metered: Boolean) {
-    val generationKey get() = "$path/$validated/$suspended"
+    // Android's internet validation can fluctuate without changing the route.
+    val generationKey get() = "$path/$suspended"
     val score get() = (if (!suspended) 1000 else 0) + (if (validated) 100 else 0) + (if (wifi) 2 else 1)
 }
 internal fun chooseNetwork(values: List<NetworkChoice>, current: String?): NetworkChoice? =
