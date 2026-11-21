@@ -61,7 +61,8 @@ namespace TestVpnPluginApp
                     ProfileName = ProfileName,
                     VpnPluginPackageFamilyName = Package.Current.Id.FamilyName,
                     RequireVpnClientAppUI = false,
-                    CustomConfiguration = new XElement("probe", new XAttribute("route", route), command).ToString()
+                    CustomConfiguration = new XElement("PersonalVpnApiLab",
+                        new XAttribute("route", route), new XAttribute("probe", command)).ToString()
                 };
                 profile.ServerUris.Add(new Uri("https://198.51.100.20/"));
                 profile.AppTriggers.Add(new VpnAppId(VpnAppIdType.FilePath, path));

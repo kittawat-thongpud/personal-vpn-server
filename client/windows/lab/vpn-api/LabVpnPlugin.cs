@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Xml.Linq;
 using Windows.Networking;
 using Windows.Networking.Sockets;
@@ -18,12 +19,15 @@ namespace TestVpnPluginAppBg
 
         public void Connect(VpnChannel channel)
         {
-            var probe = XElement.Parse(channel.Configuration.CustomField);
-            probeName = probe.Value.Trim();
-            string route = (string)probe.Attribute("route");
-            Log("plugin-start " + probeName);
             try
             {
+                // Windows 11 can add connection metadata as XML nodes.
+                // Read our own element and attributes, not the document text.
+                var configuration = XElement.Parse(channel.Configuration.CustomField)
+                    .DescendantsAndSelf().Single(element => element.Name.LocalName == "PersonalVpnApiLab");
+                probeName = (string)configuration.Attribute("probe");
+                string route = (string)configuration.Attribute("route");
+                Log("plugin-start " + probeName);
                 if (probeName != "probe-a" && probeName != "probe-b")
                     throw new InvalidOperationException("Expected a lab probe");
                 string exe = File.ReadAllText(Path.Combine(ApplicationData.Current.LocalFolder.Path, probeName + ".txt")).Trim();
