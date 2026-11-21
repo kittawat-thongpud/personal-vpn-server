@@ -65,14 +65,34 @@ def transport(link, packet):
     return (protocol, source, source_port, destination, destination_port), packet[start + 8:]
 
 
-def adapter_id(text, nic):
+def component_rows(value):
+    if isinstance(value, dict):
+        if any(key.casefold() in ('id', 'componentid') for key in value):
+            yield {key.casefold(): field for key, field in value.items() if isinstance(field, (str, int))}
+        for field in value.values():
+            yield from component_rows(field)
+    elif isinstance(value, list):
+        for field in value:
+            yield from component_rows(field)
+
+
+def adapter_id(text, components, nic):
     candidates = []
+    aliases = {nic[key].casefold().strip('{}') for key in ('Id', 'Name', 'Description')}
+    for component in components:
+        identifier = str(component.get('id', component.get('componentid', '')))
+        if not identifier.isdigit():
+            continue
+        if nic['index'] in (component.get('ifindex'), component.get('interfaceindex')):
+            candidates.append((4, identifier))
+        elif aliases.intersection(str(value).casefold().strip('{}') for value in component.values()):
+            candidates.append((2, identifier))
     for match in re.finditer(r'^[ \t]*(\d+)[ \t]+(?:(\S{17}|-)[ \t]+)?(.+?)[ \t]*$', text, re.M):
         identifier, mac, name = match.groups()
-        if name.casefold().strip('{}') in {nic[key].casefold().strip('{}') for key in ('Id', 'Name', 'Description')}:
+        if mac and nic['mac'] and mac.replace('-', '').casefold() == nic['mac'].casefold():
+            candidates.append((3, identifier))
+        elif name.casefold().strip('{}') in aliases:
             candidates.append((2, identifier))
-        elif mac and nic['mac'] and mac.replace('-', '').casefold() == nic['mac'].casefold():
-            candidates.append((1, identifier))
     best_rank = max((rank for rank, _ in candidates), default=0)
     best = {identifier for rank, identifier in candidates if rank == best_rank}
     if len(best) != 1:
@@ -88,8 +108,15 @@ def dns_name(name):
 def qualify(directory):
     manifest = json.loads((directory / 'manifest.json').read_text())
     adapters = json.loads((directory / 'adapters.json').read_text())
-    names = (directory / 'pktmon-list.txt').read_text(encoding='utf-8-sig')
-    ids = {label: adapter_id(names, nic) for label, nic in adapters.items()}
+    names = (directory / 'pktmon-list.txt').read_text(encoding='utf-8-sig').replace('\0', '')
+    topology = (directory / 'pktmon-list.json').read_text(encoding='utf-8-sig').replace('\0', '')
+    components = list(component_rows(json.loads(topology)))
+    try:
+        ids = {label: adapter_id(names, components, nic) for label, nic in adapters.items()}
+    except ValueError as error:
+        names = re.sub(r'(?i)(?:[0-9a-f]{2}-){5}[0-9a-f]{2}', '<MAC>', names)
+        return dict(result='FAIL', reason=str(error), nicDescriptions={label: nic['Description'] for label, nic in adapters.items()},
+                    adapterInventory=names.splitlines()[:25], componentFields=sorted({key for row in components for key in row})[:35])
     if len(set(ids.values())) != 2:
         raise ValueError('Physical and Wintun capture components must be separate')
 

@@ -25,10 +25,11 @@ internal sealed class WfpPacketTrace : IDisposable
         foreach (var (label, ip) in new[] { ("physical", physical), ("wintun", tunnel) })
         {
             var nic = NetworkInterface.GetAllNetworkInterfaces().Single(n => n.GetIPProperties().UnicastAddresses.Any(a => a.Address.Equals(ip)));
-            nics[label] = new { nic.Name, nic.Description, nic.Id, mac = nic.GetPhysicalAddress().ToString() };
+            nics[label] = new { nic.Name, nic.Description, nic.Id, index = nic.GetIPProperties().GetIPv4Properties().Index, mac = nic.GetPhysicalAddress().ToString() };
         }
         File.WriteAllText(Path.Combine(directory, "adapters.json"), JsonSerializer.Serialize(nics));
-        File.WriteAllText(Path.Combine(directory, "pktmon-list.txt"), Pktmon("list"));
+        File.WriteAllText(Path.Combine(directory, "pktmon-list.txt"), Pktmon("list", "--include-hidden"));
+        File.WriteAllText(Path.Combine(directory, "pktmon-list.json"), Pktmon("list", "--json"));
         try
         {
             foreach (var (protocol, value) in targets)

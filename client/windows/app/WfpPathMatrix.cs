@@ -15,7 +15,7 @@ namespace PersonalVpn;
 
 internal static partial class Tests
 {
-    private sealed record WfpObservation(string Stage, string App, string Protocol, bool Reached, string SourcePath, bool? DriverExcluded);
+    private sealed record WfpObservation(string Stage, string App, string Protocol, bool Reached, string SourcePath, bool? DriverExcluded, uint? WindowsDnsStatus = null);
     private sealed record PacketFlow(string Stage, string App, string Protocol, string Local, int Port, string Endpoint);
     private sealed record PacketDns(string App, string Name, uint Status);
 
@@ -61,6 +61,7 @@ internal static partial class Tests
                 using var result = JsonDocument.Parse(await output);
                 var json = result.RootElement;
                 bool reached = json.GetProperty("reached").GetBoolean();
+                uint? dnsStatus = protocol == "dns" ? json.GetProperty("dnsStatus").GetUInt32() : null;
                 IPAddress? local = json.TryGetProperty("localIP", out var value) && IPAddress.TryParse(value.GetString(), out var ip) ? ip : null;
                 if (stage == "without_capture")
                 {
@@ -70,11 +71,11 @@ internal static partial class Tests
                 string path = local == null ? "unavailable" : local.Equals(tunnelIP) ? "wintun" : local.Equals(physical[protocol]) ? "physical" : "other";
                 if (packetDir != null && stage != "without_capture")
                 {
-                    if (protocol == "dns") dns.Add(new PacketDns(role, dnsNames[role], json.GetProperty("dnsStatus").GetUInt32()));
+                    if (dnsStatus.HasValue) dns.Add(new PacketDns(role, dnsNames[role], dnsStatus.Value));
                     else if (local != null && json.TryGetProperty("localPort", out var port)) flows.Add(new PacketFlow(stage, role, protocol, local.ToString(), port.GetInt32(), targets[protocol]));
                     await SavePacketManifest();
                 }
-                var row = new WfpObservation(stage, role, protocol, reached, path, split);
+                var row = new WfpObservation(stage, role, protocol, reached, path, split, dnsStatus);
                 trace.Add(row);
                 await File.WriteAllTextAsync(progress, JsonSerializer.Serialize(trace));
                 return row;
