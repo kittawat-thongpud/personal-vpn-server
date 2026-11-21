@@ -22,7 +22,13 @@ internal sealed class WfpPacketTrace : IDisposable
         if (Regex.IsMatch(Pktmon("filter", "list"), @"(?m)^\s*\d+\s")) throw new InvalidOperationException("Existing Packet Monitor filters are in use.");
         Directory.CreateDirectory(directory);
         var nic = NetworkInterface.GetAllNetworkInterfaces().Single(n => n.GetIPProperties().UnicastAddresses.Any(a => a.Address.Equals(tunnel)));
-        File.WriteAllText(Path.Combine(directory, "wintun.json"), JsonSerializer.Serialize(new { nic.Name, nic.Description, nic.Id }));
+        var ip = nic.GetIPProperties();
+        File.WriteAllText(Path.Combine(directory, "wintun.json"), JsonSerializer.Serialize(new {
+            nic.Name, nic.Description, nic.Id,
+            indexes = new[] { ip.GetIPv4Properties().Index, ip.GetIPv6Properties().Index },
+            servers = ip.DnsAddresses.Select(value => value.ToString()),
+            addresses = ip.UnicastAddresses.Select(value => value.Address.ToString())
+        }));
         File.WriteAllText(Path.Combine(directory, "pktmon-list.txt"), Pktmon("list", "--include-hidden"));
         try
         {
@@ -31,8 +37,8 @@ internal sealed class WfpPacketTrace : IDisposable
                 var endpoint = IPEndPoint.Parse(value);
                 AddFilter(protocol, "-i", endpoint.Address.ToString(), "-t", protocol, "-p", endpoint.Port.ToString());
             }
-            AddFilter("dns", "-t", "udp", "-p", "53");
-            Pktmon("start", "--capture", "--comp", "nics", "--pkt-size", "104", "--file-name", Path.Combine(directory, "probe.etl"), "--file-size", "8");
+            AddFilter("dns", "-p", "53");
+            Pktmon("start", "--capture", "--comp", "nics", "--pkt-size", "144", "--file-name", Path.Combine(directory, "probe.etl"), "--file-size", "8");
             active = true;
         }
         catch { Dispose(); throw; }

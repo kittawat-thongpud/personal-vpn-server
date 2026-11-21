@@ -70,14 +70,21 @@ jobs:
           $report = "$env:RUNNER_TEMP/pvn-wfp-evidence/process-matrix.json"
           $app = Resolve-Path dist/windows/PersonalVPN.exe
           $services = @(Get-Service -Name SharedAccess,icssvc,RemoteAccess -ErrorAction SilentlyContinue | Where-Object Status -eq Running)
+          $capture = "$env:RUNNER_TEMP/pvn-wfp-capture"
+          New-Item -ItemType Directory -Path $capture -Force | Out-Null
+          $dnsActive = $false
           try {
             foreach ($service in $services) { Stop-Service -Name $service.Name -Force -ErrorAction Stop }
-            $child = Start-Process $app -ArgumentList @('--local-wfp-reference-lab','--report',$report,'--probe',"$env:RUNNER_TEMP/pvn-probe.exe",'--packet-dir',"$env:RUNNER_TEMP/pvn-wfp-capture") -PassThru -WindowStyle Hidden
+            logman.exe start PvnWfpLabDns -p Microsoft-Windows-DNS-Client 0xffffffffffffffff 5 -o "$capture/dns.etl" -ets
+            if ($LASTEXITCODE -ne 0) { throw 'Could not start the DNS Client trace.' }
+            $dnsActive = $true
+            $child = Start-Process $app -ArgumentList @('--local-wfp-reference-lab','--report',$report,'--probe',"$env:RUNNER_TEMP/pvn-probe.exe",'--packet-dir',$capture) -PassThru -WindowStyle Hidden
             if (-not $child.WaitForExit(240000)) { $child.Kill(); throw 'Process matrix timed out.' }
             if (Test-Path $report) { Get-Content $report }
             if (Test-Path "$report.progress") { Move-Item -LiteralPath "$report.progress" -Destination "$env:RUNNER_TEMP/pvn-wfp-evidence/process-matrix-observed.json" }
             if ($child.ExitCode -ne 0) { throw 'Process-path matrix did not pass.' }
           } finally {
+            if ($dnsActive) { logman.exe stop PvnWfpLabDns -ets }
             foreach ($service in $services | Sort-Object { if ($_.Name -eq 'SharedAccess') { 0 } else { 1 } }) { Start-Service -Name $service.Name }
           }
       - name: Match packet headers and the Windows DNS queries to the two adapters
@@ -87,6 +94,18 @@ jobs:
           $capture = "$env:RUNNER_TEMP/pvn-wfp-capture"
           $report = "$env:RUNNER_TEMP/pvn-wfp-evidence/packet-evidence.json"
           if (-not (Test-Path -LiteralPath $capture/manifest.json)) { throw 'The process test did not produce packet metadata.' }
+          $fixture = Get-Content -LiteralPath "$capture/manifest.json" -Raw | ConvertFrom-Json
+          $names = @($fixture.dns | ForEach-Object { $_.Name.TrimEnd('.') })
+          $records = @(Get-WinEvent -Path "$capture/dns.etl" -Oldest -ErrorAction Stop | ForEach-Object {
+              if ($_.Id -notin @(3009,3010,3011,3019,3020)) { return }
+              $record = @{ event = $_.Id }
+              ([xml]$_.ToXml()).SelectNodes('//*[local-name()="Data"]') | ForEach-Object {
+                  $key = $_.GetAttribute('Name')
+                  if ($key -in @('QueryName','LocalAddress','AdapterName','InterfaceIndex','DnsServerIpAddress','DNSServerAddress')) { $record[$key] = $_.InnerText }
+              }
+              if ($record.QueryName -and $record.QueryName.TrimEnd('.') -in $names) { $record }
+          })
+          ConvertTo-Json -InputObject $records | Set-Content -LiteralPath "$capture/dns-events.json" -Encoding utf8
           python client/windows/lab/check-wfp-packets.py $capture $report
           $result = $LASTEXITCODE
           if (Test-Path $report) { Get-Content $report }

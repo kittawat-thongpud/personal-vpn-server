@@ -64,7 +64,10 @@ def transport(link, packet):
     if protocol not in (6, 17) or len(packet) < start + 8:
         return None
     source_port, destination_port = struct.unpack_from('!HH', packet, start)
-    return (protocol, source, source_port, destination, destination_port), packet[start + 8:]
+    payload_start = start + 8
+    if protocol == 6 and len(packet) >= start + 20:
+        payload_start = start + 4 * (packet[start + 12] >> 4)
+    return (protocol, source, source_port, destination, destination_port), packet[payload_start:]
 
 
 def adapters_from(directory):
@@ -83,6 +86,28 @@ def dns_name(name):
     return b''.join(bytes([len(label)]) + label for label in labels) + b'\0'
 
 
+def dns_event_counts(directory, queries):
+    nic = json.loads((directory / 'wintun.json').read_text())
+    events = json.loads((directory / 'dns-events.json').read_text(encoding='utf-8-sig'))
+    names = {row['Name'].casefold().rstrip('.'): key for key, row in queries.items()}
+    routes = {name: Counter() for name in queries}
+    for event in events:
+        query = names.get(event['QueryName'].casefold().rstrip('.'))
+        if not query:
+            continue
+        index = event.get('InterfaceIndex', '')
+        name = event.get('AdapterName', '').casefold().strip('{}')
+        local = event.get('LocalAddress', '').split('%')[0]
+        server = event.get('DnsServerIpAddress', event.get('DNSServerAddress', '')).split('%')[0]
+        if (index.isdecimal() and int(index) in nic['indexes']) or local in nic['addresses'] or name == nic['Id'].casefold().strip('{}') or server in nic['servers']:
+            routes[query]['wintun'] += 1
+        elif (index.isdecimal() and int(index) > 0) or (local and local not in ('0.0.0.0', '::')):
+            routes[query]['otherNics'] += 1
+        else:
+            routes[query]['unassigned'] += 1
+    return routes
+
+
 def qualify(directory):
     manifest = json.loads((directory / 'manifest.json').read_text())
     wintun = adapters_from(directory)
@@ -98,7 +123,10 @@ def qualify(directory):
             raise ValueError('Socket tuples in the capture are not unique')
         flows[key] = role
         flows[reverse] = role
-        if row.get('WireToken'):
+        # The local VPN server retransmits a tunneled STUN payload using a
+        # different socket on the same VM. Use tokens only for direct probes.
+        direct = row['App'] == 'bypass' and row['Stage'] in ('capture_with_reference_exclusion', 'after_disconnect')
+        if direct and row.get('WireToken'):
             stun_tokens[bytes.fromhex(row['WireToken'])] = role
         counts[role] = Counter()
 
@@ -119,7 +147,9 @@ def qualify(directory):
                     role = stun_tokens.get(payload[8:20], role)
                 if role:
                     counts[role][label] += 1
-                if key[0] == 17 and key[-1] == 53 and len(payload) > 12 and not (payload[2] & 0x80):
+                if key[0] == 6:
+                    payload = payload[2:]  # DNS over TCP has a two-byte length prefix.
+                if key[-1] == 53 and len(payload) > 12 and not (payload[2] & 0x80):
                     for name in queries:
                         if payload[12:].lower().startswith(name):
                             dns_counts[name][label] += 1
@@ -143,11 +173,14 @@ def qualify(directory):
                 valid = (seen['otherNics'] > 0 and seen['wintun'] == 0) if direct else (seen['wintun'] > 0 and seen['otherNics'] == 0)
                 results.append(dict(stage=stage, app=app, protocol=protocol, packets=seen, passCheck=valid))
     dns_results = []
+    dns_events = dns_event_counts(directory, queries)
     for name, row in queries.items():
         negative = row['Name'].startswith('pvn-')
         seen = categorize(dns_counts[name])
-        valid = sum(seen.values()) > 0 and (row['Status'] in (9003, 9501) if negative else row['Status'] == 0)
-        dns_results.append(dict(app=row['App'], query='negative' if negative else 'positive', windowsStatus=row['Status'], packets=seen, passCheck=valid))
+        events = dict(dns_events[name])
+        observed = sum(seen.values()) > 0 or events.get('wintun', 0) > 0 or events.get('otherNics', 0) > 0
+        valid = observed and (row['Status'] in (9003, 9501) if negative else row['Status'] == 0)
+        dns_results.append(dict(app=row['App'], query='negative' if negative else 'positive', windowsStatus=row['Status'], packets=seen, windowsDnsEvents=events, passCheck=valid))
     passed = baseline_passed and all(row['passCheck'] for row in results + dns_results) and len(dns_results) == 6
     return dict(result='PASS' if passed else 'FAIL', capture=capture_stats, afterDisconnect=baseline, verifiedAfterDisconnect=baseline_passed, flows=results, dns=dns_results)
 

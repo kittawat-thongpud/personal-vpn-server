@@ -72,14 +72,20 @@ func probe(network, address, name string) result {
 			return r
 		}
 		r.WireToken = fmt.Sprintf("%x", payload[8:])
-		if _, err = conn.Write(payload); err != nil {
-			return r
-		}
 		local := conn.LocalAddr().(*net.UDPAddr)
 		r.LocalIP, r.LocalPort = local.IP.String(), local.Port
 		response := make([]byte, 2048)
-		n, err := conn.Read(response)
-		r.Reached = err == nil && n >= 20 && response[0] == 1 && response[1] == 1 && bytes.Equal(response[4:20], payload[4:20])
+		for attempt := 0; attempt < 3; attempt++ {
+			if _, err = conn.Write(payload); err != nil {
+				return r
+			}
+			_ = conn.SetReadDeadline(time.Now().Add(1200 * time.Millisecond))
+			n, readErr := conn.Read(response)
+			if readErr == nil && n >= 20 && response[0] == 1 && response[1] == 1 && bytes.Equal(response[4:20], payload[4:20]) {
+				r.Reached = true
+				return r
+			}
+		}
 		return r
 	}
 	local := conn.LocalAddr().(*net.TCPAddr)
