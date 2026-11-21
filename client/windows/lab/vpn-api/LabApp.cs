@@ -36,8 +36,8 @@ namespace TestVpnPluginApp
                     return;
                 }
                 var current = (await agent.GetProfilesAsync()).OfType<VpnPlugInProfile>()
-                    .SingleOrDefault(profile => profile.ProfileName == ProfileName &&
-                        profile.VpnPluginPackageFamilyName == Package.Current.Id.FamilyName);
+                    .SingleOrDefault(item => item.ProfileName == ProfileName &&
+                        item.VpnPluginPackageFamilyName == Package.Current.Id.FamilyName);
                 if (current != null)
                 {
                     if (current.ConnectionStatus != VpnManagementConnectionStatus.Disconnected)

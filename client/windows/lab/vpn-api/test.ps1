@@ -46,12 +46,13 @@ $msbuild = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere
 if (!$msbuild) { throw 'Visual Studio MSBuild not found.' }
 & $msbuild $appProject /restore /m /v:minimal /p:Configuration=Debug /p:Platform=x64 "/p:TargetPlatformVersion=$($sdk.Name)" /p:TargetPlatformMinVersion=10.0.22000.0 /p:UseDotNetNativeToolchain=false /p:AppxPackageSigningEnabled=false /p:AppxBundle=Never /p:AppxAutoIncrementPackageRevision=false /p:UapAppxPackageBuildMode=SideloadOnly "/p:AppxPackageDir=$stage\"
 if ($LASTEXITCODE -ne 0) { throw 'The UWP test package did not build.' }
-$package = Get-ChildItem -LiteralPath $stage -Recurse -File -Filter '*.appx' |
-    Where-Object { $_.Name -like '*_x64_Debug.appx' -and $_.DirectoryName -notmatch '[\\/]Dependencies[\\/]' } | Select-Object -First 1
-if (!$package) {
+$packages = @(Get-ChildItem -LiteralPath $stage -Recurse -File |
+    Where-Object { $_.Extension -in '.appx', '.msix' -and $_.DirectoryName -notmatch '[\\/]Dependencies[\\/]' })
+if ($packages.Count -ne 1) {
     Get-ChildItem -LiteralPath $stage -Recurse -File | Select-Object -ExpandProperty Name
-    throw 'The x64 UWP test package is missing.'
+    throw 'Expected one x64 UWP test package.'
 }
+$package = $packages[0]
 
 Add-Type @'
 using System;
