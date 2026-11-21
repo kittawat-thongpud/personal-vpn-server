@@ -52,10 +52,23 @@ public static class MobileValidation
         Assert((string?)tunRules[3]?["outbound"] == "direct" && tunRules[3]?["process_path_regex"] != null && (string?)tunRules[4]?["action"] == "reject", "App exception must beat a conflicting site Block.");
         Assert(plan["inbounds"]![0]!["route_exclude_address"]!.AsArray().Count == 2, "Transport recursion exclusions lost.");
         var before = Policy.Compile(policy).ToJsonString(); policy.Apps.Entries[0].Action = "Block"; Assert(before == Policy.Compile(policy).ToJsonString(), "App draft must never affect Proxy routing.");
+        policy.Apps.Entries[0].Action = Policy.NativeBypassAction;
+        Assert(Policy.ActionLabel("Bypass", true) == "Direct via TUN" && Policy.ActionLabel(Policy.NativeBypassAction, true) == "Bypass VPN", "App actions are not distinguishable.");
+        Assert(Policy.NativeBypassPaths(policy.Snapshot().Apps).SequenceEqual(new[] { @"C:\Apps\browser.exe" }), "Native bypass exception did not survive a settings round-trip.");
+        var rejectRule = TunPlan.Compile(policy, new[] { "203.0.113.10" }, new[] { @"C:\PersonalVPN\cores\xray.exe" })["route"]!["rules"]![3]!;
+        Assert((string?)rejectRule["action"] == "reject" && rejectRule["outbound"] == null, "Native bypass must reject its own captured fallback.");
+        Assert(before == Policy.Compile(policy).ToJsonString(), "Native bypass draft affected Proxy routing.");
+        policy.Apps.Mode = "Disabled";
+        Assert(Policy.NativeBypassPaths(policy.Apps).Length == 0, "Rules-off must ignore saved native exclusions.");
+        bool rejectedNativeSite = false;
+        try { Policy.ValidateTunnel(new TunnelPolicy { Entries = new() { new() { Kind = "Domain", Value = "example.com", Action = Policy.NativeBypassAction } } }, false); }
+        catch (InvalidOperationException) { rejectedNativeSite = true; }
+        Assert(rejectedNativeSite && !Policy.Modes.Contains(Policy.NativeBypassAction), "Native bypass must be an explicit executable exception only.");
         bool rejected = false; try { Policy.ValidateTunnel(new TunnelPolicy { Entries = new() { new() { Kind = "App", Value = "browser.exe" } } }, true); } catch (InvalidOperationException) { rejected = true; }
         Assert(rejected, "An ambiguous executable name was accepted.");
         Assert(System.Text.RegularExpressions.Regex.IsMatch(@"c:\APPS\BROWSER.EXE", TunPlan.PathPattern(@"C:\Apps\browser.exe")), "Windows executable matching must ignore path casing.");
-        checks.Add("Wintun plan app-before-site precedence, transport exclusions, Proxy ignores app drafts, full executable paths"); return checks;
+        checks.Add("Wintun plan app-before-site precedence, transport exclusions, Proxy ignores app drafts, full executable paths");
+        checks.Add("Direct via TUN and Bypass VPN are distinct app actions; captured native fallback is blocked"); return checks;
     }
     public static int Run(string[] args)
     {

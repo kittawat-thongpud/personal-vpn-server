@@ -10,6 +10,8 @@ namespace PersonalVpn;
 // Shared policy compiler used by the supervised Administrator TUN runtime.
 public static class TunPlan
 {
+    internal const string Ipv4Address = "172.28.255.1", Ipv6Address = "fd26:706e:1::1";
+
     public static JsonObject Compile(Settings source, IEnumerable<string> transportAddresses, IEnumerable<string> ownedCorePaths, string interfaceName = "PersonalVPN", IEnumerable<string>? meshPrefixes = null, string? healthProcessPath = null)
     {
         var settings = source.Snapshot(); Policy.Upgrade(settings);
@@ -50,7 +52,7 @@ public static class TunPlan
             ["inbounds"] = new JsonArray(new JsonObject
             {
                 ["type"] = "tun", ["tag"] = "wintun", ["interface_name"] = interfaceName,
-                ["address"] = new JsonArray("172.28.255.1/30", "fd26:706e:1::1/126"),
+                ["address"] = new JsonArray(Ipv4Address + "/30", Ipv6Address + "/126"),
                 ["mtu"] = 1400, ["auto_route"] = true, ["strict_route"] = true,
                 ["route_exclude_address"] = Strings(excluded), ["stack"] = "mixed"
             }),
@@ -73,7 +75,11 @@ public static class TunPlan
     private static JsonArray Strings(IEnumerable<string> values) => new(values.Select(x => JsonValue.Create(x)).ToArray());
     private static JsonObject Rule(TunnelException entry, string field)
     {
-        var rule = new JsonObject { [field] = field == "process_path_regex" ? new JsonArray(PathPattern(entry.Value)) : Strings(SiteTargets.Parse(entry.Kind,entry.Value)), ["action"] = entry.Action == "Block" ? "reject" : "route" };
-        if (entry.Action != "Block") rule["outbound"] = Policy.Tag(entry.Action); return rule;
+        bool reject = entry.Action is "Block" or Policy.NativeBypassAction;
+        // If an excluded executable reaches capture, keep the flow closed while
+        // the operating-system exclusion is unavailable or being applied.
+        var rule = new JsonObject { [field] = field == "process_path_regex" ? new JsonArray(PathPattern(entry.Value)) : Strings(SiteTargets.Parse(entry.Kind,entry.Value)), ["action"] = reject ? "reject" : "route" };
+        if (!reject) rule["outbound"] = Policy.Tag(entry.Action);
+        return rule;
     }
 }

@@ -19,6 +19,7 @@ public sealed class TunLease : IDisposable
         public long ParentStarted { get; set; }
         public string Name { get; set; } = "";
         public Guid AdapterId { get; set; }
+        public string[] NativeBypassApps { get; set; } = Array.Empty<string>();
     }
     private readonly string folder;
     private readonly Record record;
@@ -39,11 +40,12 @@ public sealed class TunLease : IDisposable
         if (Path.GetDirectoryName(folder) != root) throw new InvalidOperationException("Invalid adapter lease directory.");
         return folder;
     }
-    public static async Task<TunLease> Start(string folder, CancellationToken token)
+    public static async Task<TunLease> Start(string folder, CancellationToken token, string[]? nativeBypassApps = null)
     {
         folder = ValidFolder(folder);
         AdapterService.EnsureRunning();
-        var record = new Record { ParentId = Environment.ProcessId, ParentStarted = Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks, Name = Name, AdapterId = AdapterService.CurrentId() };
+        var record = new Record { ParentId = Environment.ProcessId, ParentStarted = Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks, Name = Name,
+            AdapterId = AdapterService.CurrentId(), NativeBypassApps = nativeBypassApps ?? Array.Empty<string>() };
         await File.WriteAllTextAsync(Path.Combine(folder, "tun-lease.json"), JsonSerializer.Serialize(record), token);
         var info = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
         info.ArgumentList.Add("--tun-guard"); info.ArgumentList.Add(folder);
@@ -81,24 +83,30 @@ public sealed class TunLease : IDisposable
             try
             {
             var physical = new PhysicalNetworkLease(folder);
+            IDisposable? nativeBypass = null;
             try
             {
                 TunReset.Capture(record.AdapterId);
                 physical.Prepare();
+                nativeBypass = NativeBypass.Start(folder, record.NativeBypassApps);
                 File.WriteAllText(Path.Combine(folder, "tun-ready"), "ready");
                 int ticks = 0;
                 while (!parent.WaitForExit(250))
                 {
                     if (File.Exists(Path.Combine(folder, "tun-stop"))) break;
-                    if (++ticks % 4 == 0) physical.Prepare(); // Hot-plugged links; native dial fails safely until prepared.
+                    if (++ticks % 4 == 0)
+                    {
+                        NativeBypass.CheckLink(nativeBypass);
+                        physical.Prepare(); // Hot-plugged links; native dial fails safely until prepared.
+                    }
                 }
             }
             finally
             {
                 // Independent attempts: a TUN reset failure must not skip the
                 // physical-interface restore, or the other way around.
-                try { TunReset.Capture(record.AdapterId); }
-                finally { physical.Restore(); }
+                try { nativeBypass?.Dispose(); NativeBypass.Recover(folder); }
+                finally { RestoreCapture(record.AdapterId, physical); }
             }
             File.WriteAllText(Path.Combine(folder, "tun-reset-done"), "done");
             }
@@ -124,14 +132,15 @@ public sealed class TunLease : IDisposable
         {
             // Never reset another session when preparation failed on the mutex.
             // A journal belongs to this guard; ready means it owned capture.
-            if (File.Exists(Path.Combine(folder, "physical-network.json")) || File.Exists(Path.Combine(folder, "tun-ready")))
+            if (File.Exists(Path.Combine(folder, "physical-network.json")) || File.Exists(Path.Combine(folder, "tun-ready")) || File.Exists(Path.Combine(folder, "native-bypass.json")))
             {
                 using var mutex = new Mutex(false, @"Global\PersonalVPN-TUN");
                 bool acquired; try { acquired = mutex.WaitOne(0); } catch (AbandonedMutexException) { acquired = true; }
                 if (!acquired) throw new InvalidOperationException("Capture recovery is still active; recovery data was retained.");
                 try
                 {
-                    try { TunReset.Capture(record.AdapterId); } finally { new PhysicalNetworkLease(folder).Restore(); }
+                    try { NativeBypass.Recover(folder); }
+                    finally { RestoreCapture(record.AdapterId, new PhysicalNetworkLease(folder)); }
                     File.WriteAllText(Path.Combine(folder,"tun-reset-done"),"done");
                 }
                 finally { mutex.ReleaseMutex(); }
@@ -144,11 +153,11 @@ public sealed class TunLease : IDisposable
     {
         folder = ValidFolder(folder);
         if (!Directory.Exists(folder)) return;
-        if (File.Exists(Path.Combine(folder, "physical-network.json")))
+        if (File.Exists(Path.Combine(folder, "physical-network.json")) || File.Exists(Path.Combine(folder, "native-bypass.json")))
         {
             // An unplugged USB NIC can defer a field restore. Preserve just the
             // recovery metadata; remove all plaintext credentials/configs.
-            var retained = new[] { "tun-lease.json", "physical-network.json", "tun-stop", "tun-reset-done" };
+            var retained = new[] { "tun-lease.json", "physical-network.json", "native-bypass.json", "tun-stop", "tun-reset-done" };
             foreach (string file in Directory.GetFiles(folder)) if (!retained.Contains(Path.GetFileName(file))) File.Delete(file);
             return;
         }
@@ -177,12 +186,19 @@ public sealed class TunLease : IDisposable
                 }
                 try
                 {
-                    try { TunReset.Capture(record.AdapterId); } finally { new PhysicalNetworkLease(folder).Restore(); }
+                    try { NativeBypass.Recover(folder); }
+                    finally { RestoreCapture(record.AdapterId, new PhysicalNetworkLease(folder)); }
                     File.WriteAllText(Path.Combine(folder,"tun-reset-done"),"done");
                 }
                 finally { mutex.ReleaseMutex(); }
             }
             else if (WintunAdapter.Exists(record.AdapterId)) WintunAdapter.RemoveOrphan(record.AdapterId, record.Name); // One-time legacy migration only.
         }
+    }
+
+    private static void RestoreCapture(Guid adapter, PhysicalNetworkLease physical)
+    {
+        try { TunReset.Capture(adapter); }
+        finally { physical.Restore(); }
     }
 }

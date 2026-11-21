@@ -20,7 +20,7 @@ internal sealed class WfpReferenceLab : IDisposable
     private Guid baseline, dns;
     private bool initialized;
 
-    internal WfpReferenceLab()
+    internal WfpReferenceLab(Guid? baselineId = null, Guid? dnsId = null)
     {
         device = CreateFile(@"\\.\MULLVADSPLITTUNNEL", 0xc0000000, 0, IntPtr.Zero, 3, 0, IntPtr.Zero);
         if (device.IsInvalid) throw LastError("Open reference driver");
@@ -32,8 +32,8 @@ internal sealed class WfpReferenceLab : IDisposable
             // These nonpersistent sublayers are deleted after the driver resets.
             var session = new Session();
             Check(FwpmEngineOpen(null, 10, IntPtr.Zero, ref session, out engine), "Open lab WFP session");
-            baseline = AddSublayer(0x4000);
-            dns = AddSublayer(0x4001);
+            baseline = AddSublayer(baselineId ?? Guid.NewGuid(), 0x4000);
+            dns = AddSublayer(dnsId ?? Guid.NewGuid(), 0x4001);
             initialized = true;
             Control(1, baseline.ToByteArray().Concat(dns.ToByteArray()).ToArray());
             if (State != 2) throw new InvalidOperationException("Driver did not initialize.");
@@ -44,13 +44,17 @@ internal sealed class WfpReferenceLab : IDisposable
     }
 
     internal ulong State => BitConverter.ToUInt64(Control(9, size: 8, minimum: 8));
-    internal void Configure(string executable, IPAddress tunnel, IPAddress physical)
+    internal void Configure(string executable, IPAddress tunnel, IPAddress physical) => Configure(new[] { executable }, tunnel, physical);
+    internal void Configure(IEnumerable<string> executables, IPAddress tunnel, IPAddress physical, IPAddress? tunnel6 = null)
     {
         var ips = new byte[40];
         tunnel.GetAddressBytes().CopyTo(ips, 0);
         physical.GetAddressBytes().CopyTo(ips, 4);
-        Control(4, ips); // IPv4 only; no IPv6 support is claimed by this fixture.
-        Control(6, Pack(new[] { new Row(0, 0, DevicePath(executable)) }, discovery: false));
+        // Supplying the TUN v6 address with no physical v6 address prevents
+        // excluded executables from sending their IPv6 data inside the tunnel.
+        tunnel6?.GetAddressBytes().CopyTo(ips, 8);
+        Control(4, ips);
+        Control(6, Pack(executables.Select(path => new Row(0, 0, DevicePath(path))), discovery: false));
         if (State != 4) throw new InvalidOperationException("Driver did not engage.");
     }
 
@@ -61,20 +65,55 @@ internal sealed class WfpReferenceLab : IDisposable
         if (State != 3) throw new InvalidOperationException("Driver did not clear its app policy.");
     }
 
-    private byte[] Control(uint function, byte[]? input = null, int size = 0, int minimum = 0, uint method = 0)
+    private byte[] Control(uint function, byte[]? input = null, int size = 0, int minimum = 0, uint method = 0) => Control(device, function, input, size, minimum, method);
+    private static byte[] Control(SafeFileHandle target, uint function, byte[]? input = null, int size = 0, int minimum = 0, uint method = 0)
     {
         var output = new byte[size];
-        if (!DeviceIoControl(device, 0x80000000u | (function << 2) | method, input, (uint)(input?.Length ?? 0), output, (uint)size, out var written, IntPtr.Zero))
+        if (!DeviceIoControl(target, 0x80000000u | (function << 2) | method, input, (uint)(input?.Length ?? 0), output, (uint)size, out var written, IntPtr.Zero))
             throw LastError("Reference driver operation " + function);
         if (written < minimum || written > size) throw new InvalidOperationException("Unrecognized reference ABI response.");
         return output;
     }
 
-    private Guid AddSublayer(ushort weight)
+    private Guid AddSublayer(Guid key, ushort weight)
     {
-        var sublayer = new Sublayer { Key = Guid.NewGuid(), Display = new Display { Name = "Personal VPN isolated WFP fixture" }, Weight = weight };
+        var sublayer = new Sublayer { Key = key, Display = new Display { Name = "Personal VPN isolated WFP fixture" }, Weight = weight };
         Check(FwpmSubLayerAdd(engine, ref sublayer, IntPtr.Zero), "Add lab WFP sublayer");
         return sublayer.Key;
+    }
+
+    internal static void Recover(Guid baseline, Guid dns)
+    {
+        if (baseline == Guid.Empty || dns == Guid.Empty || baseline == dns) throw new InvalidDataException("Invalid native bypass ownership keys.");
+        const uint absent = 0x80320007; // FWP_E_SUBLAYER_NOT_FOUND
+        var session = new Session();
+        Check(FwpmEngineOpen(null, 10, IntPtr.Zero, ref session, out var engine), "Open native bypass recovery session");
+        try
+        {
+            bool HasSublayer(Guid key)
+            {
+                uint result = FwpmSubLayerGetByKey(engine, ref key, out var value);
+                if (result == absent) return false;
+                Check(result, "Read native bypass ownership");
+                FwpmFreeMemory(ref value);
+                return true;
+            }
+            bool foundBaseline = HasSublayer(baseline), foundDns = HasSublayer(dns);
+            if (!foundBaseline && !foundDns) return;
+            using var target = CreateFile(@"\\.\MULLVADSPLITTUNNEL", 0xc0000000, 0, IntPtr.Zero, 3, 0, IntPtr.Zero);
+            if (target.IsInvalid) throw LastError("Open native bypass for recovery");
+            ulong state = BitConverter.ToUInt64(Control(target, 9, size: 8, minimum: 8));
+            if (state != 1)
+            {
+                if (!foundBaseline || !foundDns) throw new InvalidOperationException("Could not confirm native bypass ownership; recovery data was retained.");
+                Control(target, 11, method: 3);
+                if (BitConverter.ToUInt64(Control(target, 9, size: 8, minimum: 8)) != 1)
+                    throw new InvalidOperationException("Native bypass reset did not verify.");
+            }
+            if (foundDns) Check(FwpmSubLayerDeleteByKey(engine, ref dns), "Remove native bypass DNS sublayer");
+            if (foundBaseline) Check(FwpmSubLayerDeleteByKey(engine, ref baseline), "Remove native bypass baseline sublayer");
+        }
+        finally { Check(FwpmEngineClose(engine), "Close native bypass recovery session"); }
     }
 
     private sealed record Row(uint Pid, uint Parent, string Image, long Creation = 0);
@@ -168,6 +207,8 @@ internal sealed class WfpReferenceLab : IDisposable
     [DllImport("fwpuclnt.dll", EntryPoint = "FwpmEngineClose0")] private static extern uint FwpmEngineClose(IntPtr handle);
     [DllImport("fwpuclnt.dll", EntryPoint = "FwpmSubLayerAdd0")] private static extern uint FwpmSubLayerAdd(IntPtr handle, ref Sublayer sublayer, IntPtr descriptor);
     [DllImport("fwpuclnt.dll", EntryPoint = "FwpmSubLayerDeleteByKey0")] private static extern uint FwpmSubLayerDeleteByKey(IntPtr handle, ref Guid key);
+    [DllImport("fwpuclnt.dll", EntryPoint = "FwpmSubLayerGetByKey0")] private static extern uint FwpmSubLayerGetByKey(IntPtr handle, ref Guid key, out IntPtr sublayer);
+    [DllImport("fwpuclnt.dll", EntryPoint = "FwpmFreeMemory0")] private static extern void FwpmFreeMemory(ref IntPtr data);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern SafeFileHandle CreateFile(string path, uint access, uint sharing, IntPtr security, uint creation, uint flags, IntPtr template);
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool DeviceIoControl(SafeFileHandle handle, uint control, byte[]? input, uint inputLength, [Out] byte[] output, uint outputLength, out uint written, IntPtr overlapped);
     [DllImport("kernel32.dll", SetLastError = true)] private static extern SafeFileHandle CreateToolhelp32Snapshot(uint flags, uint process);

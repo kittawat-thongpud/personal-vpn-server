@@ -567,7 +567,10 @@ public sealed class Backend : IAsyncDisposable
                     {
                         SetState("Verifying", "Authenticated server verified; preparing TUN adapter and checking the captured path.", expected);
                         started = Stopwatch.GetTimestamp();
-                        adapterLease = await TunLease.Start(folder, token);
+                        var nativeApps = Policy.NativeBypassPaths(settings.Apps);
+                        adapterLease = await TunLease.Start(folder, token, nativeApps);
+                        if (nativeApps.Length > 0)
+                            Log.Add("INFO", "backend.native_bypass_active", $"Windows native bypass applied for {nativeApps.Length} app rule(s). System DNS is shared.");
                         Timing("capture_lease", started);
                         foreach (var (nic, row) in PhysicalNetwork.Rows()) Log.Add("INFO", "backend.physical_link", nic.Name + " · " + (row.Family == 2 ? "IPv4" : "IPv6") + " · index " + row.Index + " · metric " + row.Metric + " · MTU " + row.Mtu + "; strong-host binding prepared. Direct uses destination routes, not a fixed Wi-Fi/LAN preference.");
                         Log.Add("INFO", "backend.adapter_reused", "Persistent adapter opened: " + adapterLease.AdapterId + ". No device creation or deletion for this session.");

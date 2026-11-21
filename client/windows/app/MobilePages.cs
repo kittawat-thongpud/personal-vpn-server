@@ -175,7 +175,8 @@ public sealed partial class MainWindow
         var body = PageRows(Auto, Star, Auto); var header = Stack();
         if (apps && (settings.CaptureMode != "TUN" || !CaptureCapabilities.TunAvailable)) body.IsEnabled = false;
         header.Children.Add(Text(apps && settings.CaptureMode != "TUN" ? "TUN REQUIRED" : "DEFAULT ACTION + EXCEPTIONS", 10, apps ? "#E9BB72" : "#9BAECD"));
-        header.Children.Add(Combo(ModeLabels, ModeName(policy.Mode), label => { policy.Mode = ModeValues[Array.IndexOf(ModeLabels, label)]; Changed(!apps || settings.CaptureMode == "TUN"); Navigate(target); }));
+        var modeLabels = apps ? ModeValues.Select(mode => mode == "Bypass" ? "Direct via TUN by default" : ModeName(mode)).ToArray() : ModeLabels;
+        header.Children.Add(Combo(modeLabels, modeLabels[Math.Max(0, Array.IndexOf(ModeValues, policy.Mode))], label => { policy.Mode = ModeValues[Array.IndexOf(modeLabels, label)]; Changed(!apps || settings.CaptureMode == "TUN"); Navigate(target); }));
         header.Children.Add(Text(apps ? "App exceptions win over site exceptions. Executable rules apply in TUN mode." : "Exceptions override the default. Rules off ignores this list and tunnels captured traffic.", 11, "#9BAECD"));
         header.Children.Add(Action(apps ? "+ Choose app.exe" : "Add site group", () => EditException(policy, apps, null)));
         if (!apps)
@@ -188,7 +189,7 @@ public sealed partial class MainWindow
             header.Children.Add(transfer);
         }
         Put(body, header, 0);
-        FrameworkElement list = policy.Entries.Count == 0 ? Text("No exceptions yet. Add a target and choose Tunnel, Bypass or Block.", 12, "#9BAECD") : ExceptionList(policy, apps);
+        FrameworkElement list = policy.Entries.Count == 0 ? Text(apps ? "No app exceptions yet." : "No site groups yet.", 12, "#9BAECD") : ExceptionList(policy, apps);
         if (policy.Mode == "Disabled") { list.Opacity = .5; list.ToolTip = "Saved exceptions are ignored while rules are off."; }
         Put(body, Card(list), 1); var footer = Stack(); footer.Children.Add(Text(policy.Entries.Count + (apps ? " app exceptions · not applied to Proxy" : " site groups · explicit Block exceptions first"), 10, "#9BAECD"));
         footer.Children.Add(apps && settings.CaptureMode != "TUN" ? Action("Save draft", () => { Policy.ValidateTunnel(policy, true); Changed(false); Navigate("Settings"); }) : AsyncAction("Save & apply", ApplyPolicy)); Put(body, footer, 2); return body;
@@ -202,14 +203,18 @@ public sealed partial class MainWindow
         var name = new TextBox { Name="SiteGroupName", Text = previous?.Name ?? "", MaxLength = 80 };
         if (!apps) { panel.Children.Add(Text("Group name (optional)", 13)); panel.Children.Add(name); panel.Children.Add(Text("Targets", 13)); }
         var value = new TextBox { Name="ExceptionTargets", Text = previous?.Value ?? selected ?? "", MaxLength = apps ? 1024 : SiteTargets.InputLimit, AcceptsReturn = !apps, MinHeight = apps ? 0 : 100, MaxHeight = 180, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }; panel.Children.Add(value);
-        panel.Children.Add(Text(apps ? "Full .exe path. Child processes need their own entry." : "Separate targets with commas or new lines. Domain includes subdomains. IP supports IPv4, IPv6, CIDR and trailing wildcards such as 2.2.2.*.", 11, "#9BAECD")); panel.Children.Add(Text("Action", 13));
-        var action = Combo(new[] { "Tunnel", "Bypass", "Block" }, previous?.Action ?? "Tunnel", _ => { }); panel.Children.Add(action);
+        panel.Children.Add(Text(apps ? "Full .exe path." : "Separate targets with commas or new lines. Domain includes subdomains. IP supports IPv4, IPv6, CIDR and trailing wildcards such as 2.2.2.*.", 11, "#9BAECD")); panel.Children.Add(Text("Action", 13));
+        var actions = apps && (NativeBypass.Available || previous?.Action == Policy.NativeBypassAction)
+            ? new[] { "Tunnel", "Bypass", Policy.NativeBypassAction, "Block" } : new[] { "Tunnel", "Bypass", "Block" };
+        var labels = actions.Select(value => Policy.ActionLabel(value, apps)).ToArray();
+        var action = Combo(labels, Policy.ActionLabel(previous?.Action ?? "Tunnel", apps), _ => { }); panel.Children.Add(action);
+        if (apps && NativeBypass.Available) panel.Children.Add(Text("Bypass VPN · Windows test build. The reference driver can also exclude child processes. System DNS uses its own route.", 11, "#E9BB72"));
         var error = Text("", 12, "#F29C9F"); panel.Children.Add(error);
         panel.Children.Add(Action("Save exception", () =>
         {
             try
             {
-                var next = new TunnelException { Kind = (string)kind.SelectedItem, Name = apps ? "" : name.Text.Trim(), Value = apps ? value.Text.Trim() : SiteTargets.Clean((string)kind.SelectedItem, value.Text), Action = (string)action.SelectedItem };
+                var next = new TunnelException { Kind = (string)kind.SelectedItem, Name = apps ? "" : name.Text.Trim(), Value = apps ? value.Text.Trim() : SiteTargets.Clean((string)kind.SelectedItem, value.Text), Action = actions[Array.IndexOf(labels, (string)action.SelectedItem)] };
                 var entries = policy.Entries.ToList(); if (previous == null) entries.Add(next); else entries[entries.IndexOf(previous)] = next;
                 Policy.ValidateTunnel(new TunnelPolicy { Mode = policy.Mode, Entries = entries }, apps);
                 policy.Entries = entries;

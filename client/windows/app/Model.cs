@@ -83,12 +83,22 @@ public sealed class Settings
         Policy.Validate(Networks, false);
         if (Sites != null) Policy.ValidateTunnel(Sites, false);
         Policy.ValidateTunnel(Apps, true);
+        if (CaptureMode == "TUN") NativeBypass.EnsureAvailable(Policy.NativeBypassPaths(Apps));
     }
 }
 
 public static class Policy
 {
+    internal const string NativeBypassAction = "Exclude";
     public static readonly string[] Modes = { "Disabled", "Tunnel", "Bypass", "Block" };
+    internal static string[] NativeBypassPaths(TunnelPolicy policy) => policy.Mode == "Disabled" ? Array.Empty<string>() : policy.Entries
+        .Where(entry => entry.Action == NativeBypassAction).Select(entry => Path.GetFullPath(entry.Value)).ToArray();
+    internal static string ActionLabel(string action, bool apps) => (apps, action) switch
+    {
+        (true, "Bypass") => "Direct via TUN",
+        (true, NativeBypassAction) => "Bypass VPN",
+        _ => action
+    };
     public static void Validate(CategoryRule rule, bool domains)
     {
         if (!Modes.Contains(rule.Mode)) throw new InvalidOperationException("Invalid rule mode.");
@@ -142,12 +152,12 @@ public static class Policy
         var unique = new HashSet<string>(StringComparer.OrdinalIgnoreCase); int targets=0;
         foreach (var entry in policy.Entries)
         {
-            _ = Tag(entry.Action);
+            if (entry.Action != NativeBypassAction || !apps) _ = Tag(entry.Action);
             if (apps)
             {
-                if (!unique.Add(entry.Value)) throw new InvalidOperationException("An exception for this app already exists.");
                 if (entry.Kind != "App" || entry.Value.Length > 1024 || !Path.IsPathFullyQualified(entry.Value) || !entry.Value.EndsWith(".exe",StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException("Choose the full path to an app.exe file.");
+                if (!unique.Add(Path.GetFullPath(entry.Value))) throw new InvalidOperationException("An exception for this app already exists.");
             }
             else
             {

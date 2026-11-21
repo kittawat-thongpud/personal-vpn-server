@@ -9,6 +9,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace PersonalVpn;
@@ -70,7 +71,7 @@ internal static partial class Tests
                     physical[protocol] = local!;
                 }
                 string path = local == null ? "unavailable" : local.Equals(tunnelIP) ? "wintun" : local.Equals(physical[protocol]) ? "physical" : "other";
-                if (packetDir != null && stage != "without_capture")
+                if (packetDir != null && stage != "without_capture" && !stage.StartsWith("client_", StringComparison.Ordinal))
                 {
                     if (dnsStatus.HasValue && query != null) dns.Add(new PacketDns(role, query, dnsStatus.Value));
                     else if (local != null && json.TryGetProperty("localPort", out var port))
@@ -145,10 +146,43 @@ internal static partial class Tests
                     Assert(row.Reached && row.SourcePath == "physical", $"Physical {protocol} egress did not recover after cleanup.");
                 }
         }
+        var preview = settings.Snapshot();
+        preview.Apps.Entries.Single(entry => entry.Value == probes["bypass"]).Action = Policy.NativeBypassAction;
+        await backend.ConnectAsync(preview).WaitAsync(TimeSpan.FromSeconds(85));
+        Assert(backend.State == "Connected" && backend.Log.Snapshot().Any(entry => entry.Event == "backend.native_bypass_active"), "Client did not apply its Bypass VPN rule.");
+        foreach (string protocol in targets.Keys)
+            foreach (string app in probes.Keys)
+            {
+                var row = await RunProbe("client_applied", app, protocol);
+                string expectedPath = app == "bypass" ? "physical" : "wintun";
+                Assert(row.Reached == (app != "blocked") && row.SourcePath == expectedPath, $"Client {app} rule did not use the expected {protocol} route.");
+            }
+        await backend.ConnectAsync(settings).WaitAsync(TimeSpan.FromSeconds(85));
+        Assert(backend.State == "Connected", "Client failed to reconnect after removing Bypass VPN.");
+        foreach (string protocol in targets.Keys)
+        {
+            var row = await RunProbe("client_removed", "bypass", protocol);
+            Assert(!row.Reached && row.SourcePath == "wintun", $"Removing Bypass VPN did not restore {protocol} capture.");
+        }
+        await backend.StopAsync();
+
+        string guardFolder = Path.Combine(Store.Root, "runtime", Guid.NewGuid().ToString("N"));
+        Store.SecureDirectory(guardFolder);
+        using (var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(45)))
+        using (var lease = await TunLease.Start(guardFolder, cancel.Token, new[] { probes["bypass"] }))
+        {
+            Assert(File.Exists(Path.Combine(guardFolder, "native-bypass.json")), "WFP owner was not journaled.");
+            using var guard = Process.GetProcessById(lease.GuardId);
+            guard.Kill();
+            await guard.WaitForExitAsync(cancel.Token);
+        }
+        Assert(!File.Exists(Path.Combine(guardFolder, "native-bypass.json")), "Guard death left the WFP journal active.");
+        using (var available = new WfpReferenceLab()) Assert(available.State == 3, "WFP could not acquire a clean device after guard recovery.");
+        TunLease.CleanRuntimeFolder(guardFolder);
         Assert(AdapterService.CurrentId() == adapter && WindowsProxy.Matches(WindowsProxy.Read(), originalProxy), "Lab changed adapter ownership or proxy settings.");
         Assert(!NetworkInterface.GetAllNetworkInterfaces().SelectMany(n => n.GetIPProperties().UnicastAddresses).Any(a => a.Address.Equals(tunnelIP)), "Owned capture address remained after cleanup.");
         Assert(dnsBefore == DnsSnapshot(), "Physical DNS changed after cleanup.");
-        return new { result = "PASS", driver = "signed reference callout", sameCaptureDuringWaves = true, appRulesAndRollbackVerified = true, fixture = "IPv4 TCP/TLS and UDP/STUN", evidence = trace };
+        return new { result = "PASS", driver = "signed reference callout", sameCaptureDuringWaves = true, appRulesAndRollbackVerified = true, clientRuleVerified = true, guardCrashRecovered = true, fixture = "IPv4 TCP/TLS and UDP/STUN", evidence = trace };
     }
 }
 #endif
