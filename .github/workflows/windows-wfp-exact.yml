@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/windows-wfp-exact.yml
       - client/windows/lab/build-wfp-exact.ps1
+      - client/windows/lab/personal-vpn-bypass.inf
       - client/windows/lab/wfp-exact-executable.patch
 permissions:
   contents: read
@@ -25,5 +26,11 @@ jobs:
         with:
           name: wfp-exact-build-evidence
           path: ${{ runner.temp }}/wfp-exact-build.json
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wfp-x64-unsigned-for-signing
+          path: ${{ runner.temp }}/wfp-x64-unsigned/
           if-no-files-found: error
           retention-days: 7

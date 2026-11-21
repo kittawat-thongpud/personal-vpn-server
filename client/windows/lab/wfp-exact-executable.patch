@@ -13,6 +13,32 @@ index 00dd06c..6b20026 100644
  
  constexpr size_t MAX_IO_BUFFER_SIZE = 100000000; // 100 MB
  
+diff --git a/src/firewall/firewall.cpp b/src/firewall/firewall.cpp
+index 0d30886..8c02357 100644
+--- a/src/firewall/firewall.cpp
++++ b/src/firewall/firewall.cpp
+@@ -1443,14 +1443,16 @@ RegisterUpdatedIpAddresses
+ 		goto Abort;
+ 	}
+ 
+-	auto intermediateNonPagedAddresses = *IpAddresses;
++	{
++		const auto intermediateNonPagedAddresses = *IpAddresses;
+ 
+-	WdfSpinLockAcquire(Context->IpAddresses.Lock);
++		WdfSpinLockAcquire(Context->IpAddresses.Lock);
+ 
+-	Context->IpAddresses.Addresses = intermediateNonPagedAddresses;
+-	Context->IpAddresses.SplittingMode = newMode;
++		Context->IpAddresses.Addresses = intermediateNonPagedAddresses;
++		Context->IpAddresses.SplittingMode = newMode;
+ 
+-	WdfSpinLockRelease(Context->IpAddresses.Lock);
++		WdfSpinLockRelease(Context->IpAddresses.Lock);
++	}
+ 
+ 	Context->ActiveFilters = newActiveFilters;
+ 
 diff --git a/src/firewall/identifiers.h b/src/firewall/identifiers.h
 index bf06681..b2b87c5 100644
 --- a/src/firewall/identifiers.h

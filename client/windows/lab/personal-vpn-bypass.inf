@@ -1,0 +1,44 @@
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider=%Provider%
+CatalogFile=personal-vpn-bypass.cat
+DriverVer=11/21/2026,1.3.0.0
+PnpLockdown=1
+
+[DefaultInstall.NTamd64]
+CopyFiles=Bypass.DriverFiles
+
+[DefaultInstall.NTamd64.Services]
+AddService=PersonalVpnBypass,0,Bypass.Service
+
+[DefaultInstall.NTamd64.Wdf]
+KmdfService=PersonalVpnBypass,Bypass.Kmdf
+
+[Bypass.Service]
+DisplayName=%ServiceName%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%13%\personal-vpn-bypass.sys
+
+[Bypass.Kmdf]
+KmdfLibraryVersion=1.15
+
+[DestinationDirs]
+Bypass.DriverFiles=13
+
+[Bypass.DriverFiles]
+personal-vpn-bypass.sys
+
+[SourceDisksNames]
+1=%DiskName%
+
+[SourceDisksFiles]
+personal-vpn-bypass.sys=1
+
+[Strings]
+Provider="Personal VPN"
+ServiceName="Personal VPN App Bypass"
+DiskName="Personal VPN App Bypass Driver"

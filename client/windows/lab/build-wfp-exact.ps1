@@ -50,8 +50,17 @@ if ($LASTEXITCODE -ne 0) { throw 'Pinned Windows SDK / WDK restore failed.' }
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
 $msbuild = & $vswhere -latest -version '[18.0,19.0)' -products '*' -requires Microsoft.Component.MSBuild -find 'MSBuild\Current\Bin\amd64\MSBuild.exe' | Select-Object -First 1
 if (-not $msbuild) { throw 'MSBuild for Windows kernel builds is unavailable.' }
+$infFile = Join-Path $PSScriptRoot 'personal-vpn-bypass.inf'
+$vcxproj = Join-Path $source 'src/mullvad-split-tunnel.vcxproj'
+[xml]$projectSettings = Get-Content -LiteralPath $vcxproj -Raw
+$ns = [System.Xml.XmlNamespaceManager]::new($projectSettings.NameTable)
+$ns.AddNamespace('m', 'http://schemas.microsoft.com/developer/msbuild/2003')
+$projectSettings.SelectSingleNode('//m:Inf[@Include]', $ns).SetAttribute('Include', 'personal-vpn-bypass.inf')
+foreach ($node in $projectSettings.SelectNodes('//m:PreBuildEvent | //m:PostBuildEvent', $ns)) { [void]$node.ParentNode.RemoveChild($node) }
+$projectSettings.Save($vcxproj)
+Copy-Item -LiteralPath $infFile -Destination (Join-Path $source 'src/personal-vpn-bypass.inf')
 $project = Join-Path $source 'src/mullvad-split-tunnel.sln'
-& $msbuild $project /m /nologo /verbosity:minimal /p:Configuration=Release /p:Platform=x64 "/p:WindowsTargetPlatformVersion=$targetPlatform" /p:SignMode=Off /p:EnableInf2cat=false /p:RunPreBuildEvent=Never /p:RunPostBuildEvent=Never /p:TargetName=personal-vpn-bypass
+& $msbuild $project /m /nologo /verbosity:minimal /p:Configuration=Release /p:Platform=x64 "/p:WindowsTargetPlatformVersion=$targetPlatform" /p:SignMode=Off /p:EnableInf2cat=false /p:TargetName=personal-vpn-bypass
 if ($LASTEXITCODE -ne 0) { throw 'Windows exact-executable driver build failed.' }
 
 $driver = Get-Item -LiteralPath (Join-Path $source 'bin/x64-Release/personal-vpn-bypass.sys')
@@ -60,6 +69,18 @@ $header = [BitConverter]::ToInt32($bytes, 0x3c)
 if ([BitConverter]::ToUInt32($bytes, $header) -ne 0x4550 -or [BitConverter]::ToUInt16($bytes, $header + 4) -ne 0x8664) {
     throw 'Unexpected driver binary format or architecture.'
 }
+$candidate = Join-Path (Split-Path -Parent $Report) 'wfp-x64-unsigned'
+$package = Join-Path $candidate 'driver'
+New-Item -ItemType Directory -Path $candidate,$package | Out-Null
+Copy-Item -LiteralPath $driver.FullName,$infFile -Destination $package
+Copy-Item -LiteralPath (Join-Path $source 'LICENSE-MPL.txt'),$patch -Destination $candidate
+$tools = Join-Path $source "packages/Microsoft.Windows.WDK.x64.$kit/c/bin/$targetPlatform"
+$catalog = Get-ChildItem -LiteralPath $tools -Recurse -Filter Inf2Cat.exe -File | Select-Object -First 1
+if (-not $catalog) { throw 'Inf2Cat.exe is unavailable in the pinned WDK.' }
+& $catalog.FullName "/driver:$package" /os:10_VB_X64,10_NI_X64,10_GE_X64,Server2025_X64
+$catalogFile = Join-Path $package 'personal-vpn-bypass.cat'
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $catalogFile)) { throw 'The unsigned driver INF did not qualify for a catalog.' }
+
 [ordered]@{
     result = 'PASS'
     upstream = $upstream
@@ -67,6 +88,8 @@ if ([BitConverter]::ToUInt32($bytes, $header) -ne 0x4550 -or [BitConverter]::ToU
     architecture = 'x64'
     patchSha256 = (Get-FileHash -LiteralPath $patch).Hash
     driverSha256 = (Get-FileHash -LiteralPath $driver.FullName).Hash
+    infSha256 = (Get-FileHash -LiteralPath $infFile).Hash
+    catalogSha256 = (Get-FileHash -LiteralPath $catalogFile).Hash
     signature = (Get-AuthenticodeSignature -LiteralPath $driver.FullName).Status.ToString()
     kernelLoaded = $false
 } | ConvertTo-Json | Set-Content -LiteralPath $Report
