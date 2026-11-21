@@ -1,0 +1,26 @@
+name: Windows VPN API lab
+on:
+  push:
+    branches: [codex/windows-vpn-api-lab]
+    paths:
+      - '.github/workflows/windows-vpn-api-lab.yml'
+      - 'client/windows/lab/vpn-api/**'
+permissions:
+  contents: read
+jobs:
+  route-test:
+    runs-on: windows-2025
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Test native Windows per-app VPN capture and recovery
+        shell: powershell
+        run: ./client/windows/lab/vpn-api/test.ps1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: windows-vpn-api-route-evidence
+          path: vpn-api-evidence/
+          retention-days: 7
