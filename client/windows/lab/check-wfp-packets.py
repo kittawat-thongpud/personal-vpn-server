@@ -90,7 +90,7 @@ def dns_event_counts(directory, queries):
     nic = json.loads((directory / 'wintun.json').read_text())
     events = json.loads((directory / 'dns-events.json').read_text(encoding='utf-8-sig'))
     names = {row['Name'].casefold().rstrip('.'): key for key, row in queries.items()}
-    routes = {name: Counter() for name in queries}
+    routes = {name: {phase: Counter() for phase in ('queryInterface', 'send', 'reply')} for name in queries}
     for event in events:
         query = names.get(event['QueryName'].casefold().rstrip('.'))
         if not query:
@@ -99,12 +99,13 @@ def dns_event_counts(directory, queries):
         name = event.get('AdapterName', '').casefold().strip('{}')
         local = event.get('LocalAddress', '').split('%')[0]
         server = event.get('DnsServerIpAddress', event.get('DNSServerAddress', '')).split('%')[0]
+        phase = {3010: 'send', 3011: 'reply'}.get(event['event'], 'queryInterface')
         if (index.isdecimal() and int(index) in nic['indexes']) or local in nic['addresses'] or name == nic['Id'].casefold().strip('{}') or server in nic['servers']:
-            routes[query]['wintun'] += 1
-        elif (index.isdecimal() and int(index) > 0) or (local and local not in ('0.0.0.0', '::')):
-            routes[query]['otherNics'] += 1
+            routes[query][phase]['wintun'] += 1
+        elif server in nic['otherServers'] or (index.isdecimal() and int(index) > 0) or (local and local not in ('0.0.0.0', '::')):
+            routes[query][phase]['otherNics'] += 1
         else:
-            routes[query]['unassigned'] += 1
+            routes[query][phase]['unassigned'] += 1
     return routes
 
 
@@ -178,7 +179,7 @@ def qualify(directory):
         negative = row['Name'].startswith('pvn-')
         seen = categorize(dns_counts[name])
         events = dict(dns_events[name])
-        observed = sum(seen.values()) > 0 or events.get('wintun', 0) > 0 or events.get('otherNics', 0) > 0
+        observed = sum(seen.values()) > 0 or any(path.get('wintun', 0) > 0 or path.get('otherNics', 0) > 0 for path in events.values())
         valid = observed and (row['Status'] in (9003, 9501) if negative else row['Status'] == 0)
         dns_results.append(dict(app=row['App'], query='negative' if negative else 'positive', windowsStatus=row['Status'], packets=seen, windowsDnsEvents=events, passCheck=valid))
     passed = baseline_passed and all(row['passCheck'] for row in results + dns_results) and len(dns_results) == 6

@@ -27,6 +27,7 @@ internal sealed class WfpPacketTrace : IDisposable
             nic.Name, nic.Description, nic.Id,
             indexes = new[] { ip.GetIPv4Properties().Index, ip.GetIPv6Properties().Index },
             servers = ip.DnsAddresses.Select(value => value.ToString()),
+            otherServers = NetworkInterface.GetAllNetworkInterfaces().Where(x => x.Id != nic.Id).SelectMany(x => x.GetIPProperties().DnsAddresses).Select(value => value.ToString()).Distinct(),
             addresses = ip.UnicastAddresses.Select(value => value.Address.ToString())
         }));
         File.WriteAllText(Path.Combine(directory, "pktmon-list.txt"), Pktmon("list", "--include-hidden"));
@@ -35,7 +36,8 @@ internal sealed class WfpPacketTrace : IDisposable
             foreach (var (protocol, value) in targets)
             {
                 var endpoint = IPEndPoint.Parse(value);
-                AddFilter(protocol, "-i", endpoint.Address.ToString(), "-t", protocol, "-p", endpoint.Port.ToString());
+                if (protocol == "udp") AddFilter(protocol, "-p", endpoint.Port.ToString());
+                else AddFilter(protocol, "-i", endpoint.Address.ToString(), "-t", protocol, "-p", endpoint.Port.ToString());
             }
             AddFilter("dns", "-p", "53");
             Pktmon("start", "--capture", "--comp", "nics", "--pkt-size", "144", "--file-name", Path.Combine(directory, "probe.etl"), "--file-size", "8");
