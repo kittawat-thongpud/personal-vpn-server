@@ -15,21 +15,15 @@ internal sealed class WfpPacketTrace : IDisposable
 {
     private bool active, addedFilters;
 
-    internal WfpPacketTrace(string directory, IReadOnlyDictionary<string, string> targets, IPAddress physical, IPAddress tunnel)
+    internal WfpPacketTrace(string directory, IReadOnlyDictionary<string, string> targets, IPAddress tunnel)
     {
         if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") != "true" || Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT") != "github-hosted")
             throw new InvalidOperationException("Packet recording is restricted to the disposable hosted runner.");
         if (Regex.IsMatch(Pktmon("filter", "list"), @"(?m)^\s*\d+\s")) throw new InvalidOperationException("Existing Packet Monitor filters are in use.");
         Directory.CreateDirectory(directory);
-        var nics = new Dictionary<string, object>();
-        foreach (var (label, ip) in new[] { ("physical", physical), ("wintun", tunnel) })
-        {
-            var nic = NetworkInterface.GetAllNetworkInterfaces().Single(n => n.GetIPProperties().UnicastAddresses.Any(a => a.Address.Equals(ip)));
-            nics[label] = new { nic.Name, nic.Description, nic.Id, index = nic.GetIPProperties().GetIPv4Properties().Index, mac = nic.GetPhysicalAddress().ToString() };
-        }
-        File.WriteAllText(Path.Combine(directory, "adapters.json"), JsonSerializer.Serialize(nics));
+        var nic = NetworkInterface.GetAllNetworkInterfaces().Single(n => n.GetIPProperties().UnicastAddresses.Any(a => a.Address.Equals(tunnel)));
+        File.WriteAllText(Path.Combine(directory, "wintun.json"), JsonSerializer.Serialize(new { nic.Name, nic.Description, nic.Id }));
         File.WriteAllText(Path.Combine(directory, "pktmon-list.txt"), Pktmon("list", "--include-hidden"));
-        File.WriteAllText(Path.Combine(directory, "pktmon-list.json"), Pktmon("list", "--json"));
         try
         {
             foreach (var (protocol, value) in targets)

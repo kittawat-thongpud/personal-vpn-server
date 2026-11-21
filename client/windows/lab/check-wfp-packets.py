@@ -65,39 +65,15 @@ def transport(link, packet):
     return (protocol, source, source_port, destination, destination_port), packet[start + 8:]
 
 
-def component_rows(value):
-    if isinstance(value, dict):
-        if any(key.casefold() in ('id', 'componentid') for key in value):
-            yield {key.casefold(): field for key, field in value.items() if isinstance(field, (str, int))}
-        for field in value.values():
-            yield from component_rows(field)
-    elif isinstance(value, list):
-        for field in value:
-            yield from component_rows(field)
-
-
-def adapter_id(text, components, nic):
-    candidates = []
-    aliases = {nic[key].casefold().strip('{}') for key in ('Id', 'Name', 'Description')}
-    for component in components:
-        identifier = str(component.get('id', component.get('componentid', '')))
-        if not identifier.isdigit():
-            continue
-        if nic['index'] in (component.get('ifindex'), component.get('interfaceindex')):
-            candidates.append((4, identifier))
-        elif aliases.intersection(str(value).casefold().strip('{}') for value in component.values()):
-            candidates.append((2, identifier))
-    for match in re.finditer(r'^[ \t]*(\d+)[ \t]+(?:(\S{17}|-)[ \t]+)?(.+?)[ \t]*$', text, re.M):
-        identifier, mac, name = match.groups()
-        if mac and nic['mac'] and mac.replace('-', '').casefold() == nic['mac'].casefold():
-            candidates.append((3, identifier))
-        elif name.casefold().strip('{}') in aliases:
-            candidates.append((2, identifier))
-    best_rank = max((rank for rank, _ in candidates), default=0)
-    best = {identifier for rank, identifier in candidates if rank == best_rank}
-    if len(best) != 1:
-        raise ValueError(f'Could not identify a unique Packet Monitor component for {nic["Description"]}')
-    return best.pop()
+def adapters_from(directory):
+    tun = json.loads((directory / 'wintun.json').read_text())
+    names = (directory / 'pktmon-list.txt').read_text(encoding='utf-8-sig').replace('\0', '')
+    rows = dict(re.findall(r'^[ \t]*(\d+)[ \t]+(?:(?:\S{17}|-)[ \t]+)?(.+?)[ \t]*$', names, re.M))
+    aliases = {tun[key].casefold().strip('{}') for key in ('Id', 'Name', 'Description')}
+    candidates = [component for component, name in rows.items() if name.casefold().strip('{}') in aliases]
+    if len(candidates) != 1 or len(rows) < 2:
+        raise ValueError(f'Could not identify Wintun and at least one other NIC: {list(rows.values())}')
+    return rows.keys(), candidates[0]
 
 
 def dns_name(name):
@@ -107,18 +83,7 @@ def dns_name(name):
 
 def qualify(directory):
     manifest = json.loads((directory / 'manifest.json').read_text())
-    adapters = json.loads((directory / 'adapters.json').read_text())
-    names = (directory / 'pktmon-list.txt').read_text(encoding='utf-8-sig').replace('\0', '')
-    topology = (directory / 'pktmon-list.json').read_text(encoding='utf-8-sig').replace('\0', '')
-    components = list(component_rows(json.loads(topology)))
-    try:
-        ids = {label: adapter_id(names, components, nic) for label, nic in adapters.items()}
-    except ValueError as error:
-        names = re.sub(r'(?i)(?:[0-9a-f]{2}-){5}[0-9a-f]{2}', '<MAC>', names)
-        return dict(result='FAIL', reason=str(error), nicDescriptions={label: nic['Description'] for label, nic in adapters.items()},
-                    adapterInventory=names.splitlines()[:25], componentFields=sorted({key for row in components for key in row})[:35])
-    if len(set(ids.values())) != 2:
-        raise ValueError('Physical and Wintun capture components must be separate')
+    components, wintun = adapters_from(directory)
 
     flows, counts = {}, {}
     for row in manifest['flows']:
@@ -129,35 +94,51 @@ def qualify(directory):
         if key in flows or role in counts:
             raise ValueError('Socket tuples in the capture are not unique')
         flows[key] = role
-        counts[role] = dict.fromkeys(ids, 0)
+        counts[role] = dict.fromkeys(components, 0)
 
     queries = {dns_name(row['Name']): row for row in manifest['dns']}
-    dns_counts = {row['App']: dict.fromkeys(ids, 0) for row in queries.values()}
-    for label, component in ids.items():
-        pcap = directory / f'{label}.pcapng'
+    dns_counts = {name: dict.fromkeys(components, 0) for name in queries}
+    for component in components:
+        pcap = directory / f'nic-{component}.pcapng'
         subprocess.run(['pktmon.exe', 'etl2pcap', str(directory / 'probe.etl'), '--out', str(pcap),
                         '--component-id', component], check=True)
         for link, packet in read_blocks(pcap):
             if parsed := transport(link, packet):
                 key, payload = parsed
                 if role := flows.get(key):
-                    counts[role][label] += 1
-                if key[0] == 17 and key[-1] == 53 and payload[12:]:
-                    for name, row in queries.items():
+                    counts[role][component] += 1
+                if key[0] == 17 and key[-1] == 53 and len(payload) > 12 and not (payload[2] & 0x80):
+                    for name in queries:
                         if payload[12:].lower().startswith(name):
-                            dns_counts[row['App']][label] += 1
+                            dns_counts[name][component] += 1
+
+    physical = {}
+    for protocol in ('tcp', 'udp'):
+        baseline = counts.get(('after_disconnect', 'bypass', protocol), {})
+        physical[protocol] = {component for component, count in baseline.items() if count and component != wintun}
+        if not physical[protocol] or baseline.get(wintun):
+            raise ValueError(f'No independent physical capture baseline for {protocol} after removing Wintun routes')
+
+    def categorize(observed, physical_components):
+        return dict(physical=sum(observed.get(component, 0) for component in physical_components), wintun=observed.get(wintun, 0),
+                    other=sum(count for component, count in observed.items() if component not in physical_components and component != wintun))
 
     results = []
     for stage in ('capture_without_exclusion', 'capture_with_reference_exclusion', 'capture_after_exclusion_removal'):
         for app in ('bypass', 'tunneled', 'blocked'):
             for protocol in ('tcp', 'udp'):
-                seen = counts.get((stage, app, protocol), dict.fromkeys(ids, 0))
+                seen = categorize(counts.get((stage, app, protocol), {}), physical[protocol])
                 direct = app == 'bypass' and stage == 'capture_with_reference_exclusion'
-                valid = (seen['physical'] > 0 and seen['wintun'] == 0) if direct else (seen['wintun'] > 0 and seen['physical'] == 0)
+                valid = seen['other'] == 0 and ((seen['physical'] > 0 and seen['wintun'] == 0) if direct else (seen['wintun'] > 0 and seen['physical'] == 0))
                 results.append(dict(stage=stage, app=app, protocol=protocol, packets=seen, passCheck=valid))
-    dns_results = [dict(app=row['App'], windowsStatus=row['Status'], packets=dns_counts[row['App']]) for row in queries.values()]
-    dns_observed = len(dns_results) == 3 and all(sum(row['packets'].values()) > 0 and row['windowsStatus'] in (0, 9003) for row in dns_results)
-    return dict(result='PASS' if all(row['passCheck'] for row in results) and dns_observed else 'FAIL', flows=results, dns=dns_results)
+    dns_results = []
+    for name, row in queries.items():
+        negative = row['Name'].startswith('pvn-')
+        seen = categorize(dns_counts[name], physical['tcp'] | physical['udp'])
+        valid = sum(seen.values()) > 0 and (row['Status'] in (9003, 9501) if negative else row['Status'] == 0)
+        dns_results.append(dict(app=row['App'], query='negative' if negative else 'positive', windowsStatus=row['Status'], packets=seen, passCheck=valid))
+    passed = all(row['passCheck'] for row in results + dns_results) and len(dns_results) == 6
+    return dict(result='PASS' if passed else 'FAIL', verifiedAfterDisconnect=True, flows=results, dns=dns_results)
 
 
 if __name__ == '__main__':

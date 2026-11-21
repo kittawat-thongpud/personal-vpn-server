@@ -34,13 +34,14 @@ internal static partial class Tests
         var dns = new List<PacketDns>();
         var physical = new Dictionary<string, IPAddress>();
         var dnsNames = probes.Keys.ToDictionary(role => role, _ => "pvn-" + Guid.NewGuid().ToString("N")[..8] + ".example.com.");
+        var positiveDnsNames = probes.Keys.Zip(new[] { "example.com.", "example.net.", "example.org." }).ToDictionary(p => p.First, p => p.Second);
 
         Task SavePacketManifest() => File.WriteAllTextAsync(Path.Combine(packetDir!, "manifest.json"), JsonSerializer.Serialize(new { flows, dns }));
 
-        async Task<WfpObservation> RunProbe(string stage, string role, string protocol, WfpReferenceLab? driver = null)
+        async Task<WfpObservation> RunProbe(string stage, string role, string protocol, WfpReferenceLab? driver = null, string? query = null)
         {
             var info = new ProcessStartInfo(probes[role]) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
-            foreach (string value in protocol == "dns" ? new[] { protocol, "unused", dnsNames[role] } : new[] { protocol, targets[protocol], https }) info.ArgumentList.Add(value);
+            foreach (string value in query != null ? new[] { protocol, "unused", query } : new[] { protocol, targets[protocol], https }) info.ArgumentList.Add(value);
             using var process = Process.Start(info)!;
             var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
             try
@@ -71,7 +72,7 @@ internal static partial class Tests
                 string path = local == null ? "unavailable" : local.Equals(tunnelIP) ? "wintun" : local.Equals(physical[protocol]) ? "physical" : "other";
                 if (packetDir != null && stage != "without_capture")
                 {
-                    if (dnsStatus.HasValue) dns.Add(new PacketDns(role, dnsNames[role], dnsStatus.Value));
+                    if (dnsStatus.HasValue && query != null) dns.Add(new PacketDns(role, query, dnsStatus.Value));
                     else if (local != null && json.TryGetProperty("localPort", out var port)) flows.Add(new PacketFlow(stage, role, protocol, local.ToString(), port.GetInt32(), targets[protocol]));
                     await SavePacketManifest();
                 }
@@ -88,6 +89,7 @@ internal static partial class Tests
         var profile = Store.Import(root);
         var originalProxy = WindowsProxy.Read();
         var adapter = AdapterService.CurrentId();
+        var dnsBefore = DnsSnapshot();
         var settings = new Settings { Profiles = new() { profile }, SelectedId = profile.Id, CaptureMode = "TUN", SystemProxy = false, HttpPort = Port(), SocksPort = Port(),
             Apps = new TunnelPolicy { Mode = "Tunnel", Entries = probes.Select(p => new TunnelException { Kind = "App", Value = p.Value, Action = p.Key == "tunneled" ? "Tunnel" : "Block" }).ToList() } };
         await using var backend = new Backend();
@@ -110,24 +112,33 @@ internal static partial class Tests
             Assert(backend.State == "Connected" && initialCapture == backend.CapturePidForTest, "Wintun restarted during the comparison.");
         }
 
-        using (var packetTrace = packetDir == null ? null : new WfpPacketTrace(packetDir, targets, physical["tcp"], tunnelIP))
+        using (var packetTrace = packetDir == null ? null : new WfpPacketTrace(packetDir, targets, tunnelIP))
         {
             await Wave("capture_without_exclusion", false);
-            using var reference = new WfpReferenceLab();
-            reference.Configure(probes["bypass"], tunnelIP, physical["tcp"]);
-            await Wave("capture_with_reference_exclusion", true, reference);
-            if (packetTrace != null)
-                foreach (var role in probes.Keys)
-                {
-                    var row = await RunProbe("windows_dns", role, "dns", reference);
-                    Assert(row.DriverExcluded == (role == "bypass"), $"{role} DNS probe was classified incorrectly.");
-                }
-            reference.Clear();
-            await Wave("capture_after_exclusion_removal", false, reference);
+            using (var reference = new WfpReferenceLab())
+            {
+                reference.Configure(probes["bypass"], tunnelIP, physical["tcp"]);
+                await Wave("capture_with_reference_exclusion", true, reference);
+                if (packetTrace != null)
+                    foreach (var role in probes.Keys)
+                        foreach (string query in new[] { positiveDnsNames[role], dnsNames[role] })
+                        {
+                            var row = await RunProbe(query.StartsWith("pvn-", StringComparison.Ordinal) ? "windows_dns_negative" : "windows_dns_positive", role, "dns", reference, query);
+                            Assert(row.DriverExcluded == (role == "bypass"), $"{role} DNS probe was classified incorrectly.");
+                        }
+                reference.Clear();
+                await Wave("capture_after_exclusion_removal", false, reference);
+            }
+            await backend.StopAsync();
+            foreach (var protocol in targets.Keys)
+            {
+                var row = await RunProbe("after_disconnect", "bypass", protocol);
+                Assert(row.Reached && row.SourcePath == "physical", $"Physical {protocol} egress did not recover after cleanup.");
+            }
         }
-        await backend.StopAsync();
         Assert(AdapterService.CurrentId() == adapter && WindowsProxy.Matches(WindowsProxy.Read(), originalProxy), "Lab changed adapter ownership or proxy settings.");
         Assert(!NetworkInterface.GetAllNetworkInterfaces().SelectMany(n => n.GetIPProperties().UnicastAddresses).Any(a => a.Address.Equals(tunnelIP)), "Owned capture address remained after cleanup.");
+        Assert(dnsBefore == DnsSnapshot(), "Physical DNS changed after cleanup.");
         return new { result = "PASS", driver = "signed reference callout", sameCaptureDuringWaves = true, appRulesAndRollbackVerified = true, fixture = "IPv4 TCP/TLS and UDP/STUN", evidence = trace };
     }
 }
