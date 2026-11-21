@@ -22,6 +22,7 @@ type result struct {
 	LocalIP   string  `json:"localIP,omitempty"`
 	LocalPort int     `json:"localPort,omitempty"`
 	DnsStatus *uint32 `json:"dnsStatus,omitempty"`
+	WireToken string  `json:"wireToken,omitempty"`
 }
 
 func main() {
@@ -70,6 +71,7 @@ func probe(network, address, name string) result {
 		if _, err = rand.Read(payload[8:]); err != nil {
 			return r
 		}
+		r.WireToken = fmt.Sprintf("%x", payload[8:])
 		if _, err = conn.Write(payload); err != nil {
 			return r
 		}

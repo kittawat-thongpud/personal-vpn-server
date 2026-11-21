@@ -16,7 +16,7 @@ namespace PersonalVpn;
 internal static partial class Tests
 {
     private sealed record WfpObservation(string Stage, string App, string Protocol, bool Reached, string SourcePath, bool? DriverExcluded, uint? WindowsDnsStatus = null);
-    private sealed record PacketFlow(string Stage, string App, string Protocol, string Local, int Port, string Endpoint);
+    private sealed record PacketFlow(string Stage, string App, string Protocol, string Local, int Port, string Endpoint, string? WireToken);
     private sealed record PacketDns(string App, string Name, uint Status);
 
     private static async Task<object> NativeWfpMatrix(string root, string expected, string probeExecutable, string progress, string? packetDir)
@@ -73,7 +73,11 @@ internal static partial class Tests
                 if (packetDir != null && stage != "without_capture")
                 {
                     if (dnsStatus.HasValue && query != null) dns.Add(new PacketDns(role, query, dnsStatus.Value));
-                    else if (local != null && json.TryGetProperty("localPort", out var port)) flows.Add(new PacketFlow(stage, role, protocol, local.ToString(), port.GetInt32(), targets[protocol]));
+                    else if (local != null && json.TryGetProperty("localPort", out var port))
+                    {
+                        string? token = json.TryGetProperty("wireToken", out var wire) ? wire.GetString() : null;
+                        flows.Add(new PacketFlow(stage, role, protocol, local.ToString(), port.GetInt32(), targets[protocol], token));
+                    }
                     await SavePacketManifest();
                 }
                 var row = new WfpObservation(stage, role, protocol, reached, path, split, dnsStatus);

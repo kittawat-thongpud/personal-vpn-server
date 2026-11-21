@@ -41,9 +41,10 @@ def transport(link, packet):
         while ether_type in (b'\x81\x00', b'\x88\xa8') and len(packet) >= offset + 4:
             ether_type = packet[offset + 2:offset + 4]
             offset += 4
-        if ether_type not in (b'\x08\x00', b'\x86\xdd'):
-            return None
-        packet = packet[offset:]
+        if ether_type in (b'\x08\x00', b'\x86\xdd'):
+            packet = packet[offset:]
+        # Packet Monitor can label the Wintun NDIS IP payload as Ethernet.
+        # Validate the IPv4/IPv6 header below before using a raw frame.
     elif link in (0, 108):
         packet = packet[4:]
     elif link not in (101, 228, 229):
@@ -51,9 +52,9 @@ def transport(link, packet):
     if len(packet) < 20:
         return None
     if packet[0] >> 4 == 4:
-        if int.from_bytes(packet[6:8], 'big') & 0x1fff:
-            return None
         protocol, start = packet[9], 4 * (packet[0] & 15)
+        if start < 20 or int.from_bytes(packet[2:4], 'big') < start + 8 or int.from_bytes(packet[6:8], 'big') & 0x1fff:
+            return None
         source, destination = packet[12:16], packet[16:20]
     elif packet[0] >> 4 == 6 and len(packet) >= 40:
         protocol, start = packet[6], 40
@@ -86,15 +87,19 @@ def qualify(directory):
     manifest = json.loads((directory / 'manifest.json').read_text())
     wintun = adapters_from(directory)
 
-    flows, counts = {}, {}
+    flows, counts, stun_tokens = {}, {}, {}
     for row in manifest['flows']:
         role = (row['Stage'], row['App'], row['Protocol'])
         address, port = row['Endpoint'].split(':')
         key = (6 if row['Protocol'] == 'tcp' else 17, ipaddress.ip_address(row['Local']).packed,
                row['Port'], ipaddress.ip_address(address).packed, int(port))
-        if key in flows or role in counts:
+        reverse = (key[0], key[3], key[4], key[1], key[2])
+        if key in flows or reverse in flows or role in counts:
             raise ValueError('Socket tuples in the capture are not unique')
         flows[key] = role
+        flows[reverse] = role
+        if row.get('WireToken'):
+            stun_tokens[bytes.fromhex(row['WireToken'])] = role
         counts[role] = Counter()
 
     queries = {dns_name(row['Name']): row for row in manifest['dns']}
@@ -103,18 +108,22 @@ def qualify(directory):
     for label, selector in (('allNics', []), ('wintun', ['--component-id', wintun])):
         pcap = directory / f'{label}.pcapng'
         subprocess.run(['pktmon.exe', 'etl2pcap', str(directory / 'probe.etl'), '--out', str(pcap), *selector], check=True)
-        frames = Counter()
+        frames, decoded = Counter(), Counter()
         for link, packet in read_blocks(pcap):
             frames[link] += 1
             if parsed := transport(link, packet):
                 key, payload = parsed
-                if role := flows.get(key):
+                decoded[key[0]] += 1
+                role = flows.get(key)
+                if key[0] == 17 and len(payload) >= 20 and payload[4:8] == b'\x21\x12\xa4\x42':
+                    role = stun_tokens.get(payload[8:20], role)
+                if role:
                     counts[role][label] += 1
                 if key[0] == 17 and key[-1] == 53 and len(payload) > 12 and not (payload[2] & 0x80):
                     for name in queries:
                         if payload[12:].lower().startswith(name):
                             dns_counts[name][label] += 1
-        capture_stats[label] = dict(linkTypes=frames, matchingFlows=sum(row[label] > 0 for row in counts.values()))
+        capture_stats[label] = dict(linkTypes=frames, decodedProtocols=decoded, matchingFlows=sum(row[label] > 0 for row in counts.values()))
 
     def categorize(observed):
         total, tun = observed.get('allNics', 0), observed.get('wintun', 0)
