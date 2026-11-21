@@ -38,11 +38,13 @@ See
 Settings → Android VPN settings opens the OS Always-on/lockdown controls.
 
 App rules select installed package IDs. Explicit App exceptions precede Site
-exceptions. Tunnel, Bypass and Block defaults and Rules off are supported;
-Rules off retains the list but ignores that category. Block is rejected inside
-the core, not implemented by excluding the app from VPN. Android can assign one
+exceptions. The default can be Tunnel, Direct via TUN, Block, or Rules off.
+Rules off retains the list and ignores that category. The core rejects blocked
+connections. Android can assign one
 UID to several packages. Every known package participates in App matching;
-conflicting exceptions on the same UID use Block, then Tunnel, then Bypass.
+conflicting captured exceptions on the same UID use Block, then Tunnel, then
+Direct via TUN. Bypass VPN excludes an entire UID from capture, so it requires
+selecting all packages that share the UID and turning off Android VPN lockdown.
 These packages share socket ownership and cannot be routed separately by UID.
 With App rules enabled, genuinely unresolved ownership is rejected and produces
 a bounded `policy.owner_unresolved` notice. A known shared UID produces
@@ -51,7 +53,8 @@ own control/health traffic is reserved. See [Android routing recovery](ROUTING.m
 Domain matching is limited for independent encrypted DNS or opaque traffic.
 
 App Tunnel displays installed app names and icons. Search, select any number of
-apps with checkboxes, choose Tunnel/Bypass/Block, and Apply once. Select existing
+apps with checkboxes, choose Tunnel, Direct via TUN, Bypass VPN, or Block, and
+Apply once. Select existing
 exceptions to replace their action, or choose Use default to remove them in bulk.
 Selection is retained while searching/filtering; Clear selection resets it.
 Exceptions and System apps filters keep the list manageable. Package labels are

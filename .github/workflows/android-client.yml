@@ -136,7 +136,9 @@ jobs:
           expected=$(sed -n 's/^SHA-256: //p' client/android/SIGNING-CERTIFICATE.txt | tr -d '\r')
           actual=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' client/android/app/build/signature.txt | tr '[:lower:]' '[:upper:]')
           test "$actual" = "$expected"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging client/android/app/build/outputs/apk/release/app-release.apk | grep -F "versionName='$CLIENT_VERSION'"
+          badging=$("$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging client/android/app/build/outputs/apk/release/app-release.apk)
+          code=$(PYTHONPATH=client/release python3 -c 'import sys; from publish import android_version_code; print(android_version_code(sys.argv[1]))' "$CLIENT_VERSION")
+          grep -F "versionCode='$code' versionName='$CLIENT_VERSION'" <<< "$badging"
           unzip -l client/android/app/build/outputs/apk/release/app-release.apk | grep -E 'lib/(arm64-v8a|x86_64)/libpvn.so'
       - name: Stage checked app and companion packages without signing secrets
         run: |

@@ -4,8 +4,13 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 val clientVersion = rootProject.file("../VERSION").readText().trim()
-val versionParts = clientVersion.split('.').map(String::toInt)
-require(versionParts.size == 3 && versionParts.all { it in 0..99 })
+val versionMatch = Regex("""(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)(?:-alpha\.([1-9][0-9]?))?""")
+    .matchEntire(clientVersion) ?: error("Invalid shared client version")
+val (major, minor, patch, iteration) = versionMatch.destructured
+val stableCode = major.toInt() * 1000000 + minor.toInt() * 10000 + patch.toInt() * 100
+// Keep existing stable codes. Alpha builds sort before their target stable build.
+val clientVersionCode = iteration.toIntOrNull()?.let { stableCode - 100 + it } ?: stableCode
+require(clientVersionCode > 0)
 android {
     namespace = "dev.personalvpn.client"
     compileSdk = 35
@@ -14,7 +19,7 @@ android {
         applicationId = "dev.personalvpn.client"
         minSdk = 29
         targetSdk = 35
-        versionCode = versionParts[0] * 1000000 + versionParts[1] * 10000 + versionParts[2] * 100
+        versionCode = clientVersionCode
         versionName = clientVersion
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }

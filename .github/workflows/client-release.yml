@@ -1,7 +1,7 @@
 name: Client release
 on:
   push:
-    branches: [main, 'release/client-v*']
+    branches: [main, 'release/client-v*', '!release/client-v*-alpha.*']
     paths:
       - 'client/VERSION'
       - 'client/Directory.Build.props'
@@ -47,8 +47,7 @@ jobs:
           PUBLISH: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
         run: |
           python3 -m unittest discover -s client/release -v
-          version=$(tr -d '\r\n' < client/VERSION)
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          version=$(python3 client/release/publish.py --check-source)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           build=true
           if [ "$PUBLISH" = true ] && gh release view "client-v$version" >/dev/null 2>&1; then

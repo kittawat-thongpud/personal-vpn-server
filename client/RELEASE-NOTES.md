@@ -1,3 +1,21 @@
+## Client 0.10.0-alpha.1
+
+This prerelease includes an Android APK and Windows x86 and x64 installers.
+The latest stable Client release is 0.9.5.
+
+- **Android App Tunnel.** Bypass VPN excludes selected apps from Android VPN capture.
+  Direct via TUN sends captured connections through the client's direct outbound.
+  Existing app Bypass rules continue as Direct via TUN. Apps that share an Android
+  UID must be excluded together. Android VPN lockdown prevents exclusion.
+- **Windows App Tunnel.** Existing app Bypass rules now appear as Direct via TUN.
+  Native per-executable Bypass VPN is pending signed driver qualification.
+
+These installers update the existing Personal VPN installation. Export any profiles
+you need for rollback before installing. Android blocks installing a lower-version
+APK over an installed higher-version APK.
+
+## Earlier client releases
+
 Client 0.9.5 aligns the Windows and Android connection controls. Windows Home
 and the notification-area menu offer Cancel during connection, verification,
 and automatic recovery. Stopping stays readable while the app releases capture.

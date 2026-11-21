@@ -7,6 +7,36 @@ from unittest.mock import patch
 import publish
 
 
+class ReleaseChannelTest(unittest.TestCase):
+    def test_explicit_alpha_dispatch_is_a_prerelease(self):
+        version = "0.10.0-alpha.1"
+        channel = publish.verify_source_channel(version, f"codex/client-v{version}", "workflow_dispatch")
+        self.assertEqual(publish.release_flags(channel), ["--prerelease", "--latest=false"])
+
+    def test_alpha_cannot_be_published_from_stable_automation(self):
+        for branch, event in (
+            ("main", "workflow_dispatch"),
+            ("codex/client-v0.10.0-alpha.1", "push"),
+            ("codex/client-v0.10.0-alpha.2", "workflow_dispatch"),
+        ):
+            with self.subTest(branch=branch, event=event), self.assertRaisesRegex(ValueError, "explicit"):
+                publish.verify_source_channel("0.10.0-alpha.1", branch, event)
+
+    def test_stable_release_keeps_latest_flag(self):
+        channel = publish.verify_source_channel("0.9.5", "main", "push")
+        self.assertEqual(publish.release_flags(channel), ["--latest"])
+
+    def test_android_upgrade_version_codes_keep_stable_ordering(self):
+        versions = ("0.9.5", "0.10.0-alpha.1", "0.10.0-alpha.2", "0.10.0")
+        self.assertEqual([publish.android_version_code(version) for version in versions],
+                         [90500, 99901, 99902, 100000])
+
+    def test_only_canonical_versions_are_accepted(self):
+        for version in ("0.0.0-alpha.1", "0.10.0-alpha.0", "0.10.0-alpha.100", "0.10.0-beta.1", "0.010.0"):
+            with self.subTest(version=version), self.assertRaisesRegex(ValueError, "Invalid"):
+                publish.verify_source_channel(version, "main", "push")
+
+
 class CompleteBundleTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()

@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 $source = [IO.Path]::GetFullPath($PSScriptRoot)
 if (-not (Test-Path -LiteralPath (Join-Path $source 'PersonalVPN.exe'))) { throw 'Extract the Windows release ZIP first.' }
 $version = [IO.File]::ReadAllText((Join-Path $source 'CLIENT-VERSION.txt')).Trim()
-if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid client release version.' }
+if ($version -cnotmatch '^(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)(?:-alpha\.[1-9][0-9]?)?$') { throw 'Invalid client release version.' }
 $isAdministrator = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdministrator) {
     $argsList = @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $PSCommandPath + '"'))

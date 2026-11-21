@@ -53,8 +53,9 @@ in VPN configure only after the VPS IPv6 Internet path has been verified. This
 does not disable Windows IPv6 or mesh interfaces; IPv6 address space stays in
 the TUN capture plan.
 
-App / Site rules support Tunnel, Bypass and Block defaults with per-target
-exceptions. Rules off retains but ignores that module's list. Explicit App rules
+App rules support Tunnel, Direct via TUN and Block. Site rules support Tunnel,
+Bypass and Block. Direct via TUN captures the app and uses a direct outbound.
+Rules off retains and ignores that module's list. Explicit App rules
 win over conflicting Site rules. App default follows exceptions; when App rules
 are off the Site default applies. With both modules off captured traffic tunnels.
 Child/helper executables need their own entries. Private health and protocol core

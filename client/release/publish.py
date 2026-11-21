@@ -11,6 +11,31 @@ import shutil
 import subprocess
 
 
+def parse_version(version: str) -> tuple[int, int, int, int]:
+    match = re.fullmatch(r"(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)(?:-alpha\.([1-9][0-9]?))?", version)
+    if not match or match.groups()[:3] == ("0", "0", "0"):
+        raise ValueError("Invalid shared client version")
+    major, minor, patch, iteration = match.groups(default="0")
+    return int(major), int(minor), int(patch), int(iteration)
+
+
+def android_version_code(version: str) -> int:
+    major, minor, patch, iteration = parse_version(version)
+    stable_code = major * 1_000_000 + minor * 10_000 + patch * 100
+    return stable_code - 100 + iteration if iteration else stable_code
+
+
+def verify_source_channel(version: str, branch: str, event: str) -> str:
+    channel = "alpha" if parse_version(version)[3] else "stable"
+    if channel == "alpha" and (branch != f"codex/client-v{version}" or event != "workflow_dispatch"):
+        raise ValueError("Alpha requires an explicit run from its matching codex/client-v source branch")
+    return channel
+
+
+def release_flags(channel: str) -> list[str]:
+    return ["--prerelease", "--latest=false"] if channel == "alpha" else ["--latest"]
+
+
 def digest(path: Path) -> str:
     with path.open("rb") as source:
         return hashlib.file_digest(source, "sha256").hexdigest()
@@ -82,33 +107,46 @@ def preserve_branch(repository: str, branch: str, sha: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--assets", type=Path, required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--assets", type=Path)
+    mode.add_argument("--check-source", action="store_true")
     args = parser.parse_args()
     client = Path(__file__).resolve().parents[1]
     version = (client / "VERSION").read_text().strip()
-    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
-        raise ValueError("Invalid shared client version")
+    branch = os.environ["GITHUB_REF_NAME"]
+    channel = verify_source_channel(version, branch, os.environ.get("GITHUB_EVENT_NAME", ""))
+    if args.check_source:
+        print(version)
+        return
     root = args.assets.resolve()
     assets = verify_bundle(root, version)
     repository = os.environ["GITHUB_REPOSITORY"]
     sha = os.environ["GITHUB_SHA"]
-    branch = os.environ["GITHUB_REF_NAME"]
     if source_sha(repository, f"heads/{branch}") != sha:
         raise ValueError("A newer source commit exists; only the current qualified commit may publish")
-    # Preserve the last independently versioned clients during migration.
-    for legacy in ("windows-v0.6.3", "android-v0.1.0"):
-        preserve_branch(repository, f"legacy/{legacy}", source_sha(repository, f"tags/{legacy}"))
-    # On subsequent releases, archive every earlier unified client source too.
-    releases = gh("release", "list", "--repo", repository, "--limit", "100", "--json", "tagName,isDraft")
-    for release in releases:
-        tag = release["tagName"]
-        if tag.startswith("client-v") and not release["isDraft"]:
-            preserve_branch(repository, f"legacy/{tag}", source_sha(repository, f"tags/{tag}"))
+    tag = f"client-v{version}"
+    try:
+        tagged = source_sha(repository, f"tags/{tag}")
+    except subprocess.CalledProcessError as error:
+        if "404" not in error.stderr:
+            raise
+    else:
+        if tagged != sha:
+            raise ValueError("Release tag points to a different source commit")
+    if channel == "stable":
+        # Archive the previous stable clients. Alpha already preserves its own source.
+        for legacy in ("windows-v0.6.3", "android-v0.1.0"):
+            preserve_branch(repository, f"legacy/{legacy}", source_sha(repository, f"tags/{legacy}"))
+        releases = gh("release", "list", "--repo", repository, "--limit", "100", "--json", "tagName,isDraft,isPrerelease")
+        for release in releases:
+            previous = release["tagName"]
+            if previous.startswith("client-v") and not release["isDraft"] and not release["isPrerelease"]:
+                preserve_branch(repository, f"legacy/{previous}", source_sha(repository, f"tags/{previous}"))
     for prefix in ("base", "release"):
         preserve_branch(repository, f"{prefix}/client-v{version}", sha)
     for platform in ("Android", "Windows"):
         shutil.copyfile(client / platform.lower() / "README.md", root / f"INSTALL-{platform}.md")
-    manifest = {"schema": 1, "version": version, "sourceCommit": sha,
+    manifest = {"schema": 1, "version": version, "channel": channel, "sourceCommit": sha,
                 "platforms": {"windows": ["x86", "x64"], "android": ["arm64-v8a", "x86_64"]},
                 "sourceBranches": [f"base/client-v{version}", f"release/client-v{version}"], "assets": assets}
     (root / "CLIENT-RELEASE.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -117,8 +155,8 @@ def main() -> None:
         path.unlink()
     lines = [f"{digest(path)}  {path.name}" for path in sorted(root.iterdir()) if path.is_file()]
     (root / "SHA256SUMS.txt").write_text("\n".join(lines) + "\n", encoding="ascii")
-    subprocess.run(["gh", "release", "create", f"client-v{version}", "--repo", repository,
-                    "--target", sha, "--latest", "--title", f"Personal VPN Client {version}",
+    subprocess.run(["gh", "release", "create", tag, "--repo", repository,
+                    "--target", sha, *release_flags(channel), "--title", f"Personal VPN Client {version}",
                     "--notes-file", str(client / "RELEASE-NOTES.md"), *map(str, sorted(root.iterdir()))], check=True)
 
 
