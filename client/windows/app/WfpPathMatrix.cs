@@ -106,7 +106,7 @@ internal static partial class Tests
         {
             foreach (var protocol in targets.Keys)
             {
-                int trials = packetDir != null && protocol == "tcp" ? 3 : 1;
+                int trials = packetDir == null ? 1 : 3;
                 foreach (var role in probes.Keys)
                     for (int trial = 0; trial < trials; trial++)
                     {
@@ -139,10 +139,11 @@ internal static partial class Tests
             }
             await backend.StopAsync();
             foreach (var protocol in targets.Keys)
-            {
-                var row = await RunProbe("after_disconnect", "bypass", protocol);
-                Assert(row.Reached && row.SourcePath == "physical", $"Physical {protocol} egress did not recover after cleanup.");
-            }
+                for (int trial = 0; trial < (packetTrace == null ? 1 : 3); trial++)
+                {
+                    var row = await RunProbe("after_disconnect", "bypass", protocol);
+                    Assert(row.Reached && row.SourcePath == "physical", $"Physical {protocol} egress did not recover after cleanup.");
+                }
         }
         Assert(AdapterService.CurrentId() == adapter && WindowsProxy.Matches(WindowsProxy.Read(), originalProxy), "Lab changed adapter ownership or proxy settings.");
         Assert(!NetworkInterface.GetAllNetworkInterfaces().SelectMany(n => n.GetIPProperties().UnicastAddresses).Any(a => a.Address.Equals(tunnelIP)), "Owned capture address remained after cleanup.");
