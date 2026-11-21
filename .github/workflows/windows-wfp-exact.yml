@@ -1,0 +1,29 @@
+name: Windows exact-executable WFP driver
+on:
+  push:
+    branches: [codex/windows-wfp-lab]
+    paths:
+      - .github/workflows/windows-wfp-exact.yml
+      - client/windows/lab/build-wfp-exact.ps1
+      - client/windows/lab/wfp-exact-executable.patch
+permissions:
+  contents: read
+jobs:
+  compile-driver:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Build the pinned exact-executable driver source
+        shell: pwsh
+        run: |
+          ./client/windows/lab/build-wfp-exact.ps1 -Report "$env:RUNNER_TEMP/wfp-exact-build.json"
+          Get-Content -LiteralPath "$env:RUNNER_TEMP/wfp-exact-build.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wfp-exact-build-evidence
+          path: ${{ runner.temp }}/wfp-exact-build.json
+          if-no-files-found: error
+          retention-days: 7
