@@ -38,7 +38,10 @@ namespace TestVpnPluginAppBg
                 });
                 var routes = new VpnRouteAssignment
                 {
-                    Ipv4InclusionRoutes = new List<VpnRoute> { new VpnRoute(new HostName("1.1.1.1"), 32) }
+                    // Give Windows a split route that is unrelated to the
+                    // probe. Only the app-specific Force policy can select
+                    // the VPN for 1.1.1.1.
+                    Ipv4InclusionRoutes = new List<VpnRoute> { new VpnRoute(new HostName("192.0.2.42"), 32) }
                 };
                 channel.StartWithTrafficFilter(new List<HostName> { new HostName("172.31.254.2") },
                     null, null, routes, null, 1400, 1500, false, transport, null, filters);

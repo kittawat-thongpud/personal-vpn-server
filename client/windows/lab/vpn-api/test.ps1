@@ -100,6 +100,12 @@ function Invoke-Probe([string]$Name) {
     return $process.ExitCode
 }
 
+function Get-ProbeRoute {
+    @(Find-NetRoute -RemoteIPAddress '1.1.1.1' -ErrorAction Continue |
+        Where-Object { $_.DestinationPrefix } |
+        Select-Object DestinationPrefix, InterfaceAlias, RouteMetric)
+}
+
 $rows = [System.Collections.Generic.List[object]]::new()
 $packageInfo = $null
 $identity = $null
@@ -125,13 +131,14 @@ try {
     $channelLog = Join-Path $localState 'channel.log'
     [LabActivation]::Launch($identity, 'init') | Out-Null
     Wait-Log $localLog 'initialized'
+    $directRoute = Get-ProbeRoute
     $probes = @('probe-a', 'probe-b')
     foreach ($probe in $probes) {
         $exe = Join-Path $lab "$probe.exe"
         Copy-Item -LiteralPath (Get-Command curl.exe).Source -Destination $exe
         [IO.File]::WriteAllText((Join-Path $localState "$probe.txt"), $exe)
         $exit = Invoke-Probe $probe
-        $rows.Add([ordered]@{ phase = 'baseline'; probe = $probe; exitCode = $exit })
+        $rows.Add([ordered]@{ phase = 'baseline'; probe = $probe; exitCode = $exit; systemRoute = $directRoute })
         if ($exit -ne 0) { throw "Direct HTTPS baseline failed ($probe, code $exit)." }
     }
     foreach ($selected in $probes) {
@@ -142,7 +149,7 @@ try {
         $capturePattern = "^captured $selected 172\.31\.254\.2 tcp/443$"
         $exit = Invoke-Probe $selected
         $captures = @(Read-Log $channelLog | Where-Object { $_ -match $capturePattern }).Count
-        $rows.Add([ordered]@{ phase = $selected; probe = $selected; exitCode = $exit; captured = $captures })
+        $rows.Add([ordered]@{ phase = $selected; probe = $selected; exitCode = $exit; captured = $captures; systemRoute = (Get-ProbeRoute) })
         if ($exit -eq 0 -or $captures -eq 0) { throw "The selected process did not stay in the test tunnel ($selected)." }
         # Drain selected SYN retransmissions before inspecting the other app.
         Start-Sleep -Seconds 3
