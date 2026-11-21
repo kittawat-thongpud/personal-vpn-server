@@ -2,6 +2,8 @@ $ErrorActionPreference = 'Stop'
 if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
     throw 'The Windows VPN API lab requires a disposable GitHub-hosted runner.'
 }
+$testRoute = $env:PVN_LAB_ROUTE
+if ($testRoute -notin '1.1.1.1', '192.0.2.42') { throw 'Expected one of the two lab routes.' }
 
 $lab = Join-Path $env:RUNNER_TEMP 'PersonalVpnApiLab'
 $sample = Join-Path $lab 'MicrosoftSample'
@@ -131,6 +133,7 @@ try {
     $channelLog = Join-Path $localState 'channel.log'
     [LabActivation]::Launch($identity, 'init') | Out-Null
     Wait-Log $localLog 'initialized'
+    [IO.File]::WriteAllText((Join-Path $localState 'route.txt'), $testRoute)
     $directRoute = Get-ProbeRoute
     $probes = @('probe-a', 'probe-b')
     foreach ($probe in $probes) {
@@ -178,7 +181,7 @@ finally {
     foreach ($log in @($localLog, $channelLog)) {
         if ($log -and (Test-Path -LiteralPath $log)) { Copy-Item -LiteralPath $log -Destination $evidence }
     }
-    $report = [ordered]@{ result = $result; os = (Get-CimInstance Win32_OperatingSystem).Caption; rows = $rows.ToArray() }
+    $report = [ordered]@{ result = $result; os = (Get-CimInstance Win32_OperatingSystem).Caption; includedRoute = "$testRoute/32"; rows = $rows.ToArray() }
     $report | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $evidence 'route-test.json')
     Get-ChildItem -LiteralPath $evidence -Filter '*.log' | ForEach-Object { Get-Content -LiteralPath $_.FullName }
     $report | ConvertTo-Json -Depth 5

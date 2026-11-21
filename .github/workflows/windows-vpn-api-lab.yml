@@ -9,7 +9,17 @@ permissions:
   contents: read
 jobs:
   route-test:
-    runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2025
+            route: '192.0.2.42'
+          - runner: windows-11-arm
+            route: '1.1.1.1'
+          - runner: windows-11-arm
+            route: '192.0.2.42'
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 18
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -17,10 +27,12 @@ jobs:
           persist-credentials: false
       - name: Test native Windows per-app VPN capture and recovery
         shell: powershell
+        env:
+          PVN_LAB_ROUTE: ${{ matrix.route }}
         run: ./client/windows/lab/vpn-api/test.ps1
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: windows-vpn-api-route-evidence
+          name: windows-vpn-api-${{ matrix.runner }}-${{ matrix.route }}
           path: vpn-api-evidence/
           retention-days: 7

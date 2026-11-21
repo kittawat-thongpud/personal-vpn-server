@@ -53,6 +53,7 @@ namespace TestVpnPluginApp
                     throw new InvalidOperationException("Unknown lab command");
 
                 string path = File.ReadAllText(Path.Combine(ApplicationData.Current.LocalFolder.Path, command + ".txt")).Trim();
+                string route = File.ReadAllText(Path.Combine(ApplicationData.Current.LocalFolder.Path, "route.txt")).Trim();
                 if (!Path.IsPathRooted(path) || Path.GetFileName(path) != command + ".exe")
                     throw new InvalidOperationException("Invalid probe executable");
                 var profile = new VpnPlugInProfile
@@ -60,9 +61,10 @@ namespace TestVpnPluginApp
                     ProfileName = ProfileName,
                     VpnPluginPackageFamilyName = Package.Current.Id.FamilyName,
                     RequireVpnClientAppUI = false,
-                    CustomConfiguration = new XElement("probe", path).ToString()
+                    CustomConfiguration = new XElement("probe", new XAttribute("route", route), path).ToString()
                 };
                 profile.ServerUris.Add(new Uri("https://198.51.100.20/"));
+                profile.AppTriggers.Add(new VpnAppId(VpnAppIdType.FilePath, path));
                 profile.TrafficFilters.Add(new VpnTrafficFilter(new VpnAppId(VpnAppIdType.FilePath, path))
                 {
                     RoutingPolicyType = VpnRoutingPolicyType.ForceAllTrafficOverVpn

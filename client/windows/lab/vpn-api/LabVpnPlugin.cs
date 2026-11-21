@@ -18,13 +18,17 @@ namespace TestVpnPluginAppBg
 
         public void Connect(VpnChannel channel)
         {
-            string exe = XElement.Parse(channel.Configuration.CustomField).Value;
+            var probe = XElement.Parse(channel.Configuration.CustomField);
+            string exe = probe.Value;
+            string route = (string)probe.Attribute("route");
             probeName = Path.GetFileNameWithoutExtension(exe);
             Log("plugin-start " + probeName);
             try
             {
                 if (!Path.IsPathRooted(exe) || (probeName != "probe-a" && probeName != "probe-b"))
                     throw new InvalidOperationException("Expected a lab executable");
+                if (route != "1.1.1.1" && route != "192.0.2.42")
+                    throw new InvalidOperationException("Expected a lab route");
                 captured = 0;
                 transport = new DatagramSocket();
                 channel.AssociateTransport(transport, null);
@@ -38,10 +42,7 @@ namespace TestVpnPluginAppBg
                 });
                 var routes = new VpnRouteAssignment
                 {
-                    // Give Windows a split route that is unrelated to the
-                    // probe. Only the app-specific Force policy can select
-                    // the VPN for 1.1.1.1.
-                    Ipv4InclusionRoutes = new List<VpnRoute> { new VpnRoute(new HostName("192.0.2.42"), 32) }
+                    Ipv4InclusionRoutes = new List<VpnRoute> { new VpnRoute(new HostName(route), 32) }
                 };
                 channel.StartWithTrafficFilter(new List<HostName> { new HostName("172.31.254.2") },
                     null, null, routes, null, 1400, 1500, false, transport, null, filters);
