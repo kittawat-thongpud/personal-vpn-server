@@ -105,20 +105,36 @@ class TunnelInstrumentedTest {
             events.any { it.code=="health.verified" && it.detail.startsWith("generation=$generation;") } }
     }
     private fun verifyRecoveryTraffic(protocol: String, transport: String, started: Long) {
-        val generation = checkNotNull(verifiedGeneration(transport))
-        val https = probe()
-        println("Recovery sample: protocol=$protocol transport=$transport generation=$generation phase=https elapsed_ms=${android.os.SystemClock.elapsedRealtime()-started} ok=$https")
-        assertTrue("Companion HTTPS after $transport recovery", https)
-        assertEquals("HTTPS must use the current generation", generation, verifiedGeneration(transport))
-        if (protocol != "Hysteria 2") return
-        repeat(3) { attempt ->
-            assertEquals(generation, verifiedGeneration(transport))
-            val udp = probe(udp = true)
-            println("Recovery sample: protocol=$protocol transport=$transport generation=$generation phase=udp attempt=${attempt+1} elapsed_ms=${android.os.SystemClock.elapsedRealtime()-started} ok=$udp")
-            assertEquals("UDP must use the current generation", generation, verifiedGeneration(transport))
-            if (udp) return
+        fun record(phase: String, generation: String, attempt: Int, reached: Boolean): Boolean {
+            val current = verifiedGeneration(transport) == generation
+            val outcome = if (!current) "superseded" else if (reached) "ok" else "failed"
+            println("Recovery sample: protocol=$protocol transport=$transport generation=$generation phase=$phase attempt=$attempt elapsed_ms=${android.os.SystemClock.elapsedRealtime()-started} result=$outcome")
+            return current
         }
-        error("Companion UDP remained unavailable after $transport recovery (generation $generation)")
+
+        // Android can publish multiple physical-network generations during
+        // one switch. Discard in-flight samples from a superseded generation,
+        // then verify both paths again against the new authenticated epoch.
+        recovery@ for (round in 1..4) {
+            var candidate: String? = null
+            waitFor("Verified $transport generation for traffic probe", 25) {
+                candidate = verifiedGeneration(transport)
+                candidate != null
+            }
+            val generation = checkNotNull(candidate)
+            val https = probe()
+            if (!record("https", generation, round, https)) continue
+            assertTrue("Companion HTTPS after $transport recovery", https)
+            if (protocol != "Hysteria 2") return
+            for (attempt in 1..3) {
+                if (generation != verifiedGeneration(transport)) continue@recovery
+                val udp = probe(udp = true)
+                if (!record("udp", generation, attempt, udp)) continue@recovery
+                if (udp) return
+            }
+            error("Companion UDP remained unavailable after $transport recovery (generation $generation)")
+        }
+        error("Physical network kept changing during $transport recovery probes")
     }
     private fun probe(udp: Boolean = false,direct: Boolean = false): Boolean {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
