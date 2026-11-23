@@ -600,7 +600,7 @@ public sealed class Backend : IAsyncDisposable
                         if (generation == expected && !token.IsCancellationRequested)
                         {
                             exit = observed;
-                            if (captured) verified();
+                            if (captured && !tunHealthPending) verified();
                         }
                     }
                     initialCheck = false;

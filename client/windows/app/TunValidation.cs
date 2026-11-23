@@ -165,17 +165,27 @@ internal static partial class Tests
                 Assert(AdapterService.CurrentId() == persistentId && AdapterService.ProcessId == serviceId && NetworkInterface.GetAllNetworkInterfaces().Count(x => x.Name == TunLease.Name) == 1, "Mode switch duplicated the device.");
                 if (i == 0)
                 {
-                    int started = backend.Log.Snapshot().Count(x => x.Event == "backend.core_started" && x.Message.StartsWith("sing-box "));
-                    backend.KillOwnedCoreForTest();
-                    var recovery = Stopwatch.StartNew();
-                    while (backend.Log.Snapshot().Count(x => x.Event == "backend.core_started" && x.Message.StartsWith("sing-box ")) <= started)
+                    for (int sample = 1; sample <= 2; sample++)
                     {
-                        Assert(recovery.Elapsed < TimeSpan.FromSeconds(70), "Killed capture core did not start a new instance.");
-                        await Task.Delay(200);
+                        int beforeCrash = backend.Log.Snapshot().Length;
+                        backend.KillOwnedCoreForTest();
+                        var recovery = Stopwatch.StartNew();
+                        while (!backend.Log.Snapshot().Skip(beforeCrash).Any(x => x.Event == "backend.core_started" && x.Message.StartsWith("sing-box ")))
+                        {
+                            Assert(recovery.Elapsed < TimeSpan.FromSeconds(70), "Killed capture core did not start a new instance.");
+                            await Task.Delay(200);
+                        }
+                        await WaitConnected(backend, 70);
+                        long verifiedMs = recovery.ElapsedMilliseconds;
+                        var events = backend.Log.Snapshot().Skip(beforeCrash).ToArray();
+                        var retry = events.First(x => x.Event == "backend.retry");
+                        Assert(retry.Message.Contains("failures=1;"), "A verified connection retained the previous outage's backoff.");
+                        foreach (var phase in new[] { "cleanup", "endpoint_dns", "transport_start", "outbound_https", "capture_lease", "capture_ready", "captured_https" })
+                            Assert(events.Any(x => x.Event == "backend.phase" && x.Message.Contains($"phase={phase};") && x.Message.EndsWith("result=ok")), "Missing successful recovery phase " + phase);
+                        Assert(AdapterService.CurrentId() == persistentId && await Curl() == 0, "Core recovery lost Internet or replaced the adapter.");
+                        checks.Add($"TUN recovery sample {sample}: capture verified in {verifiedMs} ms; {retry.Message}");
                     }
-                    await WaitConnected(backend, 70);
-                    Assert(AdapterService.CurrentId() == persistentId && await Curl() == 0, "Core recovery lost Internet or replaced the adapter.");
-                    checks.Add("killed capture core starts a new instance and freshly verifies captured HTTPS before recovery passes");
+                    checks.Add("two capture core failures recover in one session; the second retry starts at the base delay after verified HTTPS");
                 }
                 await backend.StopAsync();
                 Assert(WindowsProxy.Matches(WindowsProxy.Read(), proxyBefore), "Mode switch failed to restore Windows proxy.");
