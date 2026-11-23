@@ -35,6 +35,17 @@ internal val VpnScheme = darkColorScheme(
     onSurface=Color(0xFFECF2FF), onBackground=Color(0xFFECF2FF), onSurfaceVariant=Color(0xFFA3B4CD), surfaceVariant=Color(0xFF233650),
     outline=Color(0xFF40546E), outlineVariant=Color(0xFF2D4058))
 internal val VpnBackground = Brush.verticalGradient(listOf(Color(0xFF17283F),Color(0xFF0B1424),Color(0xFF101D30)))
+private val DefaultTypography = Typography()
+internal val VpnTypography = DefaultTypography.copy(
+    titleLarge = DefaultTypography.bodyLarge.copy(fontSize = 23.sp, fontWeight = FontWeight.SemiBold),
+    headlineSmall = DefaultTypography.bodyLarge.copy(fontSize = 23.sp),
+    labelMedium = DefaultTypography.bodyLarge.copy(fontSize = 11.sp),
+    // The original Connect caption used the Material button weight and leading.
+    titleMedium = DefaultTypography.labelLarge.copy(fontSize = 19.sp, fontWeight = FontWeight.SemiBold),
+)
+
+@Composable internal fun enlargedPowerSpace() =
+    (166 + ((LocalDensity.current.fontScale - 1f).coerceIn(0f, 1.25f) * 96)).dp
 
 @Composable internal fun BoxScope.ThinScrollbar(state: LazyListState) {
     Canvas(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(3.dp)) {
@@ -51,7 +62,7 @@ internal val VpnBackground = Brush.verticalGradient(listOf(Color(0xFF17283F),Col
 @Composable internal fun VpnSheet(title: String, dismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     ModalBottomSheet(onDismissRequest=dismiss, sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true),containerColor=VpnScheme.surface) {
         Column(Modifier.fillMaxWidth().heightIn(max=620.dp).imePadding().padding(horizontal=22.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            Text(title,fontSize=23.sp,fontWeight=FontWeight.SemiBold); content(); Spacer(Modifier.height(20.dp))
+            Text(title, style = MaterialTheme.typography.titleLarge); content(); Spacer(Modifier.height(20.dp))
         }
     }
 }
@@ -81,19 +92,31 @@ internal fun powerAppearance(state: TunnelState): PowerAppearance = when {
 @Composable internal fun PowerButton(state: TunnelState,dirty: Boolean,click: () -> Unit) {
     val appearance=powerAppearance(state);val tint=appearance.tint
     val action=connectionAction(state,dirty)
+    val density = LocalDensity.current
+    val enlarged = density.fontScale > 1.3f
+    val diameter = if (enlarged) enlargedPowerSpace() else 202.dp
+    val labelStyle = MaterialTheme.typography.titleMedium
     Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center) {
-        Box(Modifier.sizeIn(maxWidth=202.dp,maxHeight=202.dp).aspectRatio(1f).background(Brush.radialGradient(listOf(tint.copy(alpha=.24f),Color.Transparent)),CircleShape).padding(12.dp)) {
-            Button(onClick=click,enabled=action!=ConnectionAction.Stopping,contentPadding=PaddingValues(10.dp),shape=CircleShape,
+        Box(Modifier.sizeIn(maxWidth=diameter,maxHeight=diameter).aspectRatio(1f).background(Brush.radialGradient(listOf(tint.copy(alpha=.24f),Color.Transparent)),CircleShape).padding(12.dp)) {
+            Button(onClick=click,enabled=action!=ConnectionAction.Stopping,contentPadding=PaddingValues(horizontal=if (enlarged) 18.dp else 10.dp, vertical=10.dp),shape=CircleShape,
                 modifier=Modifier.fillMaxSize().shadow(12.dp,CircleShape).background(Brush.verticalGradient(listOf(lerp(tint,Color.White,.12f),tint,lerp(tint,Color.Black,.12f))),CircleShape).border(1.dp,Color.White.copy(alpha=.28f),CircleShape),
                 colors=ButtonDefaults.buttonColors(containerColor=Color.Transparent,contentColor=appearance.content,disabledContainerColor=Color.Transparent,disabledContentColor=appearance.content)) {
-                Column(horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(10.dp)) {
-                    Icon(painterResource(R.drawable.ic_notification),null,Modifier.size(34.dp))
-                    Text(action.label,fontSize=19.sp,fontWeight=FontWeight.SemiBold,textAlign=androidx.compose.ui.text.style.TextAlign.Center)
+                Column(horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(if (enlarged) 6.dp else 10.dp)) {
+                    Icon(painterResource(R.drawable.ic_notification),null,Modifier.size(if (enlarged) 26.dp else 34.dp))
+                    Text(action.label,style=labelStyle,textAlign=androidx.compose.ui.text.style.TextAlign.Center,
+                        onTextLayout = {
+                            if (Repository.instrumentedDiagnostics) {
+                                Repository.instrumentedPowerText = PowerTextLayout(action.label, density.fontScale,
+                                    with(density) { labelStyle.fontSize.toPx() }, it.hasVisualOverflow)
+                            }
+                        })
                 }
             }
         }
     }
 }
+
+internal data class PowerTextLayout(val label: String, val scale: Float, val fontPixels: Float, val overflow: Boolean)
 
 @Composable internal fun TrafficGraph(history: List<Pair<Long,Long>>,modifier: Modifier=Modifier) {
     val scale=remember(history.isEmpty()) { ChartScale() }

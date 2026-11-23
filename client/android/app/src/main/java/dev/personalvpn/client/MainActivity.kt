@@ -178,17 +178,6 @@ class MainActivity : ComponentActivity() {
         }
         message="This device did not expose a matching settings page. Open Android Settings and follow the displayed steps."
     }
-    // Isolated instrumentation checks enlarged text without changing device settings.
-    internal fun previewFontScaleForTest(scale: Float, applied: () -> Unit) {
-        check(Repository.instrumentedDiagnostics)
-        setContent {
-            val density=androidx.compose.ui.platform.LocalDensity.current
-            CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density,scale)) {
-                Client()
-                LaunchedEffect(scale) { withFrameNanos { }; withFrameNanos { }; applied() }
-            }
-        }
-    }
     private fun handle(intent: Intent) {
         // The launcher Activity is exported; arbitrary other apps must not be
         // able to disconnect the VPN by fabricating a command Intent.
@@ -205,7 +194,7 @@ class MainActivity : ComponentActivity() {
     private fun addProfiles(profiles: List<Profile>) { val c = Repository.config.value; val first = profiles.first(); save(c.copy(profiles = c.profiles + profiles, selected = first.id, protocol = if (first.hysteria != null) "Hysteria 2" else "REALITY")) }
 
     @Composable private fun Client() {
-        MaterialTheme(colorScheme = VpnScheme, shapes = Shapes(medium=RoundedCornerShape(18.dp),large=RoundedCornerShape(24.dp))) {
+        MaterialTheme(colorScheme = VpnScheme, typography = VpnTypography, shapes = Shapes(medium=RoundedCornerShape(18.dp),large=RoundedCornerShape(24.dp))) {
             val config by Repository.config.collectAsStateWithLifecycle()
             val state by Repository.state.collectAsStateWithLifecycle()
             val latencyResults by latency.results.collectAsStateWithLifecycle()
@@ -222,7 +211,7 @@ class MainActivity : ComponentActivity() {
                     Column(Modifier.fillMaxHeight().widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(Modifier.fillMaxWidth().heightIn(min=48.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.width(70.dp)) { if (page !in listOf("Home", "Settings")) TextButton(onClick = { page = if (page == "Profiles") "Home" else "Settings" }) { Text("‹ Back") } }
-                            Text(page, Modifier.weight(1f), fontSize = 23.sp, fontWeight = FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                            Text(page, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                             Spacer(Modifier.width(70.dp))
                         }
                         Box(Modifier.weight(1f)) {
@@ -326,10 +315,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
             OutlinedButton(onClick={expanded=true},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).semantics { contentDescription="Choose VPN protocol" }) { Text(config.protocol,Modifier.weight(1f));Text("⌄") }
-            Text(state.status,fontSize=23.sp,color=when { state.status=="Connected"->MaterialTheme.colorScheme.primary;state.active->Color(0xFFAFD5FF);else->MaterialTheme.colorScheme.onSurface })
-            Box(if(compact)Modifier.fillMaxWidth().height(166.dp)else Modifier.weight(1f).fillMaxWidth()) { PowerButton(state,dirty,connect) }
+            Text(state.status,style=MaterialTheme.typography.headlineSmall,color=when { state.status=="Connected"->MaterialTheme.colorScheme.primary;state.active->Color(0xFFAFD5FF);else->MaterialTheme.colorScheme.onSurface })
+            Box(if(compact)Modifier.fillMaxWidth().height(enlargedPowerSpace())else Modifier.weight(1f).fillMaxWidth()) { PowerButton(state,dirty,connect) }
             Text("Exit IP: ${state.exitIp}",color=MaterialTheme.colorScheme.primary,fontSize=13.sp)
-            Text(if(connectionAction(state,dirty)==ConnectionAction.Apply) "Settings changed · reconnect to apply" else state.detail.ifBlank { "Android TUN" },fontSize=11.sp,maxLines=2,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(if(connectionAction(state,dirty)==ConnectionAction.Apply) "Settings changed · reconnect to apply" else state.detail.ifBlank { "Android TUN" },style=MaterialTheme.typography.labelMedium,maxLines=if (compact) Int.MAX_VALUE else 2,color=MaterialTheme.colorScheme.onSurfaceVariant)
             if(state.detail.startsWith("Always-on"))OutlinedButton(onClick=managedSettings,modifier=Modifier.heightIn(min=48.dp)) { Text("Open Android VPN settings") }
             Card(Modifier.fillMaxWidth(),elevation=CardDefaults.cardElevation(defaultElevation=2.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFF30465F))) {
                 Column(Modifier.padding(horizontal=14.dp,vertical=10.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {

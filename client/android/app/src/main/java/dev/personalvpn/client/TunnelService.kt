@@ -146,6 +146,25 @@ class TunnelService : VpnService() {
     private fun checkEpoch(expected: NetworkEpoch) {
         if (!desired || destroyed || networkEpoch.generation != expected.generation) throw StaleNetwork()
     }
+    private fun recoveryPhase(epoch: Long, attempt: Int, phase: String, started: Long, outcome: String) {
+        Repository.log(if (outcome == "failed") "WARN" else "INFO", "backend.phase",
+            "generation=$epoch; attempt=$attempt; phase=$phase; elapsed_ms=${SystemClock.elapsedRealtime() - started}; result=$outcome")
+    }
+
+    private suspend fun <T> measurePhase(epoch: NetworkEpoch, attempt: Int, phase: String, operation: suspend () -> T): T {
+        val started = SystemClock.elapsedRealtime()
+        var result = "failed"
+        try {
+            val value = operation()
+            result = "ok"
+            return value
+        } catch (cancel: CancellationException) {
+            result = "cancelled"
+            throw cancel
+        } finally {
+            recoveryPhase(epoch.generation, attempt, phase, started, result)
+        }
+    }
     private suspend fun runSession(config: Config, command: Long) {
         var attempt = 0
         var previousGeneration = -1L
@@ -174,20 +193,24 @@ class TunnelService : VpnService() {
                             if (core == null) {
                                 update(if (attempt == 0) "Connecting" else "Reconnecting", true, true)
                                 if(Repository.instrumentedDiagnostics && Repository.instrumentedConnectHold)awaitCancellation()
-                                val resolved = resolveEndpoint(physical.network, config.selectedProfile().endpoint(config.protocol))
+                                val resolved = measurePhase(epoch, attempt, "endpoint_dns") {
+                                    resolveEndpoint(physical.network, config.selectedProfile().endpoint(config.protocol))
+                                }
                                 checkEpoch(epoch)
                                 val content = EngineConfig.compile(config, resolved.hostAddress!!, Repository.instrumentedCertificate != null)
                                 phase = "core_start"
-                                Personalvpn.check(content)
-                                checkEpoch(epoch)
-                                core = Personalvpn.start(noBackupFilesDir.absolutePath, content, platform)
+                                measurePhase(epoch, attempt, "transport_start") {
+                                    Personalvpn.check(content)
+                                    checkEpoch(epoch)
+                                    core = Personalvpn.start(noBackupFilesDir.absolutePath, content, platform)
+                                }
                                 currentCoroutineContext().ensureActive(); checkEpoch(epoch)
                                 appliedPath = physical.choice.path
                                 mutateState { it.copy(appliedConfig = config.fingerprint(), profileName = config.selectedProfile().name, protocol = config.protocol) }
                                 Repository.log("INFO", "core.started", "${config.protocol}; generation=${epoch.generation}; client=${BuildConfig.VERSION_NAME}")
                             }
                             phase = "health"
-                            verifyNetwork(config, epoch) { attempt = 0 }
+                            verifyNetwork(config, epoch, attempt) { attempt = 0 }
                         }
                         synchronized(control) {
                             if (networkEpoch.generation != epoch.generation) pending.cancel(StaleNetwork()) else cycle = pending
@@ -222,7 +245,7 @@ class TunnelService : VpnService() {
         HealthTarget("primary", "https://fixture.local:18445/" + if (Repository.instrumentedSlowHealth) "slow" else if (Repository.instrumentedHealthFailure > 0) "fail" else "ip"),
         HealthTarget("secondary", "https://fixture.local:18445/" + if (Repository.instrumentedSlowHealth) "slow" else if (Repository.instrumentedHealthFailure > 1) "fail" else "ip")
     ) else listOf(HealthTarget("primary", "https://api.ipify.org/"), HealthTarget("secondary", "https://checkip.amazonaws.com/"))
-    private suspend fun verifyNetwork(config: Config, epoch: NetworkEpoch, healthy: () -> Unit) {
+    private suspend fun verifyNetwork(config: Config, epoch: NetworkEpoch, attempt: Int, healthy: () -> Unit) {
         val failures = HealthFailures()
         var connected = false
         var degradedAt = 0L
@@ -240,11 +263,16 @@ class TunnelService : VpnService() {
                 try {
                     val current = core ?: throw IOException("Core closed")
                     val certificate = Repository.instrumentedCertificate.orEmpty()
-                    val verified = probe(current) { current.verifyAt(target.address, certificate) }
+                    val report = !connected || degradedAt != 0L
+                    val verified = if (report) measurePhase(epoch, attempt, "outbound_https") {
+                        probe(current) { current.verifyAt(target.address, certificate) }
+                    } else probe(current) { current.verifyAt(target.address, certificate) }
                     checkEpoch(epoch)
                     if (Repository.instrumentedDiagnostics) Repository.log("INFO", "fixture.outbound_verified", verified)
                     phase = "capture"
-                    val captured = probe(current) { current.verifyCapturedAt(target.address, certificate) }
+                    val captured = if (report) measurePhase(epoch, attempt, "captured_https") {
+                        probe(current) { current.verifyCapturedAt(target.address, certificate) }
+                    } else probe(current) { current.verifyCapturedAt(target.address, certificate) }
                     checkEpoch(epoch)
                     phase = "exit_comparison"
                     check(verified == captured) { "Captured exit differs from authenticated outbound" }
@@ -350,9 +378,13 @@ class TunnelService : VpnService() {
     }
     @Synchronized private fun closeCapture() {
         val previous = tun; tun = null
-        runCatching { previous?.close() }.onFailure { Repository.log("WARN", "capture.close_failed", it.javaClass.simpleName) }
+        val started = SystemClock.elapsedRealtime()
+        val released = runCatching { previous?.close() }.onFailure { Repository.log("WARN", "capture.close_failed", it.javaClass.simpleName) }
         if (ownsSession) runCatching { setUnderlyingNetworks(null) }
-        if (previous != null) Repository.log("INFO", "capture.released")
+        if (previous != null) {
+            Repository.log("INFO", "capture.released")
+            recoveryPhase(networkEpoch.generation, 0, "cleanup", started, if (released.isSuccess) "ok" else "failed")
+        }
     }
     private fun update(status: String, active: Boolean, busy: Boolean, detail: String = "") {
         if (!ownsSession) return

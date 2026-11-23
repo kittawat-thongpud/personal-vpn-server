@@ -5,6 +5,19 @@
   <SolidColorBrush x:Key="Ink" Color="#ECF2FF"/>
   <SolidColorBrush x:Key="MutedInk" Color="#9BAECD"/>
   <SolidColorBrush x:Key="Accent" Color="#16C8A0"/>
+  <FontFamily x:Key="ClientFont">Segoe UI</FontFamily>
+  <SolidColorBrush x:Key="BodyInk" Color="#EBEFF8"/>
+  <SolidColorBrush x:Key="PowerReady" Color="#80B4FA"/>
+  <SolidColorBrush x:Key="PowerConnected" Color="#32D4B2"/>
+  <SolidColorBrush x:Key="PowerPending" Color="#235E8C"/>
+  <SolidColorBrush x:Key="PowerError" Color="#F38F98"/>
+  <SolidColorBrush x:Key="PowerInk" Color="#082B31"/>
+  <SolidColorBrush x:Key="PowerPendingInk" Color="#F5F8FF"/>
+  <Style x:Key="ConnectionStatusText" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="22"/>
+    <Setter Property="TextAlignment" Value="Center"/>
+    <Setter Property="TextWrapping" Value="Wrap"/>
+  </Style>
   <Style TargetType="RadioButton">
     <Setter Property="Foreground" Value="{StaticResource MutedInk}"/><Setter Property="Background" Value="Transparent"/>
     <Setter Property="Margin" Value="2"/><Setter Property="Cursor" Value="Hand"/><Setter Property="HorizontalContentAlignment" Value="Center"/>
@@ -20,7 +33,7 @@
       </ControlTemplate.Triggers>
     </ControlTemplate></Setter.Value></Setter>
   </Style>
-  <Style TargetType="Button">
+  <Style x:Key="BaseButton" TargetType="Button">
     <Setter Property="Background"><Setter.Value><LinearGradientBrush StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#2A405B" Offset="0"/><GradientStop Color="#1D3048" Offset="1"/></LinearGradientBrush></Setter.Value></Setter><Setter Property="Foreground" Value="{StaticResource Ink}"/>
     <Setter Property="Padding" Value="12,8"/><Setter Property="Margin" Value="3"/>
     <Setter Property="Cursor" Value="Hand"/><Setter Property="BorderBrush" Value="#354B65"/><Setter Property="BorderThickness" Value="1"/>
@@ -36,6 +49,29 @@
         <Trigger Property="IsEnabled" Value="False"><Setter TargetName="frame" Property="Opacity" Value="0.4"/></Trigger>
       </ControlTemplate.Triggers>
     </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="Button" BasedOn="{StaticResource BaseButton}"/>
+  <Style x:Key="PowerButton" TargetType="Button" BasedOn="{StaticResource BaseButton}">
+    <Setter Property="Margin" Value="0"/>
+    <Setter Property="FontSize" Value="18"/>
+    <Setter Property="MinWidth" Value="96"/><Setter Property="MinHeight" Value="96"/>
+    <Setter Property="ContentTemplate"><Setter.Value><DataTemplate>
+      <TextBlock x:Name="PowerLabel" Text="{Binding}" TextAlignment="Center" TextWrapping="Wrap" />
+    </DataTemplate></Setter.Value></Setter>
+    <Setter Property="Template"><Setter.Value>
+<ControlTemplate TargetType="Button">
+            <Grid>
+              <Ellipse Margin="5" Fill="{TemplateBinding BorderBrush}" Opacity="0.18"><Ellipse.Effect><DropShadowEffect Color="{Binding BorderBrush.Color, RelativeSource={RelativeSource TemplatedParent}}" BlurRadius="18" ShadowDepth="0" Opacity="0.7"/></Ellipse.Effect></Ellipse>
+              <Ellipse Margin="9,12,9,6" Fill="#040C17"><Ellipse.Effect><DropShadowEffect BlurRadius="13" ShadowDepth="7" Opacity="0.65"/></Ellipse.Effect></Ellipse>
+              <Ellipse x:Name="PowerSurface" Margin="10" Fill="{TemplateBinding Background}" Stroke="#70EBFFF5" StrokeThickness="1"/>
+              <Ellipse Margin="11" IsHitTestVisible="False"><Ellipse.Fill><LinearGradientBrush StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#1FFFFFFF" Offset="0"/><GradientStop Color="#00FFFFFF" Offset="0.5"/><GradientStop Color="#18000000" Offset="1"/></LinearGradientBrush></Ellipse.Fill></Ellipse>
+              <StackPanel Margin="22,0" VerticalAlignment="Center">
+                <Path Data="M 12,1 L 12,11 M 5,5 C -1,11 3,22 12,22 C 21,22 25,11 19,5" Stroke="{TemplateBinding Foreground}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="25" Height="25" Stretch="Uniform" Margin="0,0,0,10"/>
+                <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+              </StackPanel>
+            </Grid><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="PowerSurface" Property="Stroke" Value="#D0F5F8FF"/></Trigger><Trigger Property="IsPressed" Value="True"><Setter TargetName="PowerSurface" Property="StrokeThickness" Value="2"/></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="PowerSurface" Property="Stroke" Value="#F5F8FF"/><Setter TargetName="PowerSurface" Property="StrokeThickness" Value="2"/></Trigger></ControlTemplate.Triggers>
+          </ControlTemplate>
+    </Setter.Value></Setter>
   </Style>
   <Style x:Key="ScrollPage" TargetType="RepeatButton">
     <Setter Property="Focusable" Value="False"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></Setter.Value></Setter>

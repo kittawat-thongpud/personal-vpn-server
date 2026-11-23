@@ -1,3 +1,18 @@
+## Client 0.9.7-dev.1
+
+- Windows and Android use shared theme roles for the existing Home connection
+  controls. Long button captions can wrap, and enlarged text can use more room
+  in the original layout.
+- Recovery logs record timing for individual phases. Windows clears the retry
+  backoff after verifying the current connection. Android emulator qualification
+  checks HTTPS and Hysteria 2 UDP after network changes.
+- Includes a signed Android APK, Windows x86/x64 installers and portable
+  packages, UI previews, a release manifest and SHA-256 checksums.
+
+Android 0.9.6 can update in place. This APK has version code 90601. Export your
+profiles and Site Tunnel rules before switching from the higher-version
+0.10.0-alpha.1 or rolling back to 0.9.6. Use a test device for the pre-release.
+
 ## Client 0.9.6
 
 - Android keeps an in-progress tunnel check when internet validation changes

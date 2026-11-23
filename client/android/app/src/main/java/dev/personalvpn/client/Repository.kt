@@ -65,6 +65,7 @@ object Repository {
     // Enabled only by the isolated instrumentation APK with generated fixtures.
     // There is no UI or external command that enables raw exception details.
     @Volatile internal var instrumentedDiagnostics = false
+    @Volatile internal var instrumentedPowerText: PowerTextLayout? = null
     @Volatile internal var instrumentedCertificate: String? = null
     @Volatile internal var instrumentedHealthFailure = 0
     @Volatile internal var instrumentedConnectHold = false

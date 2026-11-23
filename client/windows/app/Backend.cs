@@ -384,6 +384,7 @@ public sealed class Backend : IAsyncDisposable
     private async Task Run(Settings settings, CancellationToken token)
     {
         int failures = 0;
+        long attemptNumber = 0;
         while (!token.IsCancellationRequested)
         {
             long attemptGeneration;
@@ -397,7 +398,7 @@ public sealed class Backend : IAsyncDisposable
                     await Task.Delay(3000, attempt.Token); continue;
                 }
                 SetState(failures == 0 ? "Connecting" : "Reconnecting", "Starting " + settings.Protocol + "; authentication and TLS checks required.");
-                await RunCycle(settings, attemptGeneration, attempt.Token);
+                await RunCycle(settings, attemptGeneration, ++attemptNumber, () => failures = 0, attempt.Token);
             }
             catch (OperationCanceledException) when (attempt.IsCancellationRequested) { }
             catch (Exception error) when (attempt.IsCancellationRequested && error is not CaptureCleanupException)
@@ -414,7 +415,7 @@ public sealed class Backend : IAsyncDisposable
                 string reason = error is InvalidOperationException ? error.Message : "VPN attempt failed (" + error.GetType().Name + ").";
                 SetState("Reconnecting", reason, attemptGeneration);
                 int delay = Math.Min(30, 1 << Math.Min(failures, 5)) * 1000 + Random.Shared.Next(0, 750);
-                Log.Add("WARN", "backend.retry", "Attempt " + failures + "; retry in " + (delay / 1000) + "s. No automatic Direct fallback.");
+                Log.Add("WARN", "backend.retry", $"generation={attemptGeneration}; attempt={attemptNumber}; failures={failures}; delay_ms={delay}. No automatic Direct fallback.");
                 try { await Task.Delay(delay, attempt.Token); } catch (OperationCanceledException) { }
             }
             finally { lock (gate) { if (cycle == attempt) cycle = null; } }
@@ -435,8 +436,27 @@ public sealed class Backend : IAsyncDisposable
         tag, protocol, listen = "127.0.0.1", port,
         settings = protocol == "socks" ? (object)new { auth = "noauth", udp } : new { },
     };
-    private async Task RunCycle(Settings settings, long expected, CancellationToken token)
+    private async Task RunCycle(Settings settings, long expected, long attemptNumber, Action verified, CancellationToken token)
     {
+        void RecordPhase(string phase, long started, string result) =>
+            Log.Add(result == "failed" ? "WARN" : "INFO", "backend.phase",
+                    $"generation={expected}; attempt={attemptNumber}; phase={phase}; elapsed_ms={(long)Stopwatch.GetElapsedTime(started).TotalMilliseconds}; result={result}");
+        async Task<T> Measure<T>(string phase, Func<Task<T>> operation, bool reportSuccess = true)
+        {
+            long started = Stopwatch.GetTimestamp();
+            try
+            {
+                T result = await operation();
+                if (reportSuccess) RecordPhase(phase, started, "ok");
+                return result;
+            }
+            catch (Exception)
+            {
+                RecordPhase(phase, started, token.IsCancellationRequested ? "cancelled" : "failed");
+                throw;
+            }
+        }
+
         TunLease.RecoverAbandoned();
         if (proxyLease != null) { proxyLease.Dispose(); proxyLease = null; }
         string runtimeRoot = Path.Combine(Store.Root, "runtime");
@@ -449,9 +469,12 @@ public sealed class Backend : IAsyncDisposable
         var owned = new List<OwnedCore>();
         TunLease? adapterLease = null; bool tun = settings.CaptureMode == "TUN";
         var transports = Array.Empty<IPAddress>();
+        long transportStarted = 0;
+        bool transportReady = false;
         try
         {
-            if (tun) transports = await TunSupport.Resolve(settings, token);
+            if (tun) transports = await Measure("endpoint_dns", () => TunSupport.Resolve(settings, token));
+            transportStarted = Stopwatch.GetTimestamp();
             // Fail before launch if another program owns one of our public proxy ports.
             foreach (int port in new[] { settings.HttpPort, settings.SocksPort })
             {
@@ -507,33 +530,39 @@ public sealed class Backend : IAsyncDisposable
             owned.Add(new OwnedCore(job, VerifyCore("xray.exe"), new[] { "run", "-config", routerPath }, Log));
             lock (gate) { cores.Clear(); cores.AddRange(owned); }
             await WaitForListeners(owned, new[] { settings.HttpPort, settings.SocksPort, health }, token);
+            transportReady = true;
+            RecordPhase("transport_start", transportStarted, "ok");
             Traffic.BeginCore(); trafficTask = CollectTraffic(stats, trafficCancellation.Token);
             SetState("Verifying", "Checking authenticated HTTPS through the selected server.", expected);
             using var healthHandler = new SocketsHttpHandler { Proxy = new WebProxy("socks5://127.0.0.1:" + health), UseProxy = true, ConnectTimeout = TimeSpan.FromSeconds(8), PooledConnectionLifetime = TimeSpan.Zero };
             using var client = new HttpClient(healthHandler) { Timeout = TimeSpan.FromSeconds(10) };
             using var tunHealth = new HttpClient(new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(8), PooledConnectionLifetime = TimeSpan.Zero }) { Timeout = TimeSpan.FromSeconds(12) };
             int misses = 0;
+            bool initialCheck = true;
             while (true)
             {
                 token.ThrowIfCancellationRequested();
                 EnsureAlive(owned);
+                bool recheck = false;
                 if (tun)
                 {
                     lock (gate)
                     {
-                        if (tunHealthPending && adapterLease != null)
+                        recheck = tunHealthPending && adapterLease != null;
+                        if (recheck)
                             Log.Add("INFO", "backend.tun_recheck", "Physical network changed. Verifying HTTPS through the existing tunnel.");
                         tunHealthPending = false;
                     }
                 }
                 try
                 {
-                    string observed = await Health(client, token);
+                    bool reportSuccess = initialCheck || recheck || misses > 0;
+                    string observed = await Measure("outbound_https", () => Health(client, token), reportSuccess);
                     token.ThrowIfCancellationRequested();
                     if (tun && adapterLease == null)
                     {
                         SetState("Verifying", "Authenticated server verified; preparing TUN adapter and checking the captured path.", expected);
-                        adapterLease = await TunLease.Start(folder, token);
+                        adapterLease = await Measure("capture_lease", () => TunLease.Start(folder, token));
                         foreach (var (nic, row) in PhysicalNetwork.Rows()) Log.Add("INFO", "backend.physical_link", nic.Name + " · " + (row.Family == 2 ? "IPv4" : "IPv6") + " · index " + row.Index + " · metric " + row.Metric + " · MTU " + row.Mtu + "; strong-host binding prepared. Direct uses destination routes, not a fixed Wi-Fi/LAN preference.");
                         Log.Add("INFO", "backend.adapter_reused", "Persistent adapter opened: " + adapterLease.AdapterId + ". No device creation or deletion for this session.");
                         var plan = TunPlan.Compile(settings, transports.Select(x => x.ToString()), new[] { VerifyCore("xray.exe"), VerifyCore("hysteria.exe") }, adapterLease.InterfaceName, TunSupport.MeshPrefixes(), Environment.ProcessPath);
@@ -541,14 +570,22 @@ public sealed class Backend : IAsyncDisposable
                         string path = Path.Combine(folder, "tun.json"); await File.WriteAllTextAsync(path, plan.ToJsonString(), token);
                         var tunCore = new OwnedCore(job, VerifyCore("sing-box.exe"), new[] { "run", "-c", path }, Log); owned.Add(tunCore);
                         lock (gate) { cores.Clear(); cores.AddRange(owned); }
-                        await TunSupport.WaitForAdapter(adapterLease, token, () => tunCore.Exited ? "TUN core stopped before adapter readiness. " + tunCore.StartupDiagnostic : null);
+                        await Measure("capture_ready", async () =>
+                        {
+                            await TunSupport.WaitForAdapter(adapterLease, token, () => tunCore.Exited ? "TUN core stopped before adapter readiness. " + tunCore.StartupDiagnostic : null);
+                            return true;
+                        });
                         Log.Add("INFO", "backend.tun_started", "Owned TUN adapter ready; verifying DNS and HTTPS through system capture.");
                     }
                     if (tun)
                     {
                         if (adapterLease!.Exited) throw new InvalidOperationException("Adapter recovery guard stopped.");
-                        string capturedExit = await Health(tunHealth, token);
-                        if (capturedExit != observed) throw new InvalidDataException("Captured path did not use the authenticated VPN exit.");
+                        string capturedExit = await Measure("captured_https", async () =>
+                        {
+                            string candidate = await Health(tunHealth, token);
+                            if (candidate != observed) throw new InvalidDataException("Captured path did not use the authenticated VPN exit.");
+                            return candidate;
+                        }, reportSuccess);
                         observed = capturedExit;
                     }
                     if ((settings.SystemProxy || tun) && proxyLease == null) proxyLease = new SystemProxyLease(settings.HttpPort, Log, direct: tun);
@@ -558,7 +595,15 @@ public sealed class Backend : IAsyncDisposable
                     SetState(captured ? "Connected" : "Proxy conflict", captured
                         ? "Verified " + (tun ? "TUN " : "HTTPS ") + "exit " + observed + " · " + settings.Protocol
                         : "Tunnel works, but another app selected a different Windows proxy. Use proxy to select Personal VPN again.", expected);
-                    lock (gate) { if (generation == expected) exit = observed; }
+                    lock (gate)
+                    {
+                        if (generation == expected && !token.IsCancellationRequested)
+                        {
+                            exit = observed;
+                            if (captured) verified();
+                        }
+                    }
+                    initialCheck = false;
                     misses = 0;
                     Log.Add("INFO", "backend.health_ok", "Authenticated end-to-end check passed. Exit: " + observed);
                 }
@@ -591,6 +636,9 @@ public sealed class Backend : IAsyncDisposable
         }
         finally
         {
+            if (transportStarted != 0 && !transportReady)
+                RecordPhase("transport_start", transportStarted, token.IsCancellationRequested ? "cancelled" : "failed");
+            long cleanupStarted = Stopwatch.GetTimestamp();
             var cleanupErrors = new List<Exception>();
             trafficCancellation.Cancel();
             try { if (trafficTask != null) await trafficTask; } catch (Exception error) { cleanupErrors.Add(error); }
@@ -606,14 +654,23 @@ public sealed class Backend : IAsyncDisposable
             catch (Exception error) { cleanupErrors.Add(error); }
             try { proxyLease?.Dispose(); proxyLease = null; }
             catch (Exception error) { cleanupErrors.Add(error); }
-            if (cleanupErrors.Count != 0) throw new CaptureCleanupException("Capture cleanup is incomplete; recovery records were retained.", new AggregateException(cleanupErrors));
+            if (cleanupErrors.Count != 0)
+            {
+                RecordPhase("cleanup", cleanupStarted, "failed");
+                throw new CaptureCleanupException("Capture cleanup is incomplete; recovery records were retained.", new AggregateException(cleanupErrors));
+            }
             // Only a freshly generated child of our protected runtime directory is removed.
             try
             {
                 if (Path.GetDirectoryName(Path.GetFullPath(folder)) != Path.GetFullPath(runtimeRoot)) throw new InvalidOperationException("Invalid runtime cleanup path.");
                 TunLease.CleanRuntimeFolder(folder);
+                RecordPhase("cleanup", cleanupStarted, "ok");
             }
-            catch (Exception error) { throw new CaptureCleanupException("Runtime cleanup failed; recovery data was retained.", error); }
+            catch (Exception error)
+            {
+                RecordPhase("cleanup", cleanupStarted, "failed");
+                throw new CaptureCleanupException("Runtime cleanup failed; recovery data was retained.", error);
+            }
         }
     }
     private async Task CollectTraffic(int port, CancellationToken token)

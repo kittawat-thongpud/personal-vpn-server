@@ -17,7 +17,10 @@ def digest(path: Path) -> str:
 
 
 def required_assets(version: str) -> set[str]:
-    return {f"PersonalVPN-Android-{version}.apk", "ANDROID-SIGNATURE.txt"} | {
+    android = {f"PersonalVPN-Android-{version}.apk", "ANDROID-SIGNATURE.txt"}
+    if "-dev." in version:
+        android.add(f"PersonalVPN-Android-ui-preview-{version}.zip")
+    return android | {
         name for arch in ("x86", "x64") for name in (
             f"PersonalVPN-Setup-{version}-{arch}.exe",
             f"PersonalVPN-windows-{arch}-{version}.zip",
@@ -96,31 +99,38 @@ def main() -> None:
     args = parser.parse_args()
     client = Path(__file__).resolve().parents[1]
     version = (client / "VERSION").read_text().strip()
-    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+    if not re.fullmatch(r"\d+\.\d+\.\d+(?:-dev\.[1-9][0-9]?)?", version):
         raise ValueError("Invalid shared client version")
     root = args.assets.resolve()
     assets = verify_bundle(root, version)
     repository = os.environ["GITHUB_REPOSITORY"]
     sha = os.environ["GITHUB_SHA"]
     branch = os.environ["GITHUB_REF_NAME"]
+    development = "-dev." in version
+    if development and (os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch" or branch != f"codex/client-v{version}"):
+        raise ValueError("Development releases require dispatch from the matching development branch")
     if source_sha(repository, f"heads/{branch}") != sha:
         raise ValueError("A newer source commit exists; only the current qualified commit may publish")
-    preserve_previous_clients(repository)
-    for prefix in ("base", "release"):
-        preserve_branch(repository, f"{prefix}/client-v{version}", sha)
+    source_branches = [branch]
+    if not development:
+        preserve_previous_clients(repository)
+        source_branches = [f"{prefix}/client-v{version}" for prefix in ("base", "release")]
+        for source_branch in source_branches:
+            preserve_branch(repository, source_branch, sha)
     for platform in ("Android", "Windows"):
         shutil.copyfile(client / platform.lower() / "README.md", root / f"INSTALL-{platform}.md")
     manifest = {"schema": 1, "version": version, "sourceCommit": sha,
                 "platforms": {"windows": ["x86", "x64"], "android": ["arm64-v8a", "x86_64"]},
-                "sourceBranches": [f"base/client-v{version}", f"release/client-v{version}"], "assets": assets}
+                "sourceBranches": source_branches, "assets": assets}
     (root / "CLIENT-RELEASE.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     # Per-platform checksums were consumed above. Publish one unambiguous list.
     for path in root.glob("SHA256SUMS-*.txt"):
         path.unlink()
     lines = [f"{digest(path)}  {path.name}" for path in sorted(root.iterdir()) if path.is_file()]
     (root / "SHA256SUMS.txt").write_text("\n".join(lines) + "\n", encoding="ascii")
+    channel = ["--prerelease", "--latest=false"] if development else ["--latest"]
     subprocess.run(["gh", "release", "create", f"client-v{version}", "--repo", repository,
-                    "--target", sha, "--latest", "--title", f"Personal VPN Client {version}",
+                    "--target", sha, *channel, "--title", f"Personal VPN Client {version}",
                     "--notes-file", str(client / "RELEASE-NOTES.md"), *map(str, sorted(root.iterdir()))], check=True)
 
 

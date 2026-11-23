@@ -8,15 +8,18 @@ import publish
 
 
 class CompleteBundleTest(unittest.TestCase):
+    version = "0.7.0"
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.version = "0.7.0"
         for name in publish.required_assets(self.version):
             (self.root / name).write_bytes(name.encode())
         for arch in ("x86", "x64", "android"):
-            names = [name for name in publish.required_assets(self.version) if (arch == "android" and (name.endswith(".apk") or name == "ANDROID-SIGNATURE.txt")) or (arch != "android" and (f"-{arch}.exe" in name or f"-{arch}-" in name))]
+            names = [name for name in publish.required_assets(self.version)
+                     if (arch == "android" and ("Android-" in name or name == "ANDROID-SIGNATURE.txt"))
+                     or (arch != "android" and (f"-{arch}.exe" in name or f"-{arch}-" in name))]
             (self.root / f"SHA256SUMS-{arch}.txt").write_text("\n".join(f"{publish.digest(self.root/name)}  {name}" for name in names))
 
     def test_all_platforms_are_manifested_and_checked(self):
@@ -43,6 +46,33 @@ class CompleteBundleTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "overwrite"):
             publish.preserve_branch("owner/repo", "base/client-v0.7.0", "different-commit")
         api.assert_not_called()
+
+
+class DevelopmentBundleTest(unittest.TestCase):
+    def test_qualification_requires_checksummed_android_preview(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            version = "0.9.7-dev.1"
+            preview = f"PersonalVPN-Android-ui-preview-{version}.zip"
+            assets = publish.required_assets(version)
+            self.assertIn(preview, assets)
+            self.assertNotIn("PersonalVPN-Android-ui-preview-0.9.7.zip", publish.required_assets("0.9.7"))
+            for name in assets - {preview}:
+                (root / name).write_bytes(name.encode())
+            with self.assertRaisesRegex(ValueError, "complete"):
+                publish.verify_bundle(root, version)
+            (root / preview).write_bytes(b"emulator screenshots")
+            for arch in ("x86", "x64", "android"):
+                names = [name for name in assets - {preview}
+                         if (arch == "android" and ("Android-" in name or name == "ANDROID-SIGNATURE.txt"))
+                         or (arch != "android" and (f"-{arch}.exe" in name or f"-{arch}-" in name))]
+                (root / f"SHA256SUMS-{arch}.txt").write_text(
+                    "\n".join(f"{publish.digest(root / name)}  {name}" for name in names) + "\n")
+            with self.assertRaisesRegex(ValueError, "platform checksum"):
+                publish.verify_bundle(root, version)
+            with (root / "SHA256SUMS-android.txt").open("a") as checksums:
+                checksums.write(f"{publish.digest(root / preview)}  {preview}\n")
+            self.assertEqual(assets, {item["name"] for item in publish.verify_bundle(root, version)})
 
 
 class StableReleaseHistoryTest(unittest.TestCase):

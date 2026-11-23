@@ -48,7 +48,10 @@ jobs:
         run: |
           python3 -m unittest discover -s client/release -v
           version=$(tr -d '\r\n' < client/VERSION)
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-dev\.[1-9][0-9]?)?$ ]]
+          if [[ "$version" == *-dev.* && "$PUBLISH" == true ]]; then
+            [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF_NAME" == "codex/client-v$version" ]]
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           build=true
           if [ "$PUBLISH" = true ] && gh release view "client-v$version" >/dev/null 2>&1; then

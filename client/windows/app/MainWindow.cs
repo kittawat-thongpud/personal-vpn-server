@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Automation;
 using System.Windows.Interop;
 using System.Windows.Markup;
 using System.Windows.Media;
@@ -31,10 +32,12 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private string page = "Home";
     private bool dirty, exiting, lastCompactHome;
+    private double homeTextScale = 1;
     private bool connectBusy, stopBusy;
     private CancellationTokenSource? connectionRequest;
     private long settingsRevision;
     private readonly bool previewOnly;
+    private (ConnectionAction Action, string State)? previewConnection;
     private TextBlock? status, detail, exit, captureDetail;
     private Button? connect;
     private TextBox? logText;
@@ -55,11 +58,15 @@ public sealed partial class MainWindow : Window
         Width = Math.Min(438, SystemParameters.WorkArea.Width - 24); Height = Math.Min(800, SystemParameters.WorkArea.Height - 24);
         MinWidth = Math.Min(380, Width); MinHeight = Math.Min(640, Height);
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        Background = new LinearGradientBrush(new GradientStopCollection { new GradientStop(System.Windows.Media.Color.FromRgb(23,40,63),0),new GradientStop(System.Windows.Media.Color.FromRgb(11,20,36),.55),new GradientStop(System.Windows.Media.Color.FromRgb(16,29,48),1) },90); Foreground = Color("#EBEFF8"); FontFamily = new FontFamily("Segoe UI"); FontSize = 14;
+        Background = new LinearGradientBrush(new GradientStopCollection { new GradientStop(System.Windows.Media.Color.FromRgb(23,40,63),0),new GradientStop(System.Windows.Media.Color.FromRgb(11,20,36),.55),new GradientStop(System.Windows.Media.Color.FromRgb(16,29,48),1) },90); FontSize = 14;
         UseLayoutRounding = true; SnapsToDevicePixels = true;
         SourceInitialized += (_, _) => { int dark = 1; DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 20, ref dark, sizeof(int)); };
         if (!Application.Current.Resources.MergedDictionaries.Any(x => x.Source?.OriginalString.Contains("Theme.xaml") == true))
             Application.Current.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/PersonalVPN;component/Theme.xaml", UriKind.Relative) });
+        SetResourceReference(FontFamilyProperty, "ClientFont");
+        SetResourceReference(ForegroundProperty, "BodyInk");
+        if (!previewOnly && Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Accessibility", "TextScaleFactor", 100) is int textPercent)
+            homeTextScale = Math.Clamp(textPercent / 100.0, 1, 2.25);
         var shell = new Grid { Margin = new Thickness(16, 10, 16, 12), MaxWidth = 460 };
         shell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         shell.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -89,7 +96,17 @@ public sealed partial class MainWindow : Window
             args.Cancel = true; HideToTray();
         };
         InitializeTray();
-        SizeChanged += (_, _) => { if (page == "Home" && lastCompactHome != (Height < 680)) Navigate("Home"); };
+        SizeChanged += (_, _) =>
+        {
+            if (page != "Home" || lastCompactHome == (Height < 680)) return;
+            bool restorePowerFocus = connect?.IsKeyboardFocusWithin == true;
+            Navigate("Home");
+            if (restorePowerFocus && connect is { } button)
+                Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
+                {
+                    if (ReferenceEquals(connect, button)) button.Focus();
+                }));
+        };
         IsVisibleChanged += (_, _) => { if (!previewOnly) latency.Tick(IsVisible && WindowState != WindowState.Minimized); };
         Closed += (_, _) => latency.Dispose();
         Navigate("Home");
@@ -260,11 +277,12 @@ public sealed partial class MainWindow : Window
         if (!previewOnly) latency.Tick(IsVisible && WindowState != WindowState.Minimized);
         foreach (var label in latencyLabels) { var measured = latency.Get(label.Target); label.Text.Text = measured.Label; label.Text.ToolTip = measured.Detail; }
         if ((!IsVisible || WindowState == WindowState.Minimized) && !previewOnly) return;
-        var action = PrimaryConnectionAction();
+        var action = previewConnection?.Action ?? PrimaryConnectionAction();
+        string state = previewConnection?.State ?? backend.State;
         if (status != null)
         {
-            status.Text = action == ConnectionAction.Stopping ? "Stopping…" : connectBusy && backend.State == "Disconnected" ? "Connecting" : backend.State;
-            status.Foreground = Color(action is ConnectionAction.Cancel or ConnectionAction.Stopping ? "#AFD5FF" : backend.State == "Connected" ? "#57DCB5" : "#D7E4F8");
+            status.Text = action == ConnectionAction.Stopping ? "Stopping…" : connectBusy && state == "Disconnected" ? "Connecting" : state;
+            status.Foreground = Color(action is ConnectionAction.Cancel or ConnectionAction.Stopping ? "#AFD5FF" : state == "Connected" ? "#57DCB5" : "#D7E4F8");
         }
         if (detail != null) detail.Text = backend.Detail;
         if (status != null) status.ToolTip = backend.Detail;
@@ -282,18 +300,29 @@ public sealed partial class MainWindow : Window
         if (connect != null)
         {
             bool pending = action is ConnectionAction.Cancel or ConnectionAction.Stopping;
-            string tint = pending ? "#235E8C" : backend.State == "Connected" ? "#32D4B2" : backend.State is "Error" or "Failed" ? "#F38F98" : "#80B4FA";
+            string tint = pending ? "PowerPending" : state == "Connected" ? "PowerConnected" : state is "Error" or "Failed" ? "PowerError" : "PowerReady";
             if (connect.Tag as string != tint)
             {
-                connect.Background = Color(tint);
-                connect.BorderBrush = connect.Background;
-                connect.Foreground = Color(pending ? "#F5F8FF" : "#082B31");
+                connect.SetResourceReference(BackgroundProperty, tint);
+                connect.SetResourceReference(BorderBrushProperty, tint);
+                connect.SetResourceReference(ForegroundProperty, pending ? "PowerPendingInk" : "PowerInk");
                 connect.Tag = tint;
             }
-            connect.Content = action == ConnectionAction.Apply ? "Apply &\nreconnect" : ConnectionActions.Label(action);
+            var label = ConnectionActions.Label(action);
+            if (!Equals(connect.Content, label))
+            {
+                connect.Content = label;
+                AutomationProperties.SetName(connect, label);
+            }
             connect.IsEnabled = ConnectionActions.Enabled(action, settings.Profiles.Count > 0);
         }
-        if (draftNotice != null) { draftNotice.Text = "Settings changed · reconnect to apply"; draftNotice.Visibility = action == ConnectionAction.Apply ? Visibility.Visible : Visibility.Collapsed; }
+        if (draftNotice != null)
+        {
+            bool applying = action == ConnectionAction.Apply;
+            draftNotice.Text = "Settings changed · reconnect to apply";
+            draftNotice.Visibility = applying ? Visibility.Visible : Visibility.Collapsed;
+            if (lastCompactHome && exit != null) exit.Margin = applying ? new Thickness(0) : new Thickness(0,2,0,2);
+        }
         if (page == "Diagnostics" && logText != null)
         {
             var records = backend.Log.Snapshot(); string next = string.Join(Environment.NewLine, records.Select(x => $"{x.Time:HH:mm:ss}  {x.Level}  {x.Event}\n{x.Message}"));

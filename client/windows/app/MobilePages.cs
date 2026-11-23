@@ -6,7 +6,6 @@ using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Markup;
 using System.Windows.Media;
 using Microsoft.Win32;
 
@@ -33,7 +32,8 @@ public sealed partial class MainWindow
     private UIElement MobileHome()
     {
         bool compact = lastCompactHome = Height < 680;
-        var body = PageRows(Auto, Auto, Star, Auto);
+        bool enlarged = homeTextScale > 1;
+        var body = PageRows(Auto, Auto, enlarged ? Auto : Star, Auto);
         var profile = settings.Profiles.FirstOrDefault(x => x.Id == settings.SelectedId);
         var card = new Grid(); card.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) }); card.ColumnDefinitions.Add(new ColumnDefinition()); card.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); card.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
         var flag = new Border { Width = 32, Height = 32, CornerRadius = new CornerRadius(16), Background = Color("#F4F7FB"), VerticalAlignment = VerticalAlignment.Center };
@@ -54,30 +54,34 @@ public sealed partial class MainWindow
             finally { if (page == "Home") Navigate("Home"); }
         });
         protocol.Name = "HomeProtocol"; protocol.Margin = compact ? new Thickness(0) : new Thickness(0, 1, 0, 3); capture.Children.Add(protocol); Put(body, capture, 1);
-        var center = PageRows(Auto, Star, Auto, Auto, Auto); center.Margin = new Thickness(0, 3, 0, 8);
-        status = Text(backend.State, compact ? 20 : 22); if (compact) status.Margin = new Thickness(0); status.TextAlignment = TextAlignment.Center; Put(center, status, 0);
-        connect = new Button { Content = "Connect" };
+        var center = PageRows(Auto, enlarged ? Auto : Star, Auto, Auto, Auto);
+        center.Margin = new Thickness(0, 3, 0, compact ? 7 : 8);
+        status = new TextBlock { Text = backend.State, Style = (Style)FindResource("ConnectionStatusText"),
+            Margin = compact ? new Thickness(0) : new Thickness(0,3,0,5) };
+        if (compact || enlarged) status.FontSize = (compact ? 20 : 22) * homeTextScale;
+        Put(center, status, 0);
+        connect = new Button { Name = "ConnectButton", Style = (Style)FindResource("PowerButton") };
         connect.Click += async (_, _) => { try { await ToggleConnection(); } catch (Exception error) { ShowError(error); } };
-        connect.Name = "ConnectButton"; connect.Width = connect.Height = 172; connect.FontSize = 18; connect.Margin = new Thickness(0); connect.Background = Color("#14C7A0"); connect.Foreground = Color("#052D28");
-        connect.Template = (ControlTemplate)XamlReader.Parse("""
-          <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="Button">
-            <Grid>
-              <Ellipse Margin="5" Fill="{TemplateBinding BorderBrush}" Opacity="0.18"><Ellipse.Effect><DropShadowEffect Color="{Binding BorderBrush.Color, RelativeSource={RelativeSource TemplatedParent}}" BlurRadius="18" ShadowDepth="0" Opacity="0.7"/></Ellipse.Effect></Ellipse>
-              <Ellipse Margin="9,12,9,6" Fill="#040C17"><Ellipse.Effect><DropShadowEffect BlurRadius="13" ShadowDepth="7" Opacity="0.65"/></Ellipse.Effect></Ellipse>
-              <Ellipse x:Name="PowerSurface" Margin="10" Fill="{TemplateBinding Background}" Stroke="#70EBFFF5" StrokeThickness="1"/>
-              <Ellipse Margin="11" IsHitTestVisible="False"><Ellipse.Fill><LinearGradientBrush StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#1FFFFFFF" Offset="0"/><GradientStop Color="#00FFFFFF" Offset="0.5"/><GradientStop Color="#18000000" Offset="1"/></LinearGradientBrush></Ellipse.Fill></Ellipse>
-              <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                <Path Data="M 12,1 L 12,11 M 5,5 C -1,11 3,22 12,22 C 21,22 25,11 19,5" Stroke="{TemplateBinding Foreground}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="25" Height="25" Stretch="Uniform" Margin="0,0,0,10"/>
-                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextBlock.TextAlignment="Center"/>
-              </StackPanel>
-            </Grid><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="PowerSurface" Property="Stroke" Value="#D0F5F8FF"/></Trigger><Trigger Property="IsPressed" Value="True"><Setter TargetName="PowerSurface" Property="StrokeThickness" Value="2"/></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="PowerSurface" Property="Stroke" Value="#F5F8FF"/><Setter TargetName="PowerSurface" Property="StrokeThickness" Value="2"/></Trigger></ControlTemplate.Triggers>
-          </ControlTemplate>
-          """);
-        Put(center, new Viewbox { Child = connect, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, MaxHeight = compact ? 140 : 184, Margin = compact ? new Thickness(0,2,0,3) : new Thickness(0, 4, 0, 5) }, 1);
-        detail = Text(backend.Detail, 11, "#9BAECD"); detail.Visibility = compact ? Visibility.Collapsed : Visibility.Visible; detail.TextAlignment = TextAlignment.Center; detail.MaxHeight = 35; detail.TextTrimming = TextTrimming.CharacterEllipsis; Put(center, detail, 2);
+        connect.Width = connect.Height = enlarged ? Math.Min(268, 134 * homeTextScale) : 172;
+        if (enlarged)
+        {
+            connect.FontSize *= homeTextScale;
+            connect.HorizontalAlignment = HorizontalAlignment.Center;
+            connect.Margin = new Thickness(0,4,0,5);
+            Put(center, connect, 1);
+        }
+        else
+        {
+            center.RowDefinitions[1].MinHeight = compact ? 101 : 105;
+            Put(center, new Viewbox { Child = connect, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly,
+                MaxHeight = compact ? 140 : 184, Margin = compact ? new Thickness(0,2,0,3) : new Thickness(0,4,0,5) }, 1);
+        }
+        detail = Text(backend.Detail, 11 * homeTextScale, "#9BAECD"); detail.Visibility = compact && !enlarged ? Visibility.Collapsed : Visibility.Visible; detail.TextAlignment = TextAlignment.Center; Put(center, detail, 2);
         exit = Text("Exit IP: —", 13, "#59DCB8"); if (compact) exit.Margin = new Thickness(0,2,0,2); exit.TextAlignment = TextAlignment.Center; Put(center, exit, 3);
-        draftNotice = Text("", 11, "#F1C77A"); draftNotice.TextAlignment = TextAlignment.Center; Put(center, draftNotice, 4); Put(body, center, 2);
-        var traffic = (FrameworkElement)TrafficPanel(compact); traffic.Name = "TrafficCard"; Put(body, traffic, 3); return body;
+        draftNotice = Text("", 11 * homeTextScale, "#F1C77A"); if (compact) draftNotice.Margin = new Thickness(0);
+        draftNotice.TextAlignment = TextAlignment.Center; Put(center, draftNotice, 4); Put(body, center, 2);
+        var traffic = (FrameworkElement)TrafficPanel(compact); traffic.Name = "TrafficCard"; Put(body, traffic, 3);
+        return enlarged ? WidgetScroll(body) : body;
     }
     private async Task SelectProtocol(string selected)
     {
@@ -223,6 +227,13 @@ public sealed partial class MainWindow
         if (IsVisible) { Width = size.Width; Height = size.Height; }
         Navigate(target); layoutRoot.InvalidateMeasure(); layoutRoot.Measure(size); layoutRoot.Arrange(new Rect(size)); layoutRoot.UpdateLayout();
         Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle); return layoutRoot;
+    }
+    internal FrameworkElement HomeForTest(Size size, double textScale, ConnectionAction action, string status)
+    {
+        if (!previewOnly) throw new InvalidOperationException("Synthetic states require a preview window.");
+        homeTextScale = textScale;
+        previewConnection = (action, status);
+        return LayoutForTest("Home", size);
     }
     internal FrameworkElement RuleEditorForTest(Size size) { LayoutForTest("SiteTunnel",size);EditException(settings.Sites!,false,settings.Sites!.Entries[0]);layoutRoot.UpdateLayout();return layoutRoot; }
     internal void FillPreviewLogs() { for (int i = 0; i < 200; i++) backend.Log.Add("INFO", "backend.retry", "Synthetic layout preview · retry result " + i); }

@@ -94,14 +94,31 @@ class TunnelInstrumentedTest {
         device.waitForIdle()
     }
     private fun captureName() = NetworkInterface.getNetworkInterfaces().toList().firstOrNull { nic -> nic.inetAddresses.toList().any { it.hostAddress == "172.29.255.1" } }?.let { "${it.name}/${it.index}" }
-    private fun verifiedTransport(transport: String): Boolean {
+    private fun verifiedGeneration(transport: String): String? {
         val events=Repository.logs.value
-        val latest=events.lastOrNull { it.code=="network.changed" }?:return false
-        if(!latest.detail.contains("transport=$transport;"))return false
-        val generation=Regex("generation=([0-9]+);").find(latest.detail)?.groupValues?.get(1)?:return false
+        val latest=events.lastOrNull { it.code=="network.changed" }?:return null
+        if(!latest.detail.contains("transport=$transport;"))return null
+        val generation=Regex("generation=([0-9]+);").find(latest.detail)?.groupValues?.get(1)?:return null
         // A network callback can precede invalidation of the previous Connected
         // label. Require health for the latest generation, not that stale label.
-        return Repository.state.value.status=="Connected" && events.any { it.code=="health.verified" && it.detail.startsWith("generation=$generation;") }
+        return generation.takeIf { Repository.state.value.status=="Connected" &&
+            events.any { it.code=="health.verified" && it.detail.startsWith("generation=$generation;") } }
+    }
+    private fun verifyRecoveryTraffic(protocol: String, transport: String, started: Long) {
+        val generation = checkNotNull(verifiedGeneration(transport))
+        val https = probe()
+        println("Recovery sample: protocol=$protocol transport=$transport generation=$generation phase=https elapsed_ms=${android.os.SystemClock.elapsedRealtime()-started} ok=$https")
+        assertTrue("Companion HTTPS after $transport recovery", https)
+        assertEquals("HTTPS must use the current generation", generation, verifiedGeneration(transport))
+        if (protocol != "Hysteria 2") return
+        repeat(3) { attempt ->
+            assertEquals(generation, verifiedGeneration(transport))
+            val udp = probe(udp = true)
+            println("Recovery sample: protocol=$protocol transport=$transport generation=$generation phase=udp attempt=${attempt+1} elapsed_ms=${android.os.SystemClock.elapsedRealtime()-started} ok=$udp")
+            assertEquals("UDP must use the current generation", generation, verifiedGeneration(transport))
+            if (udp) return
+        }
+        error("Companion UDP remained unavailable after $transport recovery (generation $generation)")
     }
     private fun probe(udp: Boolean = false,direct: Boolean = false): Boolean {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
@@ -411,20 +428,22 @@ class TunnelInstrumentedTest {
                 device.executeShellCommand("svc data disable")
                 waitFor("Physical network loss", 25) { Repository.state.value.status == "Waiting for network" }
                 assertEquals("Capture must remain during upstream loss", firstName, captureName())
+                val cellularStarted = android.os.SystemClock.elapsedRealtime()
                 device.executeShellCommand("svc data enable")
-                waitFor("Automatic recovery after physical network restoration") { verifiedTransport("cellular") && Repository.state.value.detail == protocol }
+                waitFor("Automatic recovery after physical network restoration") { verifiedGeneration("cellular") != null && Repository.state.value.detail == protocol }
                 assertEquals("Network recovery must reuse capture", firstName, captureName())
-                assertTrue("Companion traffic after recovery", probe())
+                verifyRecoveryTraffic(protocol, "cellular", cellularStarted)
                 println("Recovery verified: $protocol network loss to cellular restored separate-UID HTTPS and retained TUN")
                 val transitions = Repository.logs.value.count { it.code == "network.changed" }
+                val wifiStarted = android.os.SystemClock.elapsedRealtime()
                 device.executeShellCommand("svc wifi enable")
                 device.executeShellCommand("svc data disable")
-                waitFor("Automatic recovery back to Wi-Fi") { Repository.logs.value.count { it.code == "network.changed" } > transitions && verifiedTransport("wifi") }
+                waitFor("Automatic recovery back to Wi-Fi") { Repository.logs.value.count { it.code == "network.changed" } > transitions && verifiedGeneration("wifi") != null }
                 assertEquals(firstName, captureName())
+                verifyRecoveryTraffic(protocol, "wifi", wifiStarted)
                 println("Recovery verified: $protocol return to Wi-Fi retained TUN")
                 waitFor("Live tunnel counters", 10) { Repository.state.value.uploaded > 0 && Repository.state.value.downloaded > 0 }
                 if (protocol == "Hysteria 2") {
-                    assertTrue("UDP forwarding", probe(udp = true))
                     UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).executeShellCommand("am start -W -n dev.personalvpn.client/.MainActivity -a dev.personalvpn.DISCONNECT")
                     Thread.sleep(500)
                     assertTrue("Untrusted exported Activity command must not disconnect VPN", Repository.state.value.active)
@@ -548,11 +567,29 @@ class TunnelInstrumentedTest {
 
     @Test fun homeControlsFitInsideTheScreen() {
         val original=Repository.config.value
+        val originalState=Repository.state.value
         val profile=Profile(name="Japan · preview",reality=fixture().getJSONObject("reality").toString())
         Repository.save(Config(listOf(profile),profile.id,"REALITY"))
         val captureBefore=captureName()
-        try { launchHome().use { activity ->
-            val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val originalFont = device.executeShellCommand("settings get system font_scale").trim()
+        val applied = Repository.config.value.fingerprint()
+
+        fun measure(label: String, scale: Float): PowerTextLayout {
+            waitFor("$label uses OS font scale $scale", 25) {
+                refreshAccessibility()
+                val layout = Repository.instrumentedPowerText
+                layout != null && layout.label == label && kotlin.math.abs(layout.scale - scale) < .01f &&
+                    device.hasObject(By.text(label))
+            }
+            val result = checkNotNull(Repository.instrumentedPowerText)
+            assertFalse("$label overflows at $scale", result.overflow)
+            val bounds = device.findObject(By.text(label)).visibleBounds
+            assertTrue("Caption outside viewport: $label", bounds.left >= 0 && bounds.right <= device.displayWidth &&
+                bounds.top >= 0 && bounds.bottom <= device.displayHeight && bounds.height() > 0)
+            return result
+        }
+        try { launchHome().use {
             if (!device.wait(Until.hasObject(By.text("Connect")), 15000)) error("Connect missing after fresh launch; ${uiHierarchy()}")
             val connect = device.findObject(By.text("Connect")).visibleBounds
             assertTrue(connect.top >= 0 && connect.bottom <= device.displayHeight)
@@ -563,16 +600,44 @@ class TunnelInstrumentedTest {
             waitFor("Foreground TCP latency",15) { device.hasObject(By.text(java.util.regex.Pattern.compile("[0-9]+ ms"))) }
             assertEquals("Latency UI created a VPN interface",captureBefore,captureName())
             assertFalse("Latency UI started a tunnel",Repository.state.value.active)
-            device.takeScreenshot(java.io.File(context.filesDir,"home-ui.png"))
-            val enlarged=java.util.concurrent.CountDownLatch(1)
-            activity.onActivity { it.previewFontScaleForTest(1.5f) { enlarged.countDown() } }
-            assertTrue("Enlarged composition did not draw",enlarged.await(10,java.util.concurrent.TimeUnit.SECONDS))
-            device.waitForIdle()
-            waitFor("Root navigation clipped at enlarged text",10) {
-                val nav=try { device.findObject(By.text("Settings"))?.visibleBounds } catch(_: androidx.test.uiautomator.StaleObjectException) { null }
-                nav!=null && nav.height()>0 && nav.top>=0 && nav.bottom<=device.displayHeight
+            val base = measure("Connect", 1f)
+            assertTrue(device.takeScreenshot(java.io.File(context.filesDir,"home-ui.png")))
+            val cases = listOf(
+                "Cancel" to TunnelState(status="Verifying", active=true, busy=true, appliedConfig=applied),
+                "Disconnect" to TunnelState(status="Connected", active=true, appliedConfig=applied),
+                "Apply & reconnect" to TunnelState(status="Connected", active=true, appliedConfig="previous-rules"),
+                "Stopping…" to TunnelState(status="Disconnecting", active=true, busy=true, appliedConfig=applied),
+            )
+            for (scale in listOf(1f, 1.5f, 2f)) {
+                device.executeShellCommand("settings put system font_scale $scale")
+                Repository.state.value=TunnelState()
+                val enlarged=measure("Connect", scale)
+                if (scale > 1f) assertTrue("OS font scale did not change rendered text", enlarged.fontPixels > base.fontPixels)
+                for ((label, state) in cases) {
+                    Repository.state.value=state
+                    measure(label, scale)
+                    if (label == "Apply & reconnect" && scale > 1f) {
+                        val name = if (scale == 2f) "home-200-font.png" else "home-large-font.png"
+                        assertTrue(device.takeScreenshot(java.io.File(context.filesDir,name)))
+                    }
+                }
+                assertTrue(device.hasObject(By.text("Settings")))
             }
-            device.takeScreenshot(java.io.File(context.filesDir,"home-large-font.png"))
-        } } finally { Repository.save(original) }
+            Repository.state.value=TunnelState()
+            device.executeShellCommand("settings put system font_scale 1.0")
+            device.executeShellCommand("wm size 1600x2560")
+            device.executeShellCommand("wm density 320")
+            waitFor("Tablet viewport") { device.displayWidth == 1600 && device.displayHeight == 2560 }
+            measure("Connect", 1f)
+            assertTrue(device.takeScreenshot(java.io.File(context.filesDir,"home-tablet.png")))
+        } } finally {
+            device.executeShellCommand("wm size reset")
+            device.executeShellCommand("wm density reset")
+            if (originalFont == "null" || originalFont.isEmpty()) device.executeShellCommand("settings delete system font_scale")
+            else device.executeShellCommand("settings put system font_scale $originalFont")
+            Repository.state.value=originalState
+            Repository.instrumentedPowerText=null
+            Repository.save(original)
+        }
     }
 }

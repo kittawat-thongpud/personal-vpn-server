@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -21,6 +22,54 @@ public static class MobileValidation
             var child = VisualTreeHelper.GetChild(parent, i); if (child is FrameworkElement element) yield return element;
             foreach (var nested in Elements(child)) yield return nested;
         }
+    }
+    private static void SavePreview(Visual root, Size size, string path)
+    {
+        var bitmap = new RenderTargetBitmap((int)size.Width, (int)size.Height, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(root);
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using var file = File.Create(path);
+        encoder.Save(file);
+    }
+
+    private static void CheckHomeLabels(MainWindow window, string output)
+    {
+        var size = new Size(380, 590);
+        foreach (int scale in new[] { 100, 150, 200 })
+        foreach (var (action, state) in new[]
+        {
+            (ConnectionAction.Connect, "Disconnected"), (ConnectionAction.Cancel, "Verifying"),
+            (ConnectionAction.Disconnect, "Connected"), (ConnectionAction.Apply, "Connected"),
+            (ConnectionAction.Stopping, "Disconnecting")
+        })
+        {
+            var root = window.HomeForTest(size, scale / 100.0, action, state);
+            var button = Elements(root).OfType<Button>().Single(x => x.Name == "ConnectButton");
+            var label = Elements(button).OfType<TextBlock>().Single(x => x.Name == "PowerLabel");
+            var bounds = button.TransformToAncestor(root).TransformBounds(new Rect(button.RenderSize));
+            Assert(bounds.Width >= 96 && bounds.Height >= 96 && bounds.Bottom <= size.Height, $"Power target clipped at {scale}% ({action}).");
+            Assert(label.Text == ConnectionActions.Label(action) && label.FontSize >= 18 * scale / 100.0, $"Power label or font lost at {scale}% ({action}).");
+            var formatted = new FormattedText(label.Text, CultureInfo.CurrentUICulture, label.FlowDirection,
+                new Typeface(label.FontFamily, label.FontStyle, label.FontWeight, label.FontStretch), label.FontSize,
+                label.Foreground, VisualTreeHelper.GetDpi(label).PixelsPerDip)
+            {
+                MaxTextWidth = label.ActualWidth,
+                TextAlignment = TextAlignment.Center,
+                Trimming = TextTrimming.None
+            };
+            var origin = label.TransformToAncestor(button).Transform(new Point());
+            var ink = formatted.BuildGeometry(origin).Bounds;
+            var radius = button.ActualWidth / 2 - 10;
+            foreach (var corner in new[] { ink.TopLeft, ink.TopRight, ink.BottomLeft, ink.BottomRight })
+            {
+                var distance = corner - new Point(button.ActualWidth / 2, button.ActualHeight / 2);
+                Assert(distance.Length <= radius, $"Power label extends past the circle at {scale}% ({action}).");
+            }
+            Assert(formatted.Height <= label.ActualHeight + 1, $"Power label clipped at {scale}% ({action}).");
+            SavePreview(root, size, Path.Combine(output, $"Home-{action}-{scale}.png"));
+        }
+        window.HomeForTest(size, 1, ConnectionAction.Connect, "Disconnected");
     }
     public static List<string> PolicyChecks()
     {
@@ -90,7 +139,7 @@ public static class MobileValidation
             window.ShowActivated = false; window.ShowInTaskbar = false; window.Show();
             Assert(window.HiddenCloseForTest(), "Closing must hide to tray without stopping backend or clearing logs.");
             checks.Add("X hides to tray; restoring shows the taskbar button; minimizing retains it; backend session logs survive");
-            foreach (var size in new[] { new Size(380, 590), new Size(438, 750), new Size(1280, 760) })
+            foreach (var size in new[] { new Size(380, 590), new Size(438, 750), new Size(768, 1024), new Size(1280, 760) })
             foreach (string page in new[] { "Home", "Settings", "AppTunnel", "SiteTunnel", "Diagnostics", "VpnConfig", "Profiles" })
             {
                 var root = window.LayoutForTest(page, size); var elements = Elements(root).ToArray();
@@ -131,10 +180,11 @@ public static class MobileValidation
                 }
                 foreach (var scrollbar in elements.OfType<System.Windows.Controls.Primitives.ScrollBar>().Where(x => x.Orientation == Orientation.Vertical && x.Visibility == Visibility.Visible && x.ActualWidth > 0))
                     Assert(scrollbar.ActualWidth <= 6.5, page + " scrollbar " + scrollbar.Name + " width=" + scrollbar.ActualWidth + " exceeds 6 DIP.");
-                var bitmap = new RenderTargetBitmap((int)size.Width, (int)size.Height, 96, 96, PixelFormats.Pbgra32); bitmap.Render(root);
-                var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap)); using var file = File.Create(Path.Combine(output, page + "-" + (int)size.Width + ".png")); encoder.Save(file);
+                SavePreview(root, size, Path.Combine(output, page + "-" + (int)size.Width + ".png"));
             }
-            checks.Add("all mobile pages rendered at small, default and wide sizes; Home widgets fit without page scroll; bounded log viewport");
+            checks.Add("all pages rendered at compact, default, tablet and wide sizes; default Home fits without page scroll; bounded log viewport");
+            CheckHomeLabels(window, output);
+            checks.Add("five Home actions render entirely inside the circle at Windows text sizes 100%, 150% and 200%");
             settings.CaptureMode="TUN";
             var appRoot=window.LayoutForTest("AppTunnel",new Size(438,750));
             var appBitmap=new RenderTargetBitmap(438,750,96,96,PixelFormats.Pbgra32);appBitmap.Render(appRoot);

@@ -193,6 +193,11 @@ jobs:
         env:
           ANDROID_TEST_API: ${{ matrix.api }}
         run: bash client/android/test-emulator.sh
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        if: ${{ matrix.api == '34' && contains(env.CLIENT_VERSION, '-dev.') }}
+        with:
+          path: client/android/app/build/emulator/*.png
+          key: client-dist-${{ github.run_id }}-${{ github.sha }}-android-previews
       - name: Stage synthetic UI previews for review
         if: ${{ always() && !cancelled() && inputs.stage_previews }}
         env:
@@ -223,11 +228,23 @@ jobs:
           path: client-distribution/android-app
           key: client-dist-${{ github.run_id }}-${{ github.sha }}-android-app
           fail-on-cache-miss: true
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        if: ${{ contains(env.CLIENT_VERSION, '-dev.') }}
+        with:
+          path: client/android/app/build/emulator/*.png
+          key: client-dist-${{ github.run_id }}-${{ github.sha }}-android-previews
+          fail-on-cache-miss: true
       - name: Package qualified Android installer for the shared release
         run: |
           mkdir -p client-distribution/android-release
           cp client-distribution/android-app/app/build/outputs/apk/release/app-release.apk "client-distribution/android-release/PersonalVPN-Android-${CLIENT_VERSION}.apk"
           cp client-distribution/android-app/app/build/signature.txt client-distribution/android-release/ANDROID-SIGNATURE.txt
+          if [[ "$CLIENT_VERSION" == *-dev.* ]]; then
+            previews=client/android/app/build/emulator
+            images=(home-ui.png home-pending.png home-large-font.png home-200-font.png home-tablet.png)
+            for image in "${images[@]}"; do test -s "$previews/$image"; done
+            zip -j "client-distribution/android-release/PersonalVPN-Android-ui-preview-${CLIENT_VERSION}.zip" "${images[@]/#/$previews/}"
+          fi
           cd client-distribution/android-release
           sha256sum ./* > SHA256SUMS-android.txt
       - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
