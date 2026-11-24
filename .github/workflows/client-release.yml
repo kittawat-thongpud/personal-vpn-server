@@ -67,7 +67,6 @@ jobs:
     uses: ./.github/workflows/windows-client.yml
     with:
       client_version: ${{ needs.version.outputs.version }}
-      stage_installers: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish }}
   android:
     if: ${{ needs.version.outputs.build == 'true' }}
     needs: version
@@ -76,10 +75,9 @@ jobs:
     uses: ./.github/workflows/android-client.yml
     with:
       client_version: ${{ needs.version.outputs.version }}
-      stage_previews: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish }}
     secrets: inherit
   release:
-    if: ${{ needs.version.outputs.build == 'true' && (github.event_name != 'workflow_dispatch' || inputs.publish) }}
+    if: ${{ needs.version.outputs.build == 'true' }}
     needs: [version, windows, android]
     runs-on: ubuntu-24.04
     permissions:
@@ -110,6 +108,17 @@ jobs:
           mkdir client-bundle
           cp client-distribution/windows-x86/* client-distribution/windows-x64/* client-distribution/android-release/* client-bundle/
       - name: Verify every platform, preserve source branches and publish one release
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 client/release/publish.py --assets client-bundle
+      - name: Stage this run's complete bundle for device acceptance
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLIENT_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          PYTHONPATH=client/release python3 -c 'import os; from pathlib import Path; from publish import verify_bundle; print(verify_bundle(Path("client-bundle"), os.environ["CLIENT_VERSION"]))'
+          gh release create "qa-client-$GITHUB_RUN_ID" --draft --target "$GITHUB_SHA" \
+            --title "Personal VPN $CLIENT_VERSION device acceptance" \
+            --notes "Qualified build $GITHUB_SHA from Actions run $GITHUB_RUN_ID. Device acceptance pending." client-bundle/*

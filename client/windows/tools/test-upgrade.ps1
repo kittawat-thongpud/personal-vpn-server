@@ -10,6 +10,15 @@ if ($LASTEXITCODE -ne 0) { throw 'Previous installer download failed' }
 $oldSetup = Join-Path $env:RUNNER_TEMP $asset
 $expected = if ($Architecture -eq 'x86') { '217c71a27c8ac0796eb63c137d2255f0e753861024cd5f3dc7b568088ac4680c' } else { '96e4a97cdbed9f514f28c4d820f54a50a6818837bf6cb051e2664e2d71023dc4' }
 if ((Get-FileHash $oldSetup).Hash -ne $expected) { throw 'Previous installer hash mismatch' }
+$stableSetup = $null
+if ($Version -eq '0.9.7') {
+    $stableAsset = "PersonalVPN-Setup-0.9.6-$Architecture.exe"
+    gh release download client-v0.9.6 --repo $env:GITHUB_REPOSITORY --pattern $stableAsset --dir $env:RUNNER_TEMP
+    if ($LASTEXITCODE -ne 0) { throw 'Stable 0.9.6 installer download failed' }
+    $stableSetup = Join-Path $env:RUNNER_TEMP $stableAsset
+    $expectedStable = if ($Architecture -eq 'x86') { '5b1eebd460933bb25bc47623e246375b46ceca130fecefaa0ce705f4e6ea4818' } else { '9919b272005e65b77993f4f476b2158f2ed5e7a7b8e6f35b5fadf95dbc890592' }
+    if ((Get-FileHash $stableSetup).Hash -ne $expectedStable) { throw 'Stable 0.9.6 installer hash mismatch' }
+}
 function Install([string]$Installer, [string]$Name, [string]$Directory='') {
     $arguments = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/LOGCLOSEAPPLICATIONS',('/LOG="'+(Join-Path $env:RUNNER_TEMP ($Name+'.log'))+'"'))
     if ($Directory) { $arguments += '/DIR="'+$Directory+'"' }
@@ -77,7 +86,14 @@ public static class PersonalVpnIconCheck {
 Add-Type -AssemblyName System.Security.Cryptography.ProtectedData
 $settings = Join-Path $env:LOCALAPPDATA 'PersonalVPN/settings.dpapi'
 New-Item -ItemType Directory -Force -Path (Split-Path $settings) | Out-Null
-$payload = [Text.Encoding]::UTF8.GetBytes('{"Traffic":"Global","Protocol":"Hysteria 2","CaptureMode":"Proxy","Profiles":[]}')
+$fixture = @{
+    Protocol = 'Hysteria 2'
+    CaptureMode = 'Proxy'
+    SelectedId = 'upgrade-fixture'
+    Profiles = @(@{ Id='upgrade-fixture'; Name='Upgrade fixture'; Country='JP'; Hysteria='{"server":"203.0.113.10:443","auth":"fixture-only","tls":{"sni":"test.example"}}' })
+    Sites = @{ Mode='Tunnel'; Entries=@(@{ Kind='Domain'; Value='example.org'; Action='Bypass'; Name='Saved site fixture' }) }
+}
+$payload = [Text.Encoding]::UTF8.GetBytes(($fixture | ConvertTo-Json -Depth 8 -Compress))
 [IO.File]::WriteAllBytes($settings,[Security.Cryptography.ProtectedData]::Protect($payload,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser))
 Install $oldSetup 'legacy-install' $oldRoot
 $note = Join-Path $oldRoot 'keep-user-note.txt'
@@ -94,6 +110,16 @@ if (-not $oldGui.WaitForExit(15000)) { throw 'Previous GUI is still running afte
 VerifyInstalled
 if (Test-Path -LiteralPath (Join-Path $oldRoot 'PersonalVPN.exe')) { throw 'Old versioned application was not retired' }
 if (-not (Test-Path -LiteralPath $note)) { throw 'Migration removed an unowned legacy file' }
+if ($stableSetup) {
+    Install $stableSetup 'install-stable-baseline'
+    if ((Get-Content (Join-Path $root 'CLIENT-VERSION.txt') -Raw).Trim() -ne '0.9.6') { throw 'Stable baseline was not installed' }
+    if ((Get-FileHash $settings).Hash -ne $settingsHash) { throw 'Stable baseline changed the saved profile or rule' }
+    $stableGui = LaunchIdle (Join-Path $root 'PersonalVPN.exe')
+    Install $setup 'upgrade-stable-in-place'
+    if (-not $stableGui.WaitForExit(15000)) { throw 'Stable GUI remained open after upgrading' }
+    VerifyInstalled
+    Write-Output "Stable 0.9.6 → $Version in-place upgrade retained the DPAPI profile and Site Tunnel rule"
+}
 # Same-version reinstall updates the same product/directory while a GUI is open.
 $current = LaunchIdle (Join-Path $root 'PersonalVPN.exe')
 $settingsHash = (Get-FileHash $settings).Hash

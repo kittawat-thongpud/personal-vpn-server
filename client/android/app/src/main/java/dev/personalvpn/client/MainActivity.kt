@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -341,20 +342,21 @@ class MainActivity : ComponentActivity() {
 }
 @Composable private fun Logs(export: () -> Unit) {
     val logs by Repository.logs.collectAsStateWithLifecycle()
+    val list = rememberLazyListState(initialFirstVisibleItemIndex = logs.lastIndex.coerceAtLeast(0))
     val formatter = remember { SimpleDateFormat("HH:mm:ss.SSS", Locale.US) }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedButton(onClick = { Repository.clearLogs() }) { Text("Clear") }
             OutlinedButton(onClick = export) { Text("Export") }
         }
-        // Anchor new page visits at the newest event and keep stable item keys
-        // so new events do not displace a reader looking at older entries.
+        // Start at the newest event once. Appending in chronological order
+        // leaves the first visible item anchored when more events arrive.
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
-            reverseLayout = true,
+            state = list,
             verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)
         ) {
-            items(logs.asReversed(), key = { it.sequence }) { event ->
+            items(logs, key = { it.sequence }) { event ->
                 Column {
                     Text("${formatter.format(Date(event.time))}  ${event.level}  ${event.code}",
                         fontSize = 12.sp, color = if (event.level == "ERROR") Color(0xFFFFBA9B) else Color(0xFF8FDACF))

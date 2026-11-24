@@ -192,6 +192,7 @@ jobs:
       - name: Verify Android capture, cancellation and application policy
         env:
           ANDROID_TEST_API: ${{ matrix.api }}
+          GH_TOKEN: ${{ github.token }}
         run: bash client/android/test-emulator.sh
       - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         if: ${{ matrix.api == '34' && contains(env.CLIENT_VERSION, '-dev.') }}

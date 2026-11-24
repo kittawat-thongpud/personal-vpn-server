@@ -237,5 +237,11 @@ public sealed partial class MainWindow
     }
     internal FrameworkElement RuleEditorForTest(Size size) { LayoutForTest("SiteTunnel",size);EditException(settings.Sites!,false,settings.Sites!.Entries[0]);layoutRoot.UpdateLayout();return layoutRoot; }
     internal void FillPreviewLogs() { for (int i = 0; i < 200; i++) backend.Log.Add("INFO", "backend.retry", "Synthetic layout preview · retry result " + i); }
+    internal void UpdatePreviewLogs()
+    {
+        FillPreviewLogs();
+        Refresh();
+        Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+    }
     internal void StopPreview() { exiting = true; timer.Stop(); backend.DisposeAsync().AsTask().GetAwaiter().GetResult(); Close(); }
 }

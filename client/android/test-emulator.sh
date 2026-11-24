@@ -14,7 +14,7 @@ mkdir -p "$ANDROID_AVD_HOME"
 # The emulator needs only its two Linux gateways and debug/test APKs. Free the
 # redundant native build inputs/Windows probes and release APK in this job's
 # checkout. The signed release is retained in the source-scoped app cache.
-rm -f -- "$project/app/libs/personalvpn.aar" "$project/app/libs/reality-probe.exe" "$project/app/libs/health-probe.exe" "$project/app/build/outputs/apk/release/app-release.apk"
+rm -f -- "$project/app/libs/personalvpn.aar" "$project/app/libs/reality-probe.exe" "$project/app/libs/health-probe.exe"
 df -h "$RUNNER_TEMP"
 sdkmanager 'platform-tools' 'emulator' "system-images;android-$api;google_apis;x86_64" >/dev/null
 sudo chmod 666 /dev/kvm
@@ -62,6 +62,28 @@ adb shell settings put global animator_duration_scale 0
 adb shell svc power stayon true
 adb shell input keyevent KEYCODE_WAKEUP
 adb shell wm dismiss-keyguard
+if [[ "$api" == 34 && "${CLIENT_VERSION:-}" == 0.9.7 ]]; then
+  baseline="$RUNNER_TEMP/PersonalVPN-Android-0.9.6.apk"
+  gh release download client-v0.9.6 --repo "$GITHUB_REPOSITORY" --pattern "$(basename "$baseline")" --dir "$RUNNER_TEMP"
+  printf '%s  %s\n' a7b0b9538a287a25adfe048057329e8820629026e474333c2e17713af46b1e9d "$baseline" | sha256sum -c -
+  package=dev.personalvpn.client
+  adb install "$baseline"
+  adb shell pm grant "$package" android.permission.POST_NOTIFICATIONS
+  installed_before="$(adb shell dumpsys package "$package" | awk '/firstInstallTime=/{print; exit}')"
+  test -n "$installed_before"
+  adb install -r "$project/app/build/outputs/apk/release/app-release.apk"
+  package_after="$(adb shell dumpsys package "$package")"
+  grep -F 'versionCode=90700 ' <<< "$package_after"
+  grep -F 'versionName=0.9.7' <<< "$package_after"
+  grep -F "$installed_before" <<< "$package_after"
+  grep -F 'android.permission.POST_NOTIFICATIONS: granted=true' <<< "$package_after"
+  adb shell am start -W -n "$package/.MainActivity" | grep -F 'Status: ok'
+  adb shell pidof "$package"
+  echo "Signed Android 0.9.6 → 0.9.7 upgrade retained install identity and notification permission"
+  adb uninstall "$package"
+fi
+# The debug integration suite uses a separate signing identity.
+rm -f -- "$project/app/build/outputs/apk/release/app-release.apk"
 adb install -r "$project/app/build/outputs/apk/debug/app-debug.apk"
 adb install -r "$project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
 adb install -r "$project/probe/build/outputs/apk/debug/probe-debug.apk"

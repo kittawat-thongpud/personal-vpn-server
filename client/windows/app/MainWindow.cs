@@ -266,7 +266,12 @@ public sealed partial class MainWindow : Window
         var clear = Action("Clear", ClearSessionLogs); tools.Children.Add(clear);
         tools.Children.Add(Action("Export", ExportSessionLogs)); Grid.SetRow(tools, 0); grid.Children.Add(tools);
         logText = new TextBox { IsReadOnly = true, FontFamily = new FontFamily("Cascadia Mono,Consolas"), FontSize = 12, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, AcceptsReturn = true, MinHeight = 0 };
-        Grid.SetRow(logText, 1); grid.Children.Add(logText); content.Content = grid; Refresh();
+        Grid.SetRow(logText, 1); grid.Children.Add(logText); content.Content = grid;
+        var initialView = logText;
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            if (logText == initialView) initialView.ScrollToEnd();
+        }));
     }
     private void Refresh()
     {
@@ -328,8 +333,13 @@ public sealed partial class MainWindow : Window
             var records = backend.Log.Snapshot(); string next = string.Join(Environment.NewLine, records.Select(x => $"{x.Time:HH:mm:ss}  {x.Level}  {x.Event}\n{x.Message}"));
             if (next != lastLogText)
             {
-                bool bottom = logText.VerticalOffset >= logText.ExtentHeight - logText.ViewportHeight - 20;
-                logText.Text = next; lastLogText = next; if (bottom) logText.ScrollToEnd();
+                double offset = logText.VerticalOffset;
+                if (lastLogText.Length != 0 && next.StartsWith(lastLogText + Environment.NewLine, StringComparison.Ordinal))
+                    logText.AppendText(next[lastLogText.Length..]);
+                else
+                    logText.Text = next;
+                lastLogText = next;
+                logText.ScrollToVerticalOffset(offset);
             }
         }
         if (backend.State != lastState) { lastState = backend.State; Title = "Personal VPN · " + lastState; }

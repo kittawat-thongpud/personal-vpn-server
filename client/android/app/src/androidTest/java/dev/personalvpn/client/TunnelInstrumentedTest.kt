@@ -557,6 +557,11 @@ class TunnelInstrumentedTest {
                 val previous = device.findObject(By.text("Fixture retry 99")).visibleBounds
                 assertTrue("Newer logs belong at the bottom", latest.centerY() > previous.centerY())
                 assertFalse("Old entries must be offscreen on entry", device.hasObject(By.text("Fixture retry 1")))
+                repeat(25) { Repository.log("INFO", "backend.retry", "Fixture retry ${it + 101}") }
+                device.waitForIdle()
+                refreshAccessibility()
+                assertEquals("Live updates moved the log reader", latest.top, device.findObject(By.text("Fixture retry 100")).visibleBounds.top)
+                assertFalse("Live updates followed the tail", device.hasObject(By.text("Fixture retry 125")))
                 val x = device.displayWidth / 2
                 assertTrue(device.swipe(x, device.displayHeight / 3, x, device.displayHeight * 4 / 5, 18))
                 waitFor("Scrollable log history", 15) {
@@ -567,14 +572,14 @@ class TunnelInstrumentedTest {
                 openSettingsDestination("Backend logs")
                 waitFor("Newest logs on reopening", 15) {
                     refreshAccessibility()
-                    device.hasObject(By.text("Fixture retry 100"))
+                    device.hasObject(By.text("Fixture retry 125"))
                 }
                 clickFresh(By.text("Clear"))
                 waitFor("Cleared log view", 15) {
                     refreshAccessibility()
-                    !device.hasObject(By.text("Fixture retry 100")) && Repository.logs.value.none { e -> e.detail.startsWith("Fixture retry ") }
+                    !device.hasObject(By.text("Fixture retry 125")) && Repository.logs.value.none { e -> e.detail.startsWith("Fixture retry ") }
                 }
-                println("Backend logs verified: newest visible on entry and reopening, prior events scrollable, Clear removes records")
+                println("Backend logs verified: open at latest, stay in place during updates, reopen at new tail, clear all")
             }
         } finally {
             Repository.clearLogs()

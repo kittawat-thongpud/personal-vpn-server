@@ -183,6 +183,16 @@ public static class MobileValidation
                 SavePreview(root, size, Path.Combine(output, page + "-" + (int)size.Width + ".png"));
             }
             checks.Add("all pages rendered at compact, default, tablet and wide sizes; default Home fits without page scroll; bounded log viewport");
+            var diagnosticRoot = window.LayoutForTest("Diagnostics", new Size(438, 750));
+            var logView = Elements(diagnosticRoot).OfType<TextBox>().Single(x => x.IsReadOnly);
+            double entryOffset = logView.VerticalOffset;
+            Assert(entryOffset > 0 && entryOffset >= logView.ExtentHeight - logView.ViewportHeight - 1, "Logs must open at the latest entry.");
+            window.UpdatePreviewLogs();
+            Assert(Math.Abs(logView.VerticalOffset - entryOffset) < 1 && logView.VerticalOffset < logView.ExtentHeight - logView.ViewportHeight - 1, "New logs moved the reader to the bottom.");
+            var reopenedRoot = window.LayoutForTest("Diagnostics", new Size(438, 750));
+            var newLogView = Elements(reopenedRoot).OfType<TextBox>().Single(x => x.IsReadOnly);
+            Assert(newLogView.VerticalOffset > entryOffset && newLogView.VerticalOffset >= newLogView.ExtentHeight - newLogView.ViewportHeight - 1, "Reopened logs must start at the new tail.");
+            checks.Add("logs start at the latest entry on each visit and retain the viewport when events arrive");
             CheckHomeLabels(window, output);
             checks.Add("five Home actions render entirely inside the circle at Windows text sizes 100%, 150% and 200%");
             settings.CaptureMode="TUN";
