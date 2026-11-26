@@ -1,3 +1,16 @@
+## Client 0.9.8-dev.1
+
+- Windows Backend logs show the result and duration of each HTTPS health
+  target, including whether its fallback succeeded. Entries distinguish the
+  VPN outbound path from Windows TUN capture.
+- Hysteria 2 logs distinguish an authenticated connection from QUIC,
+  authentication, and certificate failures. Windows also records its route
+  lookup to the VPN endpoint during TUN health failures. Route lookup reads
+  the system table and sends no additional traffic.
+- Export Backend logs while an incident is still present to retain its
+  diagnostic events. The published test bundle includes a signed Android APK
+  and Windows x86/x64 packages. The Android APK has version code 90701.
+
 ## Client 0.9.7
 
 - Windows and Android use shared theme roles for the existing Home connection
