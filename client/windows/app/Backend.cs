@@ -10,6 +10,7 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
@@ -83,16 +84,21 @@ public sealed class OwnedCore : IDisposable
     private readonly Task reader;
     private readonly Task errorReader;
     private readonly SessionLog log;
+    private readonly string? hysteriaContext;
+    private readonly Dictionary<string, long> hysteriaResults = new();
+    private volatile bool stopping;
     private int errorCount;
-    public OwnedCore(ProcessJob job, string binary, string[] arguments, SessionLog log)
+    public OwnedCore(ProcessJob job, string binary, string[] arguments, SessionLog log, string? hysteriaContext = null)
     {
         this.log = log; Name = Path.GetFileNameWithoutExtension(binary);
+        this.hysteriaContext = hysteriaContext;
         var info = new ProcessStartInfo(binary) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = AppContext.BaseDirectory };
         if (Name == "sing-box") { info.CreateNoWindow = false; info.WindowStyle = ProcessWindowStyle.Hidden; }
         foreach (string arg in arguments) info.ArgumentList.Add(arg);
         foreach (string variable in info.Environment.Keys.Where(x => x.StartsWith("HYSTERIA_", StringComparison.OrdinalIgnoreCase) || x.StartsWith("XRAY_", StringComparison.OrdinalIgnoreCase)).ToArray())
             info.Environment.Remove(variable);
         info.Environment["HYSTERIA_DISABLE_UPDATE_CHECK"] = "1";
+        if (hysteriaContext != null) info.ArgumentList.Add("--log-format=json");
         Process = Process.Start(info) ?? throw new InvalidOperationException("VPN core failed to launch.");
         job.Add(Process);
         reader = Drain(Process.StandardOutput);
@@ -103,11 +109,29 @@ public sealed class OwnedCore : IDisposable
     {
         // Fixed-size reads also bound a malicious or broken core's unterminated line.
         char[] buffer = new char[1024];
+        var jsonLine = hysteriaContext != null ? new StringBuilder() : null;
+        bool oversized = false;
         try
         {
             int count;
             while ((count = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
             {
+                if (jsonLine != null)
+                {
+                    for (int index = 0; index < count; index++)
+                    {
+                        char value = buffer[index];
+                        if (value == '\n')
+                        {
+                            if (!oversized && !stopping && jsonLine.Length != 0) ReportHysteria(jsonLine.ToString());
+                            jsonLine.Clear();
+                            oversized = false;
+                        }
+                        else if (jsonLine.Length < 4096 && !oversized) jsonLine.Append(value);
+                        else oversized = true;
+                    }
+                    continue;
+                }
                 var line = new string(buffer, 0, count).ToLowerInvariant();
                 if (Name == "sing-box" && Environment.GetEnvironmentVariable("CI") == "true") startupDiagnostic = (startupDiagnostic + line)[^Math.Min(4096, startupDiagnostic.Length + line.Length)..];
                 if (Name == "sing-box" && (line.Contains("forwarding") || line.Contains("weak host") || line.Contains("unsafe interface binding")))
@@ -127,9 +151,22 @@ public sealed class OwnedCore : IDisposable
         catch (IOException) { }
         catch (ObjectDisposedException) { }
     }
+    private void ReportHysteria(string line)
+    {
+        string? result = HysteriaDiagnostics.Classify(line);
+        if (result == null || stopping) return;
+        lock (hysteriaResults)
+        {
+            if (hysteriaResults.TryGetValue(result, out long previous) && Stopwatch.GetElapsedTime(previous) < TimeSpan.FromSeconds(15)) return;
+            hysteriaResults[result] = Stopwatch.GetTimestamp();
+        }
+        log.Add(result == "authenticated" ? "INFO" : "WARN", "backend.hysteria_transport", $"{hysteriaContext}; result={result}");
+    }
+    internal void MarkStopping() => stopping = true;
     public bool Exited => Process.HasExited;
     public void Dispose()
     {
+        MarkStopping();
         try { if (!Process.HasExited && Name == "sing-box") ConsoleStop.Try(Process);
             if (!Process.HasExited) { Process.Kill(true); Process.WaitForExit(3000); } }
         catch (InvalidOperationException) { }
@@ -345,7 +382,8 @@ public sealed class Backend : IAsyncDisposable
             // object may retain an older selection after a settings notification.
             if (!proxyLease.IsCurrent) throw new InvalidOperationException("Another app selected a different proxy again.");
             using var client = new HttpClient(new SocketsHttpHandler { Proxy = active.CaptureMode == "TUN" ? null : new WebProxy("http://127.0.0.1:" + active.HttpPort), UseProxy = active.CaptureMode != "TUN", ConnectTimeout = TimeSpan.FromSeconds(8) }) { Timeout = TimeSpan.FromSeconds(12) };
-            string observed = await Health(client, cancellation);
+            string observed = await HealthDiagnostics.VerifyAsync(client, Log,
+                $"generation={expectedGeneration}; protocol={active.Protocol}; path=system_proxy", cancellation);
             cancellation.ThrowIfCancellationRequested();
             if (!proxyLease.IsCurrent) throw new InvalidOperationException("Another app changed the Windows proxy during verification.");
             lock (gate) { if (generation != expectedGeneration) throw new OperationCanceledException("Network changed during browser proxy verification."); }
@@ -438,6 +476,7 @@ public sealed class Backend : IAsyncDisposable
     };
     private async Task RunCycle(Settings settings, long expected, long attemptNumber, Action verified, CancellationToken token)
     {
+        string diagnosticContext = $"generation={expected}; attempt={attemptNumber}; protocol={settings.Protocol}; mode={settings.CaptureMode}";
         void RecordPhase(string phase, long started, string result) =>
             Log.Add(result == "failed" ? "WARN" : "INFO", "backend.phase",
                     $"generation={expected}; attempt={attemptNumber}; phase={phase}; elapsed_ms={(long)Stopwatch.GetElapsedTime(started).TotalMilliseconds}; result={result}");
@@ -495,7 +534,7 @@ public sealed class Backend : IAsyncDisposable
                 hy["quic"] = new JsonObject { ["maxIdleTimeout"] = "30s", ["keepAlivePeriod"] = "10s" };
                 string path = Path.Combine(folder, "hysteria.json");
                 await File.WriteAllTextAsync(path, hy.ToJsonString(), token);
-                owned.Add(new OwnedCore(job, VerifyCore("hysteria.exe"), new[] { "client", "-c", path }, Log));
+                owned.Add(new OwnedCore(job, VerifyCore("hysteria.exe"), new[] { "client", "-c", path }, Log, diagnosticContext));
                 outbounds.Add(new JsonObject { ["tag"] = "tunnel", ["protocol"] = "socks", ["settings"] = new JsonObject { ["servers"] = new JsonArray(new JsonObject { ["address"] = "127.0.0.1", ["port"] = inner }) } });
             }
             else
@@ -557,7 +596,8 @@ public sealed class Backend : IAsyncDisposable
                 try
                 {
                     bool reportSuccess = initialCheck || recheck || misses > 0;
-                    string observed = await Measure("outbound_https", () => Health(client, token), reportSuccess);
+                    string observed = await Measure("outbound_https", () =>
+                        HealthDiagnostics.VerifyAsync(client, Log, diagnosticContext + "; path=outbound", token), reportSuccess);
                     token.ThrowIfCancellationRequested();
                     if (tun && adapterLease == null)
                     {
@@ -582,8 +622,12 @@ public sealed class Backend : IAsyncDisposable
                         if (adapterLease!.Exited) throw new InvalidOperationException("Adapter recovery guard stopped.");
                         string capturedExit = await Measure("captured_https", async () =>
                         {
-                            string candidate = await Health(tunHealth, token);
-                            if (candidate != observed) throw new InvalidDataException("Captured path did not use the authenticated VPN exit.");
+                            string candidate = await HealthDiagnostics.VerifyAsync(tunHealth, Log, diagnosticContext + "; path=captured", token);
+                            if (candidate != observed)
+                            {
+                                Log.Add("WARN", "backend.health_probe", diagnosticContext + "; path=captured; result=exit_mismatch");
+                                throw new InvalidDataException("Captured path did not use the authenticated VPN exit.");
+                            }
                             return candidate;
                         }, reportSuccess);
                         observed = capturedExit;
@@ -613,6 +657,7 @@ public sealed class Backend : IAsyncDisposable
                     misses++;
                     SetState("Degraded", "Tunnel health check failed; verification retry " + misses + "/2.", expected);
                     Log.Add("WARN", "backend.health_failed", "HTTPS health result failed (" + error.GetType().Name + ").");
+                    Log.Add("INFO", "backend.path_diagnostic", diagnosticContext + "; " + HealthDiagnostics.DescribePath(transports.FirstOrDefault()));
                     if (misses >= 2) throw new InvalidOperationException("Two tunnel health checks failed. Restarting owned VPN cores.");
                 }
                 for (int second = 0; second < (misses > 0 ? 3 : 25); second++)
@@ -640,6 +685,7 @@ public sealed class Backend : IAsyncDisposable
                 RecordPhase("transport_start", transportStarted, token.IsCancellationRequested ? "cancelled" : "failed");
             long cleanupStarted = Stopwatch.GetTimestamp();
             var cleanupErrors = new List<Exception>();
+            foreach (var core in owned) core.MarkStopping();
             trafficCancellation.Cancel();
             try { if (trafficTask != null) await trafficTask; } catch (Exception error) { cleanupErrors.Add(error); }
             Traffic.Unavailable();
@@ -715,28 +761,6 @@ public sealed class Backend : IAsyncDisposable
             await Task.Delay(100, token);
         }
         throw new InvalidOperationException("Local proxy failed to start. Check whether the chosen port is already in use.");
-    }
-    private static async Task<string> Health(HttpClient client, CancellationToken token)
-    {
-        foreach (string url in new[] { "https://api.ipify.org/?format=json", "https://checkip.amazonaws.com/" })
-        {
-            try
-            {
-                using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, token);
-                response.EnsureSuccessStatusCode();
-                if (response.Content.Headers.ContentLength > 4096) throw new InvalidDataException();
-                await using var stream = await response.Content.ReadAsStreamAsync(token);
-                byte[] bytes = new byte[4097]; int total = 0, read;
-                while (total < bytes.Length && (read = await stream.ReadAsync(bytes.AsMemory(total), token)) > 0) total += read;
-                if (total > 4096) throw new InvalidDataException();
-                string text = System.Text.Encoding.UTF8.GetString(bytes, 0, total).Trim();
-                string candidate = url.Contains("ipify") ? JsonNode.Parse(text)!["ip"]!.GetValue<string>() : text;
-                if (IPAddress.TryParse(candidate, out _)) return candidate;
-                throw new InvalidDataException();
-            }
-            catch (Exception error) when (!token.IsCancellationRequested && (error is HttpRequestException || error is TaskCanceledException || error is System.Text.Json.JsonException || error is InvalidDataException)) { }
-        }
-        throw new HttpRequestException("Independent HTTPS health endpoints failed.");
     }
     internal void KillOwnedCoreForTest()
     {

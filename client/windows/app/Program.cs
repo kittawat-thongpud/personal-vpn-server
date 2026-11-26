@@ -144,6 +144,7 @@ internal static partial class Tests
             Assert(log.Snapshot().Length == 1000 && log.Bytes <= 1048576, "Log bounds failed.");
             Assert(log.Snapshot().All(x => x.Message.Length <= 512 && x.Event == "backend.retry"), "Backend-only log filter / truncation failed.");
             log.Clear(); Assert(log.Snapshot().Length == 0 && log.Bytes == 0, "Clear failed."); passed.Add("backend log bounds, filtering, clear");
+            HealthDiagnosticsPolicy(); passed.Add("sanitized per-target HTTPS evidence, fallback, cancellation and Hysteria transport outcomes");
             var meter = new TrafficMeter(); meter.Reset(); meter.Update(100, 200); meter.Update(150, 260);
             meter.BeginCore(); meter.Update(10, 20);
             Assert(meter.Snapshot.Upload == 160 && meter.Snapshot.Download == 280 && meter.Snapshot.UploadRate >= 0, "Traffic counter reconnect accumulation failed.");

@@ -5,7 +5,6 @@ using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
-using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
@@ -94,7 +93,7 @@ internal sealed class ServerLatency : IDisposable
                 {
                     var addresses = IPAddress.TryParse(target.Host, out var literal) ? new[] { literal } : await Dns.GetHostAddressesAsync(target.Host, deadline.Token);
                     var address = addresses.FirstOrDefault(x => x.AddressFamily == AddressFamily.InterNetwork) ?? throw new SocketException();
-                    uint best = BestInterface(address);
+                    uint best = TunSupport.BestInterfaceIndex(address);
                     var nic = links.FirstOrDefault(x => x.GetIPProperties().GetIPv4Properties().Index == best) ?? links.FirstOrDefault() ?? throw new SocketException();
                     int index = nic.GetIPProperties().GetIPv4Properties().Index;
                     var local = nic.GetIPProperties().UnicastAddresses.First(x => x.Address.AddressFamily == AddressFamily.InterNetwork).Address;
@@ -114,12 +113,5 @@ internal sealed class ServerLatency : IDisposable
         catch (OperationCanceledException) { }
         finally { if (!token.IsCancellationRequested) pending.Remove(target.Key); }
     }
-    private static uint BestInterface(IPAddress address)
-    {
-        var serialized = new IPEndPoint(address, 0).Serialize(); var bytes = new byte[serialized.Size];
-        for (int i = 0; i < bytes.Length; i++) bytes[i] = serialized[i];
-        return GetBestInterfaceEx(bytes, out uint index) == 0 ? index : 0;
-    }
-    [DllImport("iphlpapi.dll")] private static extern uint GetBestInterfaceEx(byte[] address, out uint index);
     public void Dispose() { foreground?.Cancel(); foreground?.Dispose(); foreground = null; }
 }
