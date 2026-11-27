@@ -1,3 +1,21 @@
+## Client 0.9.8
+
+- Windows rechecks the current VPN path when the physical network changes.
+  A ready TUN adapter stays active while verification runs. A new path can
+  interrupt retry backoff, and previous results cannot mark it connected.
+- Windows HTTPS checks apply their deadline to the response body as well as
+  the headers. A failed check can try the secondary endpoint, and Cancel
+  stops pending verification.
+- Android keeps a working Wi-Fi or cellular path when the system's internet
+  validation fluctuates. A lost or suspended network triggers a handover.
+  After two failed VPN health checks, the app can try another available path.
+- Backend logs identify the verification stage, retry wake-up reason and
+  cleanup outcome. Android also records its network selection reason and
+  time to verify the recovered connection. Logs remain scoped to the current
+  app session and can be cleared or exported.
+- Includes the signed Android APK (version code 90800), Windows x86 and x64
+  installers and portable packages, and SHA-256 checksums.
+
 ## Client 0.9.8-dev.1
 
 - Windows Backend logs show the result and duration of each HTTPS health

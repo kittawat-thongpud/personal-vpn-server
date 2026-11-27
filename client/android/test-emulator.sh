@@ -62,10 +62,23 @@ adb shell settings put global animator_duration_scale 0
 adb shell svc power stayon true
 adb shell input keyevent KEYCODE_WAKEUP
 adb shell wm dismiss-keyguard
-if [[ "$api" == 34 && "${CLIENT_VERSION:-}" == 0.9.7 ]]; then
-  baseline="$RUNNER_TEMP/PersonalVPN-Android-0.9.6.apk"
-  gh release download client-v0.9.6 --repo "$GITHUB_REPOSITORY" --pattern "$(basename "$baseline")" --dir "$RUNNER_TEMP"
-  printf '%s  %s\n' a7b0b9538a287a25adfe048057329e8820629026e474333c2e17713af46b1e9d "$baseline" | sha256sum -c -
+baseline_version=
+case "${CLIENT_VERSION:-}" in
+  0.9.7)
+    baseline_version=0.9.6
+    baseline_sha256=a7b0b9538a287a25adfe048057329e8820629026e474333c2e17713af46b1e9d
+    target_version_code=90700
+    ;;
+  0.9.8)
+    baseline_version=0.9.7
+    baseline_sha256=90a9a33ca4bddb1f4eec3e0a03b0f3c713ae4456c86c51c731b19b45137ea8b9
+    target_version_code=90800
+    ;;
+esac
+if [[ "$api" == 34 && -n "$baseline_version" ]]; then
+  baseline="$RUNNER_TEMP/PersonalVPN-Android-$baseline_version.apk"
+  gh release download "client-v$baseline_version" --repo "$GITHUB_REPOSITORY" --pattern "$(basename "$baseline")" --dir "$RUNNER_TEMP"
+  printf '%s  %s\n' "$baseline_sha256" "$baseline" | sha256sum -c -
   package=dev.personalvpn.client
   adb install "$baseline"
   adb shell pm grant "$package" android.permission.POST_NOTIFICATIONS
@@ -73,13 +86,13 @@ if [[ "$api" == 34 && "${CLIENT_VERSION:-}" == 0.9.7 ]]; then
   test -n "$installed_before"
   adb install -r "$project/app/build/outputs/apk/release/app-release.apk"
   package_after="$(adb shell dumpsys package "$package")"
-  grep -F 'versionCode=90700 ' <<< "$package_after"
-  grep -F 'versionName=0.9.7' <<< "$package_after"
+  grep -F "versionCode=$target_version_code " <<< "$package_after"
+  grep -F "versionName=$CLIENT_VERSION" <<< "$package_after"
   grep -F "$installed_before" <<< "$package_after"
   grep -F 'android.permission.POST_NOTIFICATIONS: granted=true' <<< "$package_after"
   adb shell am start -W -n "$package/.MainActivity" | grep -F 'Status: ok'
   adb shell pidof "$package"
-  echo "Signed Android 0.9.6 → 0.9.7 upgrade retained install identity and notification permission"
+  echo "Signed Android $baseline_version → $CLIENT_VERSION upgrade retained install identity and notification permission"
   adb uninstall "$package"
 fi
 # The debug integration suite uses a separate signing identity.

@@ -14,6 +14,129 @@ using System.Threading.Tasks;
 namespace PersonalVpn;
 internal static partial class Tests
 {
+    // This suite intentionally never creates Backend, a native core, an adapter
+    // lease or a system proxy. It runs the production recovery epoch/wake gate
+    // with controlled completions so path changes cannot depend on machine NICs.
+    internal static async Task<string[]> RecoveryNetworkPolicy()
+    {
+        var checks = new List<string>();
+        static async Task CancelledPromptly(Task pending, string reason)
+        {
+            try
+            {
+                await pending.WaitAsync(TimeSpan.FromSeconds(1));
+                throw new InvalidOperationException(reason + ": pending work completed instead of cancelling.");
+            }
+            catch (OperationCanceledException) { }
+        }
+
+        using (var network = new RecoveryNetwork())
+        using (var session = new CancellationTokenSource())
+        {
+            network.Reset("wifi/address-a/dns-a");
+            var pending = network.BeginWork(session.Token);
+            using var work = pending.Work;
+            var probe = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            // Model an HTTP completion that ignores cancellation and arrives
+            // after the physical path has already changed.
+            async Task<bool> CommitProbe()
+            {
+                string result = await probe.Task;
+                return result == "verified-old-exit" && network.IsCurrent(pending.Generation) && !work.IsCancellationRequested;
+            }
+            Task<bool> committed = CommitProbe();
+            Assert(network.Observe("ethernet/address-b/dns-b"), "A TUN path change was ignored.");
+            Assert(work.IsCancellationRequested && !network.IsCurrent(pending.Generation), "A TUN path change left old probe work current.");
+            probe.SetResult("verified-old-exit");
+            Assert(!await committed.WaitAsync(TimeSpan.FromSeconds(1)), "A late old-path HTTPS result was accepted.");
+            var fresh = network.BeginWork(session.Token);
+            using var freshWork = fresh.Work;
+            Assert(network.IsCurrent(fresh.Generation) && !freshWork.IsCancellationRequested, "The replacement path could not start fresh verification.");
+            checks.Add("TUN path change cancels old probe and rejects its late success; new epoch accepts fresh work");
+        }
+
+        using (var network = new RecoveryNetwork())
+        using (var session = new CancellationTokenSource())
+        {
+            network.Reset("wifi/path-a");
+            var snapshot = network.BeginWork(session.Token);
+            using var work = snapshot.Work;
+            Task backoff = Task.Delay(TimeSpan.FromSeconds(30), work.Token);
+            Assert(!network.Observe(null), "An unreadable network snapshot was treated as a path change.");
+            Assert(!network.Observe("wifi/path-a"), "A duplicate network event was treated as a path change.");
+            Assert(network.IsCurrent(snapshot.Generation) && !work.IsCancellationRequested && !backoff.IsCompleted,
+                "Stale/duplicate callbacks consumed retry backoff.");
+            Assert(network.Observe("wifi/path-b"), "A new path failed to wake retry backoff.");
+            await CancelledPromptly(backoff, "A new path waited for the old retry deadline");
+            Assert(!network.IsCurrent(snapshot.Generation), "Backoff cancellation retained its old epoch.");
+            checks.Add("new network wakes 30-second backoff; duplicate and unreadable callbacks do not");
+        }
+
+        using (var network = new RecoveryNetwork())
+        using (var session = new CancellationTokenSource())
+        {
+            network.Reset("wifi/path-a");
+            var connected = network.BeginWork(session.Token);
+            using var connectedWork = connected.Work;
+            Assert(network.Observe(""), "Losing every underlay was ignored as an unreadable snapshot.");
+            Assert(network.Signature == "" && connectedWork.IsCancellationRequested && !network.IsCurrent(connected.Generation),
+                "Network loss retained current proof from the removed path.");
+            var waiting = network.BeginWork(session.Token);
+            using var waitingWork = waiting.Work;
+            Task wait = Task.Delay(TimeSpan.FromSeconds(30), waitingWork.Token);
+            Assert(network.Observe("wifi/path-a"), "The same underlay returning after loss did not publish a new epoch.");
+            await CancelledPromptly(wait, "Network return failed to wake Waiting for network");
+            var returned = network.BeginWork(session.Token);
+            using var returnedWork = returned.Work;
+            Assert(network.IsCurrent(returned.Generation) && !returnedWork.IsCancellationRequested,
+                "A consumed network-return signal cancelled replacement work.");
+            Assert(!network.Observe("wifi/path-a") && !returnedWork.IsCancellationRequested,
+                "A duplicate network-return callback restarted the replacement attempt.");
+            checks.Add("total network loss invalidates proof; returning underlay promptly wakes wait without a stale wake");
+        }
+
+        using (var network = new RecoveryNetwork())
+        using (var firstSession = new CancellationTokenSource())
+        using (var secondSession = new CancellationTokenSource())
+        {
+            network.Reset("wifi/path-a");
+            var previous = network.BeginWork(firstSession.Token);
+            using var previousWork = previous.Work;
+            network.Reset("wifi/path-a");
+            Assert(previousWork.IsCancellationRequested && !network.IsCurrent(previous.Generation),
+                "A new session on the same network accepted a previous session's proof.");
+            var replacement = network.BeginWork(secondSession.Token);
+            using var replacementWork = replacement.Work;
+            firstSession.Cancel();
+            Assert(network.IsCurrent(replacement.Generation) && !replacementWork.IsCancellationRequested,
+                "Old-session cancellation stopped replacement work.");
+            checks.Add("same-path session reset invalidates old work; old-session cancellation cannot cancel replacement");
+        }
+
+        using (var network = new RecoveryNetwork())
+        using (var session = new CancellationTokenSource())
+        {
+            network.Reset("wifi/path-a");
+            var snapshot = network.BeginWork(session.Token);
+            using var work = snapshot.Work;
+            Task backoff = Task.Delay(TimeSpan.FromSeconds(30), work.Token);
+            session.Cancel();
+            await CancelledPromptly(backoff, "Disconnect waited for recovery backoff");
+            Assert(work.IsCancellationRequested, "Stopped session left pending probe work active.");
+            var afterStop = network.BeginWork(session.Token);
+            using var stoppedWork = afterStop.Work;
+            Assert(stoppedWork.IsCancellationRequested, "A network callback could launch work for an already stopped session.");
+            checks.Add("Disconnect cancels backoff promptly; stopped session cannot obtain runnable replacement work");
+        }
+        return checks.ToArray();
+    }
+
+    internal static async Task<int> RecoveryPolicyTest(string[] args)
+    {
+        try { return Report(args, new { result = "PASS", checks = await RecoveryNetworkPolicy(), system_network_changes = false, native_cores_started = 0 }, 0); }
+        catch (Exception error) { return Report(args, new { result = "FAIL", reason = error.Message, system_network_changes = false, native_cores_started = 0 }, 1); }
+    }
+
     internal static async Task<int> TunLeaseChild(string[] args)
     {
         string folder = Program.Option(args, "--folder")!; Store.SecureDirectory(folder);

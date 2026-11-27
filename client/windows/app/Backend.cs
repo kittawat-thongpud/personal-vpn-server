@@ -183,9 +183,8 @@ public sealed class Backend : IAsyncDisposable
     private CancellationTokenSource? session;
     private CancellationTokenSource? cycle;
     private Task? worker;
-    private long generation;
-    private string networkSignature = "";
-    private bool tunHealthPending;
+    private readonly RecoveryNetwork network = new();
+    private bool tunCaptureReady;
     private readonly Timer networkDebounce;
     private string state = "Disconnected", detail = "Ready", exit = "—";
     private Settings? active;
@@ -214,13 +213,16 @@ public sealed class Backend : IAsyncDisposable
     }
     private void OnNetworkChange(object? sender, EventArgs args) => ScheduleNetworkCheck();
     private void OnAvailabilityChange(object? sender, NetworkAvailabilityEventArgs args) => ScheduleNetworkCheck();
-    private static string NetworkSignature(bool tun)
+    private static string? NetworkSignature(bool tun)
     {
         try
         {
             var interfaces = NetworkInterface.GetAllNetworkInterfaces().Where(nic => tun
                 ? PhysicalNetwork.IsUnderlay(nic)
-                : !nic.Name.StartsWith("PersonalVPN", StringComparison.Ordinal));
+                : !nic.Name.StartsWith("PersonalVPN", StringComparison.Ordinal)).ToArray();
+            if (tun && !interfaces.Any(nic => nic.OperationalStatus == OperationalStatus.Up &&
+                nic.GetIPProperties().UnicastAddresses.Any(a => !IPAddress.IsLoopback(a.Address) && !a.Address.IsIPv6LinkLocal)))
+                return "";
             var links = interfaces.OrderBy(nic => nic.Id).Select(nic =>
             {
                 var properties = nic.GetIPProperties();
@@ -233,42 +235,40 @@ public sealed class Backend : IAsyncDisposable
             // adapter and other VPNs from the TUN snapshot.
             return PhysicalNetwork.Signature() + "|" + string.Join("|", links);
         }
-        catch (Exception error) when (error is NetworkInformationException or Win32Exception) { return ""; }
+        catch (Exception error) when (error is NetworkInformationException or Win32Exception) { return null; }
     }
     private void NetworkChanged()
     {
         lock (gate)
         {
-            if (session == null) return;
+            if (session == null || session.IsCancellationRequested) return;
             ObserveNetwork(NetworkSignature(active?.CaptureMode == "TUN"));
         }
     }
-    // Called under gate. A transient failure to read the interface table leaves
-    // the previous snapshot in place for the next poll.
-    private void ObserveNetwork(string observed)
+    // Called under gate. Keep an established TUN capture while checking the new path.
+    private void ObserveNetwork(string? observed)
     {
-        if (observed.Length == 0 || observed == networkSignature) return;
-        bool hasBaseline = networkSignature.Length != 0;
-        networkSignature = observed;
-        if (!hasBaseline) return;
-        if (active?.CaptureMode == "TUN")
-        {
-            tunHealthPending = true;
-            return;
-        }
-        generation++;
-        cycle?.Cancel();
-        Log.Add("WARN", "backend.network_changed", "Network address / availability changed; discard old health result and re-verify.");
+        string? previous = network.Signature;
+        if (!network.Observe(observed)) return;
+        bool retain = active?.CaptureMode == "TUN" && tunCaptureReady;
+        if (!retain) cycle?.Cancel();
+        string change = observed == "" ? "lost" : previous == "" ? "restored" : "changed";
+        Log.Add("INFO", "backend.network_changed",
+            $"generation={network.Generation}; mode={active?.CaptureMode}; change={change}; capture={(retain ? "retained" : "restart_if_active")}; old health results invalidated.");
+        if (retain)
+            SetState(observed == "" ? "Waiting for network" : "Verifying",
+                observed == "" ? "Physical network unavailable; TUN capture retained." : "Network changed. Checking HTTPS through the existing TUN.", network.Generation);
     }
     private void SetState(string value, string reason, long? expected = null)
     {
         lock (gate)
         {
-            if (expected != null && expected.Value != generation) return;
+            if (expected != null && (!network.IsCurrent(expected.Value) || session?.IsCancellationRequested == true)) return;
+            bool changed = state != value || detail != reason;
             state = value; detail = reason;
             if (value != "Connected") exit = "—";
+            if (changed) Log.Add(value is "Error" or "Degraded" or "Reconnecting" ? "WARN" : "INFO", "state." + value.ToLowerInvariant(), reason);
         }
-        Log.Add(value is "Error" or "Reconnecting" ? "WARN" : "INFO", "state." + value.ToLowerInvariant(), reason);
     }
     public async Task StartAsync(Settings settings, CancellationToken cancellation = default)
     {
@@ -284,12 +284,13 @@ public sealed class Backend : IAsyncDisposable
             Traffic.Reset();
             lock (gate)
             {
-                active = settings.Snapshot(); session = new CancellationTokenSource(); generation++;
-                networkSignature = NetworkSignature(active.CaptureMode == "TUN");
-                tunHealthPending = false;
+                active = settings.Snapshot(); session = new CancellationTokenSource();
+                network.Reset(NetworkSignature(active.CaptureMode == "TUN"));
+                tunCaptureReady = false;
                 var token = session.Token;
                 var snapshot = active.Snapshot();
-                state = "Connecting"; detail = settings.CaptureMode == "TUN" ? "Starting TUN; authentication, adapter and capture checks required." : "Starting tunnel and selecting Personal VPN system proxy."; exit = "—";
+                Log.Add("INFO", "backend.session_requested", $"generation={network.Generation}; mode={snapshot.CaptureMode}; protocol={snapshot.Protocol}.");
+                SetState("Connecting", settings.CaptureMode == "TUN" ? "Starting TUN; authentication, adapter and capture checks required." : "Starting tunnel and selecting Personal VPN system proxy.");
                 worker = Task.Run(() => Run(snapshot, token));
             }
             networkDebounce.Change(1200, 3000); // Includes metric changes without an address event.
@@ -360,41 +361,76 @@ public sealed class Backend : IAsyncDisposable
     }
     public async Task StopAsync()
     {
+        RequestStop();
         await lifecycle.WaitAsync();
         try
         {
-            if (Running) SetState("Disconnecting", "Stopping VPN and releasing capture.");
+            RequestStop();
             await StopInternal();
         }
         finally { lifecycle.Release(); }
     }
+    private void RequestStop()
+    {
+        lock (gate)
+        {
+            if (session == null || session.IsCancellationRequested) return;
+            Log.Add("INFO", "backend.stop_requested", $"generation={network.Generation}; mode={active?.CaptureMode}; state={state}.");
+            SetState("Disconnecting", "Stopping VPN and releasing capture.");
+            session.Cancel();
+        }
+    }
     public async Task ReclaimProxyAsync(CancellationToken cancellation = default)
     {
         await lifecycle.WaitAsync(cancellation);
+        long? pathGeneration = null;
         try
         {
-            if (!Running || active == null || !(active.SystemProxy || active.CaptureMode == "TUN") || proxyLease == null) throw new InvalidOperationException("Connect with System proxy enabled and wait for tunnel verification first.");
-            long expectedGeneration; lock (gate) expectedGeneration = generation;
-            proxyLease.Reclaim();
-            lock (gate) captureStatus = "Windows HTTP / HTTPS → Personal VPN";
-            SetState("Verifying", "Windows proxy selected. Rechecking HTTPS without restarting the tunnel.");
+            SystemProxyLease lease;
+            Settings settings;
+            CancellationToken sessionToken;
+            lock (gate)
+            {
+                if (session == null || active == null || !(active.SystemProxy || active.CaptureMode == "TUN") || proxyLease is not { } selectedLease)
+                    throw new InvalidOperationException("Connect with System proxy enabled and wait for tunnel verification first.");
+                lease = selectedLease;
+                settings = active;
+                sessionToken = session.Token;
+            }
+            using var command = CancellationTokenSource.CreateLinkedTokenSource(sessionToken, cancellation);
+            (long Generation, CancellationTokenSource Work) path;
+            lock (gate) path = network.BeginWork(command.Token);
+            using var proof = path.Work;
+            pathGeneration = path.Generation;
+            proof.Token.ThrowIfCancellationRequested();
+            lease.Reclaim();
+            lock (gate)
+            {
+                proof.Token.ThrowIfCancellationRequested();
+                captureStatus = "Windows HTTP / HTTPS → Personal VPN";
+                SetState("Verifying", "Windows proxy selected. Rechecking HTTPS without restarting the tunnel.", path.Generation);
+            }
             // WinINet's fresh snapshot is authoritative. .NET's global system-proxy
             // object may retain an older selection after a settings notification.
-            if (!proxyLease.IsCurrent) throw new InvalidOperationException("Another app selected a different proxy again.");
-            using var client = new HttpClient(new SocketsHttpHandler { Proxy = active.CaptureMode == "TUN" ? null : new WebProxy("http://127.0.0.1:" + active.HttpPort), UseProxy = active.CaptureMode != "TUN", ConnectTimeout = TimeSpan.FromSeconds(8) }) { Timeout = TimeSpan.FromSeconds(12) };
+            if (!lease.IsCurrent) throw new InvalidOperationException("Another app selected a different proxy again.");
+            using var client = new HttpClient(new SocketsHttpHandler { Proxy = settings.CaptureMode == "TUN" ? null : new WebProxy("http://127.0.0.1:" + settings.HttpPort), UseProxy = settings.CaptureMode != "TUN", ConnectTimeout = TimeSpan.FromSeconds(8) }) { Timeout = TimeSpan.FromSeconds(12) };
             string observed = await HealthDiagnostics.VerifyAsync(client, Log,
-                $"generation={expectedGeneration}; protocol={active.Protocol}; path=system_proxy", cancellation);
-            cancellation.ThrowIfCancellationRequested();
-            if (!proxyLease.IsCurrent) throw new InvalidOperationException("Another app changed the Windows proxy during verification.");
-            lock (gate) { if (generation != expectedGeneration) throw new OperationCanceledException("Network changed during browser proxy verification."); }
-            Log.Add("INFO", "backend.system_proxy_verified", "Windows selects Personal VPN and the selected HTTP listener passed HTTPS. Policy-routed exit: " + observed + ". Existing app sockets may need a new connection.");
-            SetState("Connected", "System proxy reselected and HTTPS verified. Existing connections may need reconnecting.", expectedGeneration);
-            lock (gate) { if (generation == expectedGeneration) exit = lastTunnelExit; }
+                $"generation={path.Generation}; protocol={settings.Protocol}; path=system_proxy", proof.Token);
+            proof.Token.ThrowIfCancellationRequested();
+            if (!lease.IsCurrent) throw new InvalidOperationException("Another app changed the Windows proxy during verification.");
+            lock (gate)
+            {
+                proof.Token.ThrowIfCancellationRequested();
+                if (lease != proxyLease) throw new OperationCanceledException("Previous proxy lease was replaced.");
+                Log.Add("INFO", "backend.system_proxy_verified", "Windows selects Personal VPN and the selected HTTP listener passed HTTPS. Policy-routed exit: " + observed + ". Existing app sockets may need a new connection.");
+                SetState("Connected", "System proxy reselected and HTTPS verified. Existing connections may need reconnecting.", path.Generation);
+                exit = lastTunnelExit;
+            }
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { throw; }
+        catch (OperationCanceledException) { throw; }
         catch
         {
-            if (Running) SetState("Degraded", "Browser proxy verification failed. Check other proxy software and app-specific proxy settings.");
+            if (pathGeneration != null && Running) SetState("Degraded", "Browser proxy verification failed. Check other proxy software and app-specific proxy settings.", pathGeneration);
             throw;
         }
         finally { lifecycle.Release(); }
@@ -413,7 +449,7 @@ public sealed class Backend : IAsyncDisposable
         catch { SetState("Error", "Windows proxy restore failed. Retry Disconnect; the recovery record was retained."); throw; }
         finally
         {
-            lock (gate) { session?.Dispose(); session = null; worker = null; active = null; captureStatus = "Not captured"; lastTunnelExit = "—"; }
+            lock (gate) { session?.Dispose(); session = null; worker = null; active = null; tunCaptureReady = false; captureStatus = "Not captured"; lastTunnelExit = "—"; }
             Traffic.Unavailable();
         }
         if (failure != null) { SetState("Error", "Previous capture cleanup failed. Retry to reset the retained adapter."); throw new InvalidOperationException("Previous capture cleanup failed; recovery must finish before a new connection.", failure); }
@@ -422,23 +458,41 @@ public sealed class Backend : IAsyncDisposable
     private async Task Run(Settings settings, CancellationToken token)
     {
         int failures = 0;
+        long failureGeneration = -1;
         long attemptNumber = 0;
         while (!token.IsCancellationRequested)
         {
             long attemptGeneration;
+            bool noUnderlay;
             using var attempt = CancellationTokenSource.CreateLinkedTokenSource(token);
-            lock (gate) { cycle = attempt; attemptGeneration = generation; }
+            lock (gate)
+            {
+                cycle = attempt;
+                attemptGeneration = network.Generation;
+                noUnderlay = settings.CaptureMode == "TUN" && network.Signature == "";
+            }
+            void SetPath(long current, bool verified)
+            {
+                attemptGeneration = current;
+                if (failureGeneration != current || verified) failures = 0;
+                failureGeneration = current;
+            }
+            SetPath(attemptGeneration, false);
             try
             {
-                if (!NetworkInterface.GetIsNetworkAvailable())
+                if (noUnderlay || !NetworkInterface.GetIsNetworkAvailable())
                 {
-                    SetState("Waiting for network", "No usable network. Waiting before another attempt.");
+                    SetState("Waiting for network", "No usable network. Waiting before another attempt.", attemptGeneration);
                     await Task.Delay(3000, attempt.Token); continue;
                 }
-                SetState(failures == 0 ? "Connecting" : "Reconnecting", "Starting " + settings.Protocol + "; authentication and TLS checks required.");
-                await RunCycle(settings, attemptGeneration, ++attemptNumber, () => failures = 0, attempt.Token);
+                SetState(failures == 0 ? "Connecting" : "Reconnecting", "Starting " + settings.Protocol + "; authentication and TLS checks required.", attemptGeneration);
+                Log.Add("INFO", "backend.attempt_started", $"generation={attemptGeneration}; attempt={++attemptNumber}; failures={failures}; protocol={settings.Protocol}; mode={settings.CaptureMode}.");
+                await RunCycle(settings, attemptGeneration, attemptNumber, SetPath, attempt.Token);
             }
-            catch (OperationCanceledException) when (attempt.IsCancellationRequested) { }
+            catch (OperationCanceledException) when (attempt.IsCancellationRequested)
+            {
+                Log.Add("INFO", "backend.attempt_cancelled", $"generation={attemptGeneration}; attempt={attemptNumber}; reason={(token.IsCancellationRequested ? "stop_requested" : "network_changed")}.");
+            }
             catch (Exception error) when (attempt.IsCancellationRequested && error is not CaptureCleanupException)
             {
                 // RunCycle's finally has completed successfully before this
@@ -449,12 +503,30 @@ public sealed class Backend : IAsyncDisposable
             catch (Exception error)
             {
                 if (token.IsCancellationRequested) { SetState("Error", "Capture reset failed; retry Disconnect or Connect to recover."); Log.Add("ERROR", "backend.cleanup_failed", "Capture teardown failed (" + error.GetType().Name + "). Retry Disconnect; the recovery record was retained."); throw; }
-                failures++;
-                string reason = error is InvalidOperationException ? error.Message : "VPN attempt failed (" + error.GetType().Name + ").";
-                SetState("Reconnecting", reason, attemptGeneration);
-                int delay = Math.Min(30, 1 << Math.Min(failures, 5)) * 1000 + Random.Shared.Next(0, 750);
-                Log.Add("WARN", "backend.retry", $"generation={attemptGeneration}; attempt={attemptNumber}; failures={failures}; delay_ms={delay}. No automatic Direct fallback.");
-                try { await Task.Delay(delay, attempt.Token); } catch (OperationCanceledException) { }
+                int delay;
+                (long Generation, CancellationTokenSource Work) retry;
+                lock (gate)
+                {
+                    if (!network.IsCurrent(attemptGeneration) && error is not CaptureCleanupException)
+                    {
+                        Log.Add("INFO", "backend.stale_result", $"generation={attemptGeneration}; current_generation={network.Generation}; attempt={attemptNumber}; result=failure_discarded.");
+                        continue;
+                    }
+                    SetPath(network.Generation, false);
+                    failures++;
+                    string reason = error is InvalidOperationException ? error.Message : "VPN attempt failed (" + error.GetType().Name + ").";
+                    SetState("Reconnecting", reason, attemptGeneration);
+                    delay = Math.Min(30, 1 << Math.Min(failures, 5)) * 1000 + Random.Shared.Next(0, 750);
+                    retry = network.BeginWork(token);
+                    Log.Add("WARN", "backend.retry", $"generation={retry.Generation}; attempt={attemptNumber}; failures={failures}; reason={error.GetType().Name}; delay_ms={delay}. No automatic Direct fallback.");
+                }
+                using var wait = retry.Work;
+                try { await Task.Delay(delay, wait.Token); }
+                catch (OperationCanceledException) when (wait.IsCancellationRequested)
+                {
+                    if (!token.IsCancellationRequested)
+                        Log.Add("INFO", "backend.retry_woken", $"generation={retry.Generation}; attempt={attemptNumber}; reason=network_changed.");
+                }
             }
             finally { lock (gate) { if (cycle == attempt) cycle = null; } }
         }
@@ -474,13 +546,14 @@ public sealed class Backend : IAsyncDisposable
         tag, protocol, listen = "127.0.0.1", port,
         settings = protocol == "socks" ? (object)new { auth = "noauth", udp } : new { },
     };
-    private async Task RunCycle(Settings settings, long expected, long attemptNumber, Action verified, CancellationToken token)
+    private async Task RunCycle(Settings settings, long expected, long attemptNumber, Action<long, bool> setPath, CancellationToken token)
     {
-        string diagnosticContext = $"generation={expected}; attempt={attemptNumber}; protocol={settings.Protocol}; mode={settings.CaptureMode}";
+        string Context() => $"generation={expected}; attempt={attemptNumber}; protocol={settings.Protocol}; mode={settings.CaptureMode}";
+        string diagnosticContext = Context();
         void RecordPhase(string phase, long started, string result) =>
             Log.Add(result == "failed" ? "WARN" : "INFO", "backend.phase",
-                    $"generation={expected}; attempt={attemptNumber}; phase={phase}; elapsed_ms={(long)Stopwatch.GetElapsedTime(started).TotalMilliseconds}; result={result}");
-        async Task<T> Measure<T>(string phase, Func<Task<T>> operation, bool reportSuccess = true)
+                    $"{Context()}; phase={phase}; elapsed_ms={(long)Stopwatch.GetElapsedTime(started).TotalMilliseconds}; result={result}");
+        async Task<T> Measure<T>(string phase, Func<Task<T>> operation, bool reportSuccess = true, CancellationToken pathToken = default)
         {
             long started = Stopwatch.GetTimestamp();
             try
@@ -491,13 +564,24 @@ public sealed class Backend : IAsyncDisposable
             }
             catch (Exception)
             {
-                RecordPhase(phase, started, token.IsCancellationRequested ? "cancelled" : "failed");
+                RecordPhase(phase, started, token.IsCancellationRequested || pathToken.IsCancellationRequested ? "cancelled" : "failed");
                 throw;
             }
         }
 
-        TunLease.RecoverAbandoned();
-        if (proxyLease != null) { proxyLease.Dispose(); proxyLease = null; }
+        long preflightStarted = Stopwatch.GetTimestamp();
+        try
+        {
+            token.ThrowIfCancellationRequested();
+            TunLease.RecoverAbandoned();
+            if (proxyLease != null) { proxyLease.Dispose(); proxyLease = null; }
+            RecordPhase("recovery_preflight", preflightStarted, "ok");
+        }
+        catch (Exception)
+        {
+            RecordPhase("recovery_preflight", preflightStarted, token.IsCancellationRequested ? "cancelled" : "failed");
+            throw;
+        }
         string runtimeRoot = Path.Combine(Store.Root, "runtime");
         Store.SecureDirectory(runtimeRoot);
         string folder = Path.Combine(runtimeRoot, Guid.NewGuid().ToString("N"));
@@ -534,7 +618,8 @@ public sealed class Backend : IAsyncDisposable
                 hy["quic"] = new JsonObject { ["maxIdleTimeout"] = "30s", ["keepAlivePeriod"] = "10s" };
                 string path = Path.Combine(folder, "hysteria.json");
                 await File.WriteAllTextAsync(path, hy.ToJsonString(), token);
-                owned.Add(new OwnedCore(job, VerifyCore("hysteria.exe"), new[] { "client", "-c", path }, Log, diagnosticContext));
+                owned.Add(new OwnedCore(job, VerifyCore("hysteria.exe"), new[] { "client", "-c", path }, Log,
+                    $"core_generation={expected}; attempt={attemptNumber}; protocol={settings.Protocol}; mode={settings.CaptureMode}"));
                 outbounds.Add(new JsonObject { ["tag"] = "tunnel", ["protocol"] = "socks", ["settings"] = new JsonObject { ["servers"] = new JsonArray(new JsonObject { ["address"] = "127.0.0.1", ["port"] = inner }) } });
             }
             else
@@ -578,128 +663,177 @@ public sealed class Backend : IAsyncDisposable
             using var tunHealth = new HttpClient(new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(8), PooledConnectionLifetime = TimeSpan.Zero }) { Timeout = TimeSpan.FromSeconds(12) };
             int misses = 0;
             bool initialCheck = true;
+            long degradedAt = 0;
             while (true)
             {
                 token.ThrowIfCancellationRequested();
                 EnsureAlive(owned);
-                bool recheck = false;
-                if (tun)
+                (long Generation, CancellationTokenSource Work) path;
+                bool noUnderlay;
+                lock (gate)
                 {
-                    lock (gate)
+                    path = network.BeginWork(token);
+                    noUnderlay = tun && network.Signature == "";
+                }
+                using var work = path.Work;
+                var pathToken = work.Token;
+                bool recheck = path.Generation != expected;
+                if (recheck)
+                {
+                    expected = path.Generation;
+                    diagnosticContext = Context();
+                    setPath(expected, false);
+                    misses = 0;
+                    initialCheck = true;
+                    if (!noUnderlay)
                     {
-                        recheck = tunHealthPending && adapterLease != null;
-                        if (recheck)
-                            Log.Add("INFO", "backend.tun_recheck", "Physical network changed. Verifying HTTPS through the existing tunnel.");
-                        tunHealthPending = false;
+                        Log.Add("INFO", "backend.tun_recheck", diagnosticContext + "; verifying HTTPS through the existing capture.");
                     }
                 }
+
                 try
                 {
-                    bool reportSuccess = initialCheck || recheck || misses > 0;
-                    string observed = await Measure("outbound_https", () =>
-                        HealthDiagnostics.VerifyAsync(client, Log, diagnosticContext + "; path=outbound", token), reportSuccess);
-                    token.ThrowIfCancellationRequested();
-                    if (tun && adapterLease == null)
+                    pathToken.ThrowIfCancellationRequested();
+                    if (noUnderlay)
                     {
-                        SetState("Verifying", "Authenticated server verified; preparing TUN adapter and checking the captured path.", expected);
-                        adapterLease = await Measure("capture_lease", () => TunLease.Start(folder, token));
-                        foreach (var (nic, row) in PhysicalNetwork.Rows()) Log.Add("INFO", "backend.physical_link", nic.Name + " · " + (row.Family == 2 ? "IPv4" : "IPv6") + " · index " + row.Index + " · metric " + row.Metric + " · MTU " + row.Mtu + "; strong-host binding prepared. Direct uses destination routes, not a fixed Wi-Fi/LAN preference.");
-                        Log.Add("INFO", "backend.adapter_reused", "Persistent adapter opened: " + adapterLease.AdapterId + ". No device creation or deletion for this session.");
-                        var plan = TunPlan.Compile(settings, transports.Select(x => x.ToString()), new[] { VerifyCore("xray.exe"), VerifyCore("hysteria.exe") }, adapterLease.InterfaceName, TunSupport.MeshPrefixes(), Environment.ProcessPath);
-                        if (Environment.GetEnvironmentVariable("CI") == "true") plan["log"]!["level"] = "debug";
-                        string path = Path.Combine(folder, "tun.json"); await File.WriteAllTextAsync(path, plan.ToJsonString(), token);
-                        var tunCore = new OwnedCore(job, VerifyCore("sing-box.exe"), new[] { "run", "-c", path }, Log); owned.Add(tunCore);
-                        lock (gate) { cores.Clear(); cores.AddRange(owned); }
-                        await Measure("capture_ready", async () =>
-                        {
-                            await TunSupport.WaitForAdapter(adapterLease, token, () => tunCore.Exited ? "TUN core stopped before adapter readiness. " + tunCore.StartupDiagnostic : null);
-                            return true;
-                        });
-                        Log.Add("INFO", "backend.tun_started", "Owned TUN adapter ready; verifying DNS and HTTPS through system capture.");
+                        if (adapterLease?.Exited == true) throw new InvalidOperationException("Adapter recovery guard stopped.");
+                        SetState("Waiting for network", "Physical network unavailable; TUN capture retained.", expected);
+                        await Task.Delay(3000, pathToken);
+                        continue;
                     }
-                    if (tun)
+                    bool reportSuccess = initialCheck || misses > 0;
+                    string healthPath = "outbound";
+                    try
                     {
-                        if (adapterLease!.Exited) throw new InvalidOperationException("Adapter recovery guard stopped.");
-                        string capturedExit = await Measure("captured_https", async () =>
+                        string observed = await Measure("outbound_https", () =>
+                            HealthDiagnostics.VerifyAsync(client, Log, diagnosticContext + "; path=outbound", pathToken), reportSuccess, pathToken);
+                        pathToken.ThrowIfCancellationRequested();
+                        if (tun && adapterLease == null)
                         {
-                            string candidate = await HealthDiagnostics.VerifyAsync(tunHealth, Log, diagnosticContext + "; path=captured", token);
-                            if (candidate != observed)
+                            SetState("Verifying", "Authenticated server verified; preparing TUN adapter and checking the captured path.", expected);
+                            adapterLease = await Measure("capture_lease", () => TunLease.Start(folder, pathToken), pathToken: pathToken);
+                            foreach (var (nic, row) in PhysicalNetwork.Rows()) Log.Add("INFO", "backend.physical_link", nic.Name + " · " + (row.Family == 2 ? "IPv4" : "IPv6") + " · index " + row.Index + " · metric " + row.Metric + " · MTU " + row.Mtu + "; strong-host binding prepared. Direct uses destination routes, not a fixed Wi-Fi/LAN preference.");
+                            Log.Add("INFO", "backend.adapter_reused", "Persistent adapter opened: " + adapterLease.AdapterId + ". No device creation or deletion for this session.");
+                            var plan = TunPlan.Compile(settings, transports.Select(x => x.ToString()), new[] { VerifyCore("xray.exe"), VerifyCore("hysteria.exe") }, adapterLease.InterfaceName, TunSupport.MeshPrefixes(), Environment.ProcessPath);
+                            if (Environment.GetEnvironmentVariable("CI") == "true") plan["log"]!["level"] = "debug";
+                            string captureConfig = Path.Combine(folder, "tun.json"); await File.WriteAllTextAsync(captureConfig, plan.ToJsonString(), pathToken);
+                            var tunCore = new OwnedCore(job, VerifyCore("sing-box.exe"), new[] { "run", "-c", captureConfig }, Log); owned.Add(tunCore);
+                            lock (gate) { cores.Clear(); cores.AddRange(owned); }
+                            await Measure("capture_ready", async () =>
                             {
-                                Log.Add("WARN", "backend.health_probe", diagnosticContext + "; path=captured; result=exit_mismatch");
-                                throw new InvalidDataException("Captured path did not use the authenticated VPN exit.");
-                            }
-                            return candidate;
-                        }, reportSuccess);
-                        observed = capturedExit;
-                    }
-                    if ((settings.SystemProxy || tun) && proxyLease == null) proxyLease = new SystemProxyLease(settings.HttpPort, Log, direct: tun);
-                    bool captured = !(settings.SystemProxy || tun) || proxyLease!.IsCurrent;
-                    lock (gate) captureStatus = tun ? "TUN · apps / services captured" : settings.SystemProxy ? captured ? "Windows HTTP / HTTPS → Personal VPN" : "Proxy changed by another app" : "Manual app proxy only";
-                    lock (gate) { if (generation != expected) throw new OperationCanceledException(token); exit = observed; lastTunnelExit = observed; }
-                    SetState(captured ? "Connected" : "Proxy conflict", captured
-                        ? "Verified " + (tun ? "TUN " : "HTTPS ") + "exit " + observed + " · " + settings.Protocol
-                        : "Tunnel works, but another app selected a different Windows proxy. Use proxy to select Personal VPN again.", expected);
-                    lock (gate)
-                    {
-                        if (generation == expected && !token.IsCancellationRequested)
+                                await TunSupport.WaitForAdapter(adapterLease, pathToken, () => tunCore.Exited ? "TUN core stopped before adapter readiness. " + tunCore.StartupDiagnostic : null);
+                                return true;
+                            }, pathToken: pathToken);
+                            lock (gate) { pathToken.ThrowIfCancellationRequested(); tunCaptureReady = true; }
+                            Log.Add("INFO", "backend.tun_started", "Owned TUN adapter ready; verifying DNS and HTTPS through system capture.");
+                        }
+                        if (tun)
                         {
-                            exit = observed;
-                            if (captured && !tunHealthPending) verified();
+                            healthPath = "captured";
+                            if (adapterLease!.Exited) throw new InvalidOperationException("Adapter recovery guard stopped.");
+                            string capturedExit = await Measure("captured_https", async () =>
+                            {
+                                string candidate = await HealthDiagnostics.VerifyAsync(tunHealth, Log, diagnosticContext + "; path=captured", pathToken);
+                                if (candidate != observed)
+                                {
+                                    Log.Add("WARN", "backend.health_probe", diagnosticContext + "; path=captured; result=exit_mismatch");
+                                    throw new InvalidDataException("Captured path did not use the authenticated VPN exit.");
+                                }
+                                return candidate;
+                            }, reportSuccess, pathToken);
+                            observed = capturedExit;
+                        }
+                        pathToken.ThrowIfCancellationRequested();
+                        if ((settings.SystemProxy || tun) && proxyLease == null) proxyLease = new SystemProxyLease(settings.HttpPort, Log, direct: tun);
+                        bool captured = !(settings.SystemProxy || tun) || proxyLease!.IsCurrent;
+                        lock (gate)
+                        {
+                            pathToken.ThrowIfCancellationRequested();
+                            captureStatus = tun ? "TUN · apps / services captured" : settings.SystemProxy ? captured ? "Windows HTTP / HTTPS → Personal VPN" : "Proxy changed by another app" : "Manual app proxy only";
+                            SetState(captured ? "Connected" : "Proxy conflict", captured
+                                ? "Verified " + (tun ? "TUN " : "HTTPS ") + "exit " + observed + " · " + settings.Protocol
+                                : "Tunnel works, but another app selected a different Windows proxy. Use proxy to select Personal VPN again.", expected);
+                            if (captured) exit = observed;
+                            lastTunnelExit = observed;
+                            if (captured) setPath(expected, true);
+                            if (reportSuccess)
+                                Log.Add("INFO", "backend.health_ok", $"{diagnosticContext}; authenticated HTTPS passed; capture={(captured ? "verified" : "conflict")}.");
+                            if (captured && degradedAt != 0)
+                            {
+                                Log.Add("INFO", "backend.health_recovered", $"{diagnosticContext}; elapsed_ms={(long)Stopwatch.GetElapsedTime(degradedAt).TotalMilliseconds}; core retained.");
+                                degradedAt = 0;
+                            }
+                        }
+                        initialCheck = false;
+                        misses = 0;
+                    }
+                    catch (Exception error) when (error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or InvalidDataException)
+                    {
+                        pathToken.ThrowIfCancellationRequested();
+                        string pathDiagnostic = HealthDiagnostics.DescribePath(transports.FirstOrDefault());
+                        lock (gate)
+                        {
+                            pathToken.ThrowIfCancellationRequested();
+                            if (degradedAt == 0) degradedAt = Stopwatch.GetTimestamp();
+                            misses++;
+                            SetState("Degraded", "Tunnel health check failed; verification retry " + misses + "/2.", expected);
+                            Log.Add("WARN", "backend.health_failed", $"{diagnosticContext}; path={healthPath}; failed_rounds={misses}/2; reason={error.GetType().Name}; next={(misses < 2 ? "recheck" : "restart")}.");
+                            Log.Add("INFO", "backend.path_diagnostic", diagnosticContext + "; " + pathDiagnostic);
+                            if (misses >= 2)
+                            {
+                                tunCaptureReady = false;
+                                throw new InvalidOperationException("Two tunnel health checks failed. Restarting owned VPN cores.");
+                            }
                         }
                     }
-                    initialCheck = false;
-                    misses = 0;
-                    Log.Add("INFO", "backend.health_ok", "Authenticated end-to-end check passed. Exit: " + observed);
-                }
-                catch (Exception error) when (error is HttpRequestException || error is TaskCanceledException || error is System.Text.Json.JsonException || error is InvalidDataException)
-                {
-                    token.ThrowIfCancellationRequested();
-                    misses++;
-                    SetState("Degraded", "Tunnel health check failed; verification retry " + misses + "/2.", expected);
-                    Log.Add("WARN", "backend.health_failed", "HTTPS health result failed (" + error.GetType().Name + ").");
-                    Log.Add("INFO", "backend.path_diagnostic", diagnosticContext + "; " + HealthDiagnostics.DescribePath(transports.FirstOrDefault()));
-                    if (misses >= 2) throw new InvalidOperationException("Two tunnel health checks failed. Restarting owned VPN cores.");
-                }
-                for (int second = 0; second < (misses > 0 ? 3 : 25); second++)
-                {
-                    await Task.Delay(1000, token); EnsureAlive(owned);
-                    if (adapterLease?.Exited == true) throw new InvalidOperationException("Adapter recovery guard stopped.");
-                    if ((settings.SystemProxy || tun) && proxyLease != null && !proxyLease.IsCurrent)
+                    for (int second = 0; second < (misses > 0 ? 3 : 25); second++)
                     {
-                        lock (gate) captureStatus = WindowsProxy.Describe(WindowsProxy.Read());
-                        if (State != "Proxy conflict") SetState("Proxy conflict", "Windows proxy changed outside Personal VPN. Use proxy to reclaim it; disable automatic proxy selection in the competing app if it keeps changing.", expected);
+                        await Task.Delay(1000, pathToken); EnsureAlive(owned);
+                        if (adapterLease?.Exited == true) throw new InvalidOperationException("Adapter recovery guard stopped.");
+                        if ((settings.SystemProxy || tun) && proxyLease != null && !proxyLease.IsCurrent)
+                        {
+                            lock (gate)
+                            {
+                                pathToken.ThrowIfCancellationRequested();
+                                captureStatus = WindowsProxy.Describe(WindowsProxy.Read());
+                                if (state != "Proxy conflict") SetState("Proxy conflict", "Windows proxy changed outside Personal VPN. Use proxy to reclaim it; disable automatic proxy selection in the competing app if it keeps changing.", expected);
+                            }
+                        }
                     }
-                    // Coalesce bursts and allow the network to settle before a
-                    // fresh probe. Only the existing health failure threshold
-                    // (or a dead core or guard) can tear down active capture.
-                    if (tun && misses == 0 && second >= 4)
-                    {
-                        lock (gate) { if (tunHealthPending) break; }
-                    }
+                }
+                catch (OperationCanceledException) when (!token.IsCancellationRequested && pathToken.IsCancellationRequested)
+                {
+                    Log.Add("INFO", "backend.stale_result", $"{diagnosticContext}; result=obsolete_path_cancelled.");
                 }
             }
         }
         finally
         {
+            lock (gate) tunCaptureReady = false;
             if (transportStarted != 0 && !transportReady)
                 RecordPhase("transport_start", transportStarted, token.IsCancellationRequested ? "cancelled" : "failed");
             long cleanupStarted = Stopwatch.GetTimestamp();
             var cleanupErrors = new List<Exception>();
+            void RecordCleanupFailure(string component, Exception error)
+            {
+                cleanupErrors.Add(error);
+                Log.Add("ERROR", "backend.cleanup_component_failed", $"{Context()}; component={component}; reason={error.GetType().Name}.");
+            }
             foreach (var core in owned) core.MarkStopping();
             trafficCancellation.Cancel();
-            try { if (trafficTask != null) await trafficTask; } catch (Exception error) { cleanupErrors.Add(error); }
+            try { if (trafficTask != null) await trafficTask; } catch (Exception error) { RecordCleanupFailure("traffic", error); }
             Traffic.Unavailable();
             lock (gate) cores.Clear();
             // Cleanup steps are independent; one exception cannot strand another
             // core, the TUN/physical journal, or the proxy recovery lease.
             for (int i = owned.Count - 1; i >= 0; i--)
             {
-                try { owned[i].Dispose(); } catch (Exception error) { cleanupErrors.Add(error); }
+                try { owned[i].Dispose(); } catch (Exception error) { RecordCleanupFailure(owned[i].Name, error); }
             }
             try { adapterLease?.Dispose(); if (adapterLease != null) Log.Add("INFO", "backend.tun_stopped", "Capture routes / DNS released and active physical binding flags restored; persistent adapter retained."); }
-            catch (Exception error) { cleanupErrors.Add(error); }
+            catch (Exception error) { RecordCleanupFailure("adapter", error); }
             try { proxyLease?.Dispose(); proxyLease = null; }
-            catch (Exception error) { cleanupErrors.Add(error); }
+            catch (Exception error) { RecordCleanupFailure("system_proxy", error); }
             if (cleanupErrors.Count != 0)
             {
                 RecordPhase("cleanup", cleanupStarted, "failed");
@@ -773,7 +907,7 @@ public sealed class Backend : IAsyncDisposable
         {
             if (session == null || active?.CaptureMode != "TUN" || state != "Connected")
                 throw new InvalidOperationException("Network change fixture requires connected TUN capture.");
-            ObserveNetwork(networkSignature + "|fixture");
+            ObserveNetwork(network.Signature + "|fixture");
         }
     }
     public async ValueTask DisposeAsync()
@@ -781,7 +915,7 @@ public sealed class Backend : IAsyncDisposable
         NetworkChange.NetworkAddressChanged -= OnNetworkChange;
         NetworkChange.NetworkAvailabilityChanged -= OnAvailabilityChange;
         try { await StopAsync(); }
-        finally { await networkDebounce.DisposeAsync(); lifecycle.Dispose(); }
+        finally { await networkDebounce.DisposeAsync(); network.Dispose(); lifecycle.Dispose(); }
     }
 }
 public sealed record ProtocolProbeResult(string Protocol, bool Success, string ExitIp, string Reason, long ElapsedMs);

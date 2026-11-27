@@ -11,13 +11,17 @@ $oldSetup = Join-Path $env:RUNNER_TEMP $asset
 $expected = if ($Architecture -eq 'x86') { '217c71a27c8ac0796eb63c137d2255f0e753861024cd5f3dc7b568088ac4680c' } else { '96e4a97cdbed9f514f28c4d820f54a50a6818837bf6cb051e2664e2d71023dc4' }
 if ((Get-FileHash $oldSetup).Hash -ne $expected) { throw 'Previous installer hash mismatch' }
 $stableSetup = $null
-if ($Version -eq '0.9.7') {
-    $stableAsset = "PersonalVPN-Setup-0.9.6-$Architecture.exe"
-    gh release download client-v0.9.6 --repo $env:GITHUB_REPOSITORY --pattern $stableAsset --dir $env:RUNNER_TEMP
-    if ($LASTEXITCODE -ne 0) { throw 'Stable 0.9.6 installer download failed' }
+$baseline = switch ($Version) {
+    '0.9.7' { @{ Version='0.9.6'; x86='5b1eebd460933bb25bc47623e246375b46ceca130fecefaa0ce705f4e6ea4818'; x64='9919b272005e65b77993f4f476b2158f2ed5e7a7b8e6f35b5fadf95dbc890592' } }
+    '0.9.8' { @{ Version='0.9.7'; x86='924732c1ae874a076b64b7bd010612ab7133bf63596009f8e4538bc4f7e625f3'; x64='20d38df2b0e550697dd5506dc6803bcab4262f922dd0bfcb9e331bd68b988f8e' } }
+}
+if ($baseline) {
+    $stableVersion = $baseline.Version
+    $stableAsset = "PersonalVPN-Setup-$stableVersion-$Architecture.exe"
+    gh release download "client-v$stableVersion" --repo $env:GITHUB_REPOSITORY --pattern $stableAsset --dir $env:RUNNER_TEMP
+    if ($LASTEXITCODE -ne 0) { throw "Stable $stableVersion installer download failed" }
     $stableSetup = Join-Path $env:RUNNER_TEMP $stableAsset
-    $expectedStable = if ($Architecture -eq 'x86') { '5b1eebd460933bb25bc47623e246375b46ceca130fecefaa0ce705f4e6ea4818' } else { '9919b272005e65b77993f4f476b2158f2ed5e7a7b8e6f35b5fadf95dbc890592' }
-    if ((Get-FileHash $stableSetup).Hash -ne $expectedStable) { throw 'Stable 0.9.6 installer hash mismatch' }
+    if ((Get-FileHash $stableSetup).Hash -ne $baseline[$Architecture]) { throw "Stable $stableVersion installer hash mismatch" }
 }
 function Install([string]$Installer, [string]$Name, [string]$Directory='') {
     $arguments = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/LOGCLOSEAPPLICATIONS',('/LOG="'+(Join-Path $env:RUNNER_TEMP ($Name+'.log'))+'"'))
@@ -112,13 +116,13 @@ if (Test-Path -LiteralPath (Join-Path $oldRoot 'PersonalVPN.exe')) { throw 'Old 
 if (-not (Test-Path -LiteralPath $note)) { throw 'Migration removed an unowned legacy file' }
 if ($stableSetup) {
     Install $stableSetup 'install-stable-baseline'
-    if ((Get-Content (Join-Path $root 'CLIENT-VERSION.txt') -Raw).Trim() -ne '0.9.6') { throw 'Stable baseline was not installed' }
+    if ((Get-Content (Join-Path $root 'CLIENT-VERSION.txt') -Raw).Trim() -ne $stableVersion) { throw 'Stable baseline was not installed' }
     if ((Get-FileHash $settings).Hash -ne $settingsHash) { throw 'Stable baseline changed the saved profile or rule' }
     $stableGui = LaunchIdle (Join-Path $root 'PersonalVPN.exe')
     Install $setup 'upgrade-stable-in-place'
     if (-not $stableGui.WaitForExit(15000)) { throw 'Stable GUI remained open after upgrading' }
     VerifyInstalled
-    Write-Output "Stable 0.9.6 → $Version in-place upgrade retained the DPAPI profile and Site Tunnel rule"
+    Write-Output "Stable $stableVersion → $Version in-place upgrade retained the DPAPI profile and Site Tunnel rule"
 }
 # Same-version reinstall updates the same product/directory while a GUI is open.
 $current = LaunchIdle (Join-Path $root 'PersonalVPN.exe')
@@ -127,4 +131,5 @@ Install $setup 'reinstall-in-place'
 if (-not $current.WaitForExit(15000)) { throw 'Previous GUI remained mapped across in-place update' }
 VerifyInstalled
 $report = [ordered]@{result='PASS';architecture=$Architecture;version=$Version;installed=$root;checks=@('versioned migration and old GUI closure','single stable directory and uninstall identity','same-version reinstall closes idle GUI','encrypted settings preserved','common and shadowing user shortcut repaired','legacy PersonalVPN.lnk consolidated','standalone icon exists','owned old files retired; unowned file retained','persistent adapter service ready')}
+if ($stableSetup) { $report['stableBaseline'] = $stableVersion; $report.checks += "previous stable $stableVersion in-place upgrade retained encrypted settings and Site Tunnel rule" }
 $report | ConvertTo-Json -Depth 6 | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'upgrade.json')

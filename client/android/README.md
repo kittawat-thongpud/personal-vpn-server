@@ -85,6 +85,10 @@ All entry points share its supervised connection controller. It uses physical-ne
 cancels DNS/HTTPS work from old network generations, protects outbound sockets
 from recursion, and keeps the TUN descriptor across transport retries. Network
 restoration wakes recovery automatically; unexpected worker completion is retried.
+Working Wi-Fi or cellular stays selected when Android's validation flag changes.
+Loss or suspension changes the underlay immediately; two complete failed health
+rounds can try another available underlay. A short failed-path cooldown prevents
+repeated switching when both links fail. Capture remains retained during recovery.
 Invalid configuration requires correcting the profile and Reconnect. Authentication
 or pin failures remain visible, retry slowly, and wake on a new network; incorrect
 credentials or an incorrect clock still need correction.

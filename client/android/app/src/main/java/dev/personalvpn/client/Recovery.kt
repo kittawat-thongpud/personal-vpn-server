@@ -46,6 +46,74 @@ internal data class NetworkChoice(val id: String, val path: String, val validate
 internal fun chooseNetwork(values: List<NetworkChoice>, current: String?): NetworkChoice? =
     values.sortedWith(compareByDescending<NetworkChoice> { it.score }.thenByDescending { it.id == current }.thenBy { it.id }).firstOrNull()
 
+internal data class NetworkSelection(val choice: NetworkChoice?, val reason: String)
+
+// Called under the service's control lock. Android validation describes its own
+// probes, not whether our authenticated VPN transport works on this underlay.
+// Retain a live/pending path until VPN health rejects it or Android removes it.
+internal class UnderlaySelector(private val failedPathCooldownMs: Long = 30000) {
+    private var verifiedPath: String? = null
+    private val failedUntil = mutableMapOf<String, Long>()
+
+    fun reset() { verifiedPath = null; failedUntil.clear() }
+
+    fun verified(choice: NetworkChoice) {
+        verifiedPath = choice.generationKey
+        failedUntil.remove(choice.generationKey)
+    }
+
+    fun failed(choice: NetworkChoice, now: Long) {
+        if (verifiedPath == choice.generationKey) verifiedPath = null
+        failedUntil[choice.generationKey] = now + failedPathCooldownMs
+    }
+
+    fun select(values: List<NetworkChoice>, previous: NetworkChoice?, now: Long, retainCurrent: Boolean = true): NetworkSelection {
+        val present = values.map { it.generationKey }.toSet()
+        failedUntil.entries.removeAll { it.value <= now || it.key !in present }
+        val current = values.firstOrNull { it.id == previous?.id }
+        val usable = values.filterNot { it.suspended }
+        if (retainCurrent && current != null && !current.suspended && current.generationKey == previous?.generationKey &&
+            current.generationKey !in failedUntil) {
+            return NetworkSelection(current, if (verifiedPath == current.generationKey) "retain_verified" else "retain_pending")
+        }
+        val eligible = usable.filterNot { it.generationKey in failedUntil }
+        // If all paths just failed, retain this one for the normal bounded
+        // health/retry loop instead of bouncing between failing interfaces.
+        val selected = chooseNetwork(eligible, previous?.id)
+            ?: current?.takeUnless { it.suspended }
+            ?: chooseNetwork(usable, previous?.id)
+            ?: chooseNetwork(values, previous?.id)
+        val reason = when {
+            selected == null -> "no_underlay"
+            previous == null -> "initial"
+            current == null -> "underlay_lost"
+            current.suspended -> "underlay_suspended"
+            current.generationKey != previous.generationKey -> "path_changed"
+            selected.generationKey != current.generationKey -> if (current.generationKey in failedUntil) "health_alternative" else "preferred"
+            current.generationKey in failedUntil -> "failed_paths_cooldown"
+            else -> "preferred"
+        }
+        return NetworkSelection(selected, reason)
+    }
+}
+
+// Capture release must still run when native transport teardown fails.
+internal fun releaseSessionResources(closeCore: () -> Unit, closeCapture: () -> Unit) {
+    releaseResources(closeCore, closeCapture)
+}
+
+internal fun releaseCoreResources(cancelPending: () -> Unit, readCounters: () -> Unit, close: () -> Unit) {
+    releaseResources(cancelPending, readCounters, close)
+}
+
+private fun releaseResources(vararg operations: () -> Unit) {
+    var failure: Exception? = null
+    for (operation in operations) try { operation() } catch (error: Exception) {
+        if (failure == null) failure = error else if (failure !== error) failure.addSuppressed(error)
+    }
+    failure?.let { throw it }
+}
+
 internal class HealthFailures(private val limit: Int = 2) {
     var count = 0; private set
     fun success() { count = 0 }

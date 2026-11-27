@@ -46,6 +46,9 @@ class TunnelService : VpnService() {
     private val commandGeneration = java.util.concurrent.atomic.AtomicLong()
     @Volatile private var networkEpoch = NetworkEpoch()
     @Volatile private var physicalNetworks = emptyList<PhysicalNetwork>()
+    private val underlaySelector = UnderlaySelector()
+    private var selectionLogKey = ""
+    private var networkRecoveryStarted = 0L
     private val wake = Channel<Unit>(Channel.CONFLATED)
     private val cm by lazy { getSystemService(ConnectivityManager::class.java) }
     private val monitor = PhysicalNetworks(::networksChanged)
@@ -80,6 +83,7 @@ class TunnelService : VpnService() {
         }
         val command=commandGeneration.incrementAndGet()
         desired = true; cancelPending(); worker?.cancel()
+        synchronized(control) { underlaySelector.reset(); selectionLogKey = ""; networkRecoveryStarted = 0L }
         update("Connecting",true,true,"Preparing VPN connection")
         worker = scope.launch { lifecycle.withLock {
             if(command!=commandGeneration.get() || !ownsSession || !desired) return@withLock
@@ -124,10 +128,17 @@ class TunnelService : VpnService() {
         worker=scope.launch { lifecycle.withLock {
             if(command!=commandGeneration.get() || !ownsSession)return@withLock
             withContext(NonCancellable) {
-                try { closeCore() } finally { closeCapture() }
+                var cleanupFailed = false
+                try { releaseSessionResources(::closeCore, ::closeCapture) }
+                catch (error: Exception) {
+                    cleanupFailed = true
+                    Repository.log("ERROR", "backend.stop_cleanup_failed", "reason=${Repository.cause(error)}; capture release attempted.")
+                }
                 if(command==commandGeneration.get() && !desired) {
                     update("Disconnected",false,false)
-                    Repository.log("INFO","backend.stopped","Core and capture released; foreground service stopping.")
+                    Repository.log(if (cleanupFailed) "WARN" else "INFO", "backend.stopped",
+                        if (cleanupFailed) "Stop completed with cleanup errors; foreground service stopping. Inspect cleanup events."
+                        else "Core and capture released; foreground service stopping.")
                     withContext(Dispatchers.Main) {
                         if(command==commandGeneration.get() && !desired) {
                             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -231,11 +242,20 @@ class TunnelService : VpnService() {
                     Repository.log("WARN", "backend.retry", "Attempt $attempt; generation=${epoch.generation}; stage=$phase; reason=${Repository.cause(error)}; retry in ${delayMs}ms; no Direct fallback.")
                     update("Reconnecting", true, true, "$phase: ${Repository.cause(error)}")
                     closeCore(); appliedPath = null
+                    val retryStarted = SystemClock.elapsedRealtime()
                     awaitNetworkChange(wake, delayMs) {
                         val latest = networkEpoch
                         latest.generation != epoch.generation ||
                             (!physical.choice.validated && latest.physical?.choice?.validated == true)
                     }
+                    val latest = networkEpoch
+                    val wakeReason = when {
+                        latest.generation != epoch.generation -> "generation_changed"
+                        !physical.choice.validated && latest.physical?.choice?.validated == true -> "validation_returned"
+                        else -> null
+                    }
+                    if (wakeReason != null) Repository.log("INFO", "backend.retry_woken",
+                        "generation=${latest.generation}; previous_generation=${epoch.generation}; reason=$wakeReason; elapsed_ms=${SystemClock.elapsedRealtime() - retryStarted}; stage=$phase.")
                 }
             }
         } finally { withContext(NonCancellable) { closeCore() } }
@@ -294,12 +314,17 @@ class TunnelService : VpnService() {
             val verifiedExit = result
             if (verifiedExit != null) {
                 failures.success()
-                healthy()
-                if (!connected) Repository.log("INFO", "health.verified", "generation=${epoch.generation}; elapsed=${SystemClock.elapsedRealtime() - started}ms; authenticated HTTPS and OS capture agree.")
-                connected = true
                 // Commit the result atomically with the generation check.
                 synchronized(control) {
                     checkEpoch(epoch)
+                    healthy()
+                    epoch.physical?.choice?.let(underlaySelector::verified)
+                    if (!connected) Repository.log("INFO", "health.verified", "generation=${epoch.generation}; elapsed=${SystemClock.elapsedRealtime() - started}ms; authenticated HTTPS and OS capture agree.")
+                    connected = true
+                    if (networkRecoveryStarted != 0L) {
+                        recoveryPhase(epoch.generation, attempt, "network_recovery", networkRecoveryStarted, "ok")
+                        networkRecoveryStarted = 0L
+                    }
                     if (degradedAt != 0L) {
                         Repository.log("INFO", "health.recovered",
                             "generation=${epoch.generation}; retry_elapsed=${SystemClock.elapsedRealtime() - degradedAt}ms; core retained.")
@@ -309,11 +334,21 @@ class TunnelService : VpnService() {
                 }
                 Surfaces.refresh(this)
             } else {
-                if (failures.failed()) throw IOException("Consecutive HTTPS health checks failed", lastFailure)
-                degradedAt = SystemClock.elapsedRealtime()
-                update("Degraded", true, false, "HTTPS verification retry; capture and core retained")
-                Repository.log("WARN", "health.degraded",
-                    "generation=${epoch.generation}; failed_rounds=${failures.count}/2; next_check=3000ms; core retained.")
+                if (failures.failed()) {
+                    // Preserve the existing two-round tolerance. Once that
+                    // threshold rejects this path, try an eligible alternative
+                    // immediately instead of restarting on the same interface.
+                    selectUnderlay(failedEpoch = epoch)
+                    checkEpoch(epoch)
+                    throw IOException("Consecutive HTTPS health checks failed", lastFailure)
+                }
+                synchronized(control) {
+                    checkEpoch(epoch)
+                    degradedAt = SystemClock.elapsedRealtime()
+                    update("Degraded", true, false, "HTTPS verification retry; capture and core retained")
+                    Repository.log("WARN", "health.degraded",
+                        "generation=${epoch.generation}; failed_rounds=${failures.count}/2; next_check=3000ms; core retained.")
+                }
             }
             delay(if (result == null) 3000 else 15000)
         }
@@ -329,51 +364,70 @@ class TunnelService : VpnService() {
         core?.cancelPending()
         wake.trySend(Unit)
     }
-    private fun networksChanged(values: List<PhysicalNetwork>) {
-        if (destroyed) return
-        physicalNetworks = values
-        val choice = chooseNetwork(values.map { it.choice }, networkEpoch.physical?.choice?.id)
-        val selected = values.firstOrNull { it.choice == choice }
-        val changed: Boolean
-        val previous: NetworkChoice?
-        val epoch: NetworkEpoch
+    private fun networksChanged(values: List<PhysicalNetwork>) = selectUnderlay(values)
+    private fun selectUnderlay(values: List<PhysicalNetwork>? = null, failedEpoch: NetworkEpoch? = null) {
         synchronized(control) {
+            if (destroyed) return
+            if (values != null) physicalNetworks = values
             val before = networkEpoch
-            previous = before.physical?.choice
-            changed = previous?.generationKey != choice?.generationKey
-            epoch = NetworkEpoch(before.generation + if (changed) 1 else 0, selected)
+            if (failedEpoch != null && before.generation != failedEpoch.generation) return
+            val previous = before.physical?.choice
+            val now = SystemClock.elapsedRealtime()
+            if (failedEpoch != null) previous?.let { underlaySelector.failed(it, now) }
+            val selection = underlaySelector.select(physicalNetworks.map { it.choice }, previous, now, retainCurrent = desired)
+            val choice = selection.choice
+            val selected = physicalNetworks.firstOrNull { it.choice == choice }
+            val candidates = physicalNetworks.count { !it.choice.suspended }
+            val changed = previous?.generationKey != choice?.generationKey
+            val epoch = NetworkEpoch(before.generation + if (changed) 1 else 0, selected)
             networkEpoch = epoch
-        }
-        applyUnderlying(epoch)
-        if (changed) {
+            if (changed && desired && networkRecoveryStarted == 0L) networkRecoveryStarted = now
+            val logKey = "${choice?.generationKey}/${selection.reason}"
+            val reportSelection = logKey != selectionLogKey
+            selectionLogKey = logKey
             val transport = when { selected == null -> "none"; choice?.wifi == true -> "wifi"; selected.capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"; else -> "other" }
-            val change = when {
-                choice == null -> "lost"
-                previous == null -> "available"
-                previous.id != choice.id -> "handover"
-                previous.suspended != choice.suspended -> if (choice.suspended) "suspended" else "resumed"
-                else -> "path"
+            if (reportSelection && desired) Repository.log("INFO", "network.selection",
+                "generation=${epoch.generation}; reason=${selection.reason}; trigger=${if (failedEpoch == null) "physical_update" else "health_threshold"}; transport=$transport; usable=$candidates; validated=${choice?.validated == true}.")
+            // Health rejection and CM callbacks may race. Commit the metadata,
+            // log and cancellation with this generation, before a newer cycle
+            // can publish itself under the same lock.
+            applyUnderlying(epoch)
+            if (changed) {
+                val change = when {
+                    choice == null -> "lost"
+                    previous == null -> "available"
+                    previous.id != choice.id -> "handover"
+                    previous.suspended != choice.suspended -> if (choice.suspended) "suspended" else "resumed"
+                    else -> "path"
+                }
+                Repository.log("INFO", "network.changed",
+                    "generation=${epoch.generation}; transport=$transport; change=$change; validated=${choice?.validated == true}; capture=${if (tun == null) "absent" else "retained"}; selection=${selection.reason}.")
+                cancelPending()
+            } else if (previous != null && choice != null && previous.validated != choice.validated) {
+                Repository.log("INFO", "network.validation_changed",
+                    "generation=${epoch.generation}; validated=${choice.validated}; same physical path.")
+                if (choice.validated) wake.trySend(Unit)
             }
-            Repository.log("INFO", "network.changed",
-                "generation=${epoch.generation}; transport=$transport; change=$change; validated=${choice?.validated == true}; capture=${if (tun == null) "absent" else "retained"}.")
-            cancelPending()
-        } else if (previous != null && choice != null && previous.validated != choice.validated) {
-            Repository.log("INFO", "network.validation_changed",
-                "generation=${epoch.generation}; validated=${choice.validated}; same physical path.")
-            if (choice.validated) wake.trySend(Unit)
         }
     }
     private fun applyUnderlying(epoch: NetworkEpoch) {
-        if (tun == null || !ownsSession) return
-        val networks = epoch.physical?.let { arrayOf(it.network) } ?: emptyArray()
-        runCatching { check(setUnderlyingNetworks(networks)) }.onFailure { Repository.log("WARN", "network.metadata_failed", it.javaClass.simpleName) }
+        synchronized(control) {
+            if (tun == null || !ownsSession || epoch.generation != networkEpoch.generation) return
+            val networks = epoch.physical?.let { arrayOf(it.network) } ?: emptyArray()
+            runCatching { check(setUnderlyingNetworks(networks)) }.onFailure { Repository.log("WARN", "network.metadata_failed", it.javaClass.simpleName) }
+        }
     }
     private fun closeCore() {
         val previous = core; core = null
         if (previous != null) {
-            previous.cancelPending()
-            baseUp += previous.upload(); baseDown += previous.download()
-            previous.close(); Repository.log("INFO", "core.stopped")
+            var closed = false
+            try {
+                releaseCoreResources(previous::cancelPending,
+                    { baseUp += previous.upload(); baseDown += previous.download() },
+                    { previous.close(); closed = true })
+            } finally {
+                Repository.log(if (closed) "INFO" else "ERROR", if (closed) "core.stopped" else "core.stop_failed")
+            }
         }
     }
     @Synchronized private fun closeCapture() {
@@ -382,9 +436,10 @@ class TunnelService : VpnService() {
         val released = runCatching { previous?.close() }.onFailure { Repository.log("WARN", "capture.close_failed", it.javaClass.simpleName) }
         if (ownsSession) runCatching { setUnderlyingNetworks(null) }
         if (previous != null) {
-            Repository.log("INFO", "capture.released")
+            if (released.isSuccess) Repository.log("INFO", "capture.released")
             recoveryPhase(networkEpoch.generation, 0, "cleanup", started, if (released.isSuccess) "ok" else "failed")
         }
+        released.getOrThrow()
     }
     private fun update(status: String, active: Boolean, busy: Boolean, detail: String = "") {
         if (!ownsSession) return
@@ -459,7 +514,17 @@ class TunnelService : VpnService() {
     override fun onDestroy() {
         commandGeneration.incrementAndGet();destroyed = true; desired = false; cancelPending(); worker?.cancel(); ticker?.cancel()
         runCatching { cm.unregisterNetworkCallback(monitor) }
-        scope.launch(start = CoroutineStart.UNDISPATCHED) { lifecycle.withLock { closeCore(); closeCapture(); update("Disconnected", false, false) }; scope.cancel() }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                lifecycle.withLock {
+                    withContext(NonCancellable) {
+                        try { releaseSessionResources(::closeCore, ::closeCapture) }
+                        catch (error: Exception) { Repository.log("ERROR", "backend.destroy_cleanup_failed", "reason=${Repository.cause(error)}; capture release attempted.") }
+                        finally { update("Disconnected", false, false) }
+                    }
+                }
+            } finally { scope.cancel() }
+        }
         super.onDestroy()
     }
 }

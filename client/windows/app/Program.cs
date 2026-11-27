@@ -22,6 +22,7 @@ public static class Program
     [STAThread]
     public static int Main(string[] arguments)
     {
+        if (arguments.Contains("--recovery-policy-test")) return Tests.RecoveryPolicyTest(arguments).GetAwaiter().GetResult();
         ShellIdentity.Initialize();
         if (arguments.Contains("--refresh-shortcuts")) { ShellIdentity.RefreshShortcuts(); return 0; }
         if (arguments.Contains("--prepare-upgrade"))
@@ -139,6 +140,7 @@ internal static partial class Tests
         {
             var log = new SessionLog();
             NetworkRecoveryPolicy(); passed.Add("physical binding ABI, durable journal and field-scoped conditional recovery");
+            passed.AddRange(RecoveryNetworkPolicy().GetAwaiter().GetResult());
             SiteTunnelTransferPolicy(); passed.Add("shared Site Tunnel JSON imports and round-trips grouped rules without VPN credentials");
             for (int i = 0; i < 5000; i++) { log.Add("INFO", "backend.retry", i + new string('x', 10000)); log.Add("INFO", "ui.click", "ignored"); }
             Assert(log.Snapshot().Length == 1000 && log.Bytes <= 1048576, "Log bounds failed.");

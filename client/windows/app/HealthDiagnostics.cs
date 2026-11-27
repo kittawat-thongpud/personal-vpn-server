@@ -20,28 +20,42 @@ internal static class HealthDiagnostics
         ("aws", "https://checkip.amazonaws.com/")
     };
 
-    internal static async Task<string> VerifyAsync(HttpClient client, SessionLog log, string context, CancellationToken token)
+    internal static async Task<string> VerifyAsync(HttpClient client, SessionLog log, string context, CancellationToken token,
+        TimeSpan? perTargetTimeout = null)
     {
+        TimeSpan timeout = perTargetTimeout ?? (client.Timeout == Timeout.InfiniteTimeSpan
+            ? TimeSpan.FromSeconds(10) : client.Timeout);
+        if (timeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(perTargetTimeout));
         bool fallback = false;
         foreach (var (name, url) in Targets)
         {
+            token.ThrowIfCancellationRequested();
+            // ResponseHeadersRead ends HttpClient.Timeout's protection at the
+            // headers. A fresh deadline must also cover this target's body and
+            // must not spend the independent fallback target's own budget.
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+            deadline.CancelAfter(timeout);
+            CancellationToken probeToken = deadline.Token;
             long started = Stopwatch.GetTimestamp();
+            string phase = "response_headers";
             try
             {
-                using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, token);
+                using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, probeToken);
                 response.EnsureSuccessStatusCode();
+                phase = "response_body";
                 if (response.Content.Headers.ContentLength > 4096) throw new InvalidDataException();
-                await using var stream = await response.Content.ReadAsStreamAsync(token);
+                await using var stream = await response.Content.ReadAsStreamAsync(probeToken);
                 byte[] bytes = new byte[4097];
                 int total = 0;
                 while (total < bytes.Length)
                 {
-                    int read = await stream.ReadAsync(bytes.AsMemory(total), token);
+                    int read = await stream.ReadAsync(bytes.AsMemory(total), probeToken);
                     if (read == 0) break;
                     total += read;
                 }
                 if (total > 4096) throw new InvalidDataException();
 
+                phase = "exit_validation";
                 string? candidate;
                 if (name == "ipify")
                 {
@@ -52,13 +66,17 @@ internal static class HealthDiagnostics
                 }
                 else candidate = System.Text.Encoding.UTF8.GetString(bytes, 0, total).Trim();
                 if (!IPAddress.TryParse(candidate, out _)) throw new InvalidDataException();
-                if (fallback) Record(log, context, name, started, "ok_via_fallback");
+                probeToken.ThrowIfCancellationRequested();
+                if (fallback) Record(log, context, name, phase, started, "ok_via_fallback");
                 return candidate!;
             }
-            catch (Exception error) when (!token.IsCancellationRequested &&
-                error is HttpRequestException or IOException or InvalidDataException or JsonException or OperationCanceledException)
+            catch (Exception error) when (error is HttpRequestException or IOException or InvalidDataException or JsonException or OperationCanceledException)
             {
-                Record(log, context, name, started, DescribeFailure(error));
+                // A stopped/replaced connection must escape immediately rather
+                // than look like a failed endpoint or start a fallback request.
+                token.ThrowIfCancellationRequested();
+                Record(log, context, name, phase, started, deadline.IsCancellationRequested
+                    ? "timeout; http_error=Unknown" : DescribeFailure(error));
                 fallback = true;
             }
         }
@@ -66,9 +84,9 @@ internal static class HealthDiagnostics
         throw new HttpRequestException("Independent HTTPS health endpoints failed.");
     }
 
-    private static void Record(SessionLog log, string context, string target, long started, string result) =>
+    private static void Record(SessionLog log, string context, string target, string phase, long started, string result) =>
         log.Add(result == "ok_via_fallback" ? "INFO" : "WARN", "backend.health_probe",
-            $"{context}; target={target}; elapsed_ms={(long)Stopwatch.GetElapsedTime(started).TotalMilliseconds}; result={result}");
+            $"{context}; target={target}; phase={phase}; elapsed_ms={(long)Stopwatch.GetElapsedTime(started).TotalMilliseconds}; result={result}");
 
     internal static string DescribeFailure(Exception error)
     {

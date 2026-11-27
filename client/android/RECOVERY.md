@@ -1,4 +1,4 @@
-# Android recovery implementation, Client 0.7.2
+# Android recovery implementation
 
 This implements the first Android phase of `client/PERFORMANCE-REVIEW.md`.
 Server configuration, Windows runtime, TUN stack/MTU, app-rule semantics and
@@ -12,9 +12,12 @@ production DNS resolver selection are unchanged. P2P development is paused.
   credentials/clock still need correction. There is no tight authentication loop.
 - Physical network candidates come from copied callback capabilities and link
   properties. Lost networks cannot be resurrected by late property callbacks.
-  A validated usable network outranks stale Wi-Fi. Address/route/DNS/MTU and
-  validation/suspension changes invalidate old results; metered-only updates
-  do not restart the transport. A short debounce coalesces transition events.
+  Initial selection prefers a validated usable network. During a session, the
+  current nonsuspended path stays selected while it is verified or its bounded
+  initial verification is pending. Android validation/metering changes alone do
+  not replace that transport. Actual loss/suspension selects an available path
+  immediately; address/route/DNS/MTU changes invalidate old results. A short
+  debounce coalesces transition events.
 - Every attempt owns a network generation and a cancellable child job. Results
   commit atomically with the generation check. New connectivity cancels old
   endpoint DNS and HTTP work and resets retry backoff. No worker/core is created
@@ -35,12 +38,24 @@ production DNS resolver selection are unchanged. P2P development is paused.
   the TUN DNS address. Both require HTTPS and a valid IP response, with matching
   exit IPs. Fixture trust is available only to the existing instrumentation path.
 - Primary endpoint failure tries a second target. One failed cycle keeps the
-  core; two consecutive failed cycles enter transport retry. Network-change
+  core; two consecutive failed cycles reject the current path. An alternative
+  nonsuspended underlay is then tried immediately, if available. Failed paths
+  have a 30-second cooldown so two failing links cannot continuously replace
+  each other. If no eligible alternative exists, the normal bounded transport
+  retry remains active on the retained path. New physical loss/suspension can
+  select even a recently failed path when it is the only available link. Network-change
   cancellations do not count as health failures. Successful verification clears
   the failure count. TLS pins and REALITY authentication remain enforced.
 - Fixed-category backend logs retain the existing 1,000-record / 1 MiB RAM bound.
   Generation, phase, elapsed time and transport type are safe diagnostic fields;
   URLs, local addresses, tokens and native exception text are not production logs.
+  `network.selection` reports fixed reasons such as `retain_verified`,
+  `retain_pending`, `health_alternative` and `failed_paths_cooldown`.
+  `backend.retry_woken` distinguishes a new generation from same-path validation
+  returning during transport backoff.
+  `backend.phase` records `network_recovery` through verified outbound and
+  captured HTTPS for the final generation. Service destruction attempts capture
+  release even if native core teardown throws, then cancels its scope.
 
 Qualification includes deterministic supervisor/network-choice tests, native
 concurrency tests under the Go race detector, cancelled real QUIC/TLS response
@@ -48,13 +63,22 @@ bodies, and Android emulator health-failure/connectivity transitions for both
 protocols. Publication requires the complete Windows x86/x64 and Android checks.
 Exact completed results belong in `client/VALIDATION.md` after the gates finish.
 
+Local hardening verification compiled the actual recovery policy and its tests
+with Kotlin 2.1.20, coroutines 1.10.2 and JUnit 4.13.2: 15 tests passed. The added
+cases cover repeated validation flips, bounded pending selection, alternate
+selection and cooldown after health rejection, true loss/suspension, path
+changes, and capture release after native teardown failure. A coroutine case
+also verifies that destruction waits for the worker's lifecycle lock before
+releasing capture and cancelling the scope. This is not a full APK build,
+emulator handover result or physical-device qualification of these changes.
+
 Physical Redmi Wi-Fi/cellular, captive portal, prolonged screen-off and OEM
 process-kill behavior still need real-device acceptance. There is no claim of a
 measured throughput improvement or a fix for YouTube/ChatGPT partial failures.
 
 ## Physical-device acceptance
 
-Install the signed 0.7.2 APK over the existing app to retain profiles and rules.
+Install the signed candidate APK over the existing app to retain profiles and rules.
 Keep the Windows connection available while testing the phone. For each protocol:
 
 1. Connect, confirm the VPS exit IP and send traffic from another app.
